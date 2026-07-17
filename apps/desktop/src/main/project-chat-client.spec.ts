@@ -8,6 +8,7 @@ import { ProjectChatClient } from "./project-chat-client";
 const request: ProjectChatRequest = {
   requestId: "request_1",
   sessionId: "session_1",
+  sentAt: "2026-07-17T12:00:00.000Z",
   model: "model_chat",
   message: "Explain this file.",
   project: {
@@ -50,6 +51,19 @@ function createClient(events: ProjectChatEvent[] = []) {
     apiBaseUrl: "https://api.example.test",
     getAccessToken: () => "rmw_dt_test",
     onEvent: (event) => events.push(event)
+  });
+}
+
+function chatFetch(response: Response) {
+  return vi.fn<typeof fetch>(async (input) => {
+    const url = String(input);
+    if (url.endsWith("/sessions")) {
+      return jsonResponse({ session: { id: request.sessionId } });
+    }
+    if (url.endsWith("/turns")) {
+      return jsonResponse({ session_id: request.sessionId });
+    }
+    return response;
   });
 }
 
@@ -115,7 +129,7 @@ describe("ProjectChatClient", () => {
 
   it("streams OpenAI chat completion deltas and completes with accumulated text", async () => {
     const events: ProjectChatEvent[] = [];
-    const fetchMock = vi.fn<typeof fetch>(async () =>
+    const fetchMock = chatFetch(
       sseResponse(
         'data: {"choices":[{"delta":{"content":"Hello"}}]}\n\n',
         'data: {"choices":[{"delta":{"content":" world"}}]}\n\n',
@@ -131,7 +145,14 @@ describe("ProjectChatClient", () => {
       { requestId: "request_1", type: "delta", content: "Hello world" },
       { requestId: "request_1", type: "complete", content: "Hello world" }
     ]);
-    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    const prepareBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(prepareBody).toMatchObject({
+      session_id: "session_1",
+      title: "Example Project",
+      model_code: "model_chat"
+    });
+    const body = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body));
     expect(body).toMatchObject({
       session_id: "session_1",
       request_id: "request_1",
@@ -140,13 +161,26 @@ describe("ProjectChatClient", () => {
     });
     expect(body.message.content).toContain("src/index.ts");
     expect(body.message.content).toContain("export const answer = 42;");
+    const persisted = JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body));
+    expect(persisted).toMatchObject({
+      user_message: {
+        id: "user:request_1",
+        role: "user",
+        sentAt: "2026-07-17T12:00:00.000Z"
+      },
+      assistant_message: {
+        id: "assistant:request_1",
+        role: "assistant",
+        content: "Hello world"
+      }
+    });
   });
 
   it("streams Responses API output text deltas", async () => {
     const events: ProjectChatEvent[] = [];
     vi.stubGlobal(
       "fetch",
-      vi.fn<typeof fetch>(async () =>
+      chatFetch(
         sseResponse(
           'data: {"type":"response.output_text.delta","delta":"First"}\n\n',
           'data: {"type":"response.output_text.delta","delta":" second"}\n\n',
@@ -167,7 +201,11 @@ describe("ProjectChatClient", () => {
   it("emits a stopped event when an active request is cancelled", async () => {
     const events: ProjectChatEvent[] = [];
     const fetchMock = vi.fn<typeof fetch>(
-      (_input, init) =>
+      (input, init) => {
+        if (String(input).endsWith("/sessions")) {
+          return Promise.resolve(jsonResponse({ session: { id: request.sessionId } }));
+        }
+        return (
         new Promise<Response>((_resolve, reject) => {
           init?.signal?.addEventListener(
             "abort",
@@ -175,12 +213,14 @@ describe("ProjectChatClient", () => {
             { once: true }
           );
         })
+        );
+      }
     );
     vi.stubGlobal("fetch", fetchMock);
     const client = createClient(events);
 
     const pending = client.send(request);
-    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
     client.stop(request.requestId);
     await pending;
 
@@ -193,8 +233,10 @@ describe("ProjectChatClient", () => {
     const events: ProjectChatEvent[] = [];
     vi.stubGlobal(
       "fetch",
-      vi.fn<typeof fetch>(async () =>
-        jsonResponse({ message: "Model is unavailable." }, 503)
+      vi.fn<typeof fetch>(async (input) =>
+        String(input).endsWith("/sessions")
+          ? jsonResponse({ session: { id: request.sessionId } })
+          : jsonResponse({ message: "Model is unavailable." }, 503)
       )
     );
 

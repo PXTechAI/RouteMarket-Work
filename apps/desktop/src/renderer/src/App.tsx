@@ -496,6 +496,7 @@ export function App() {
       await api.sendProjectMessage({
         requestId,
         sessionId,
+        sentAt,
         model: selectedModelCode,
         message,
         project: {
@@ -538,8 +539,6 @@ export function App() {
     await api.stopProjectMessage(activeRequestId);
   }
 
-  const accountInitials = getInitials(state.account?.displayName);
-
   return (
     <div className="app-shell">
       <nav className="rail" aria-label="主导航">
@@ -553,7 +552,6 @@ export function App() {
         </div>
         <div className="rail-spacer" />
         <IconButton label="设置"><Settings2 size={19} /></IconButton>
-        <button className="avatar" title="账户" type="button">{accountInitials}</button>
       </nav>
 
       <aside className="project-sidebar">
@@ -1043,6 +1041,9 @@ function AccountPanel({
   if (state.account) {
     return (
       <div className="account-panel">
+        <div className="account-avatar" aria-hidden="true">
+          {getInitials(state.account.displayName)}
+        </div>
         <div className="account-copy">
           <strong>{state.account.displayName}</strong>
           <span>{state.account.email ?? "RouteMarket account"}</span>

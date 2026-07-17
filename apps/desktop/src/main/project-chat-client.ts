@@ -40,6 +40,7 @@ export class ProjectChatClient {
     let content = "";
 
     try {
+      await this.prepareSession(input, controller.signal);
       const response = await this.request("", {
         method: "POST",
         signal: controller.signal,
@@ -92,6 +93,7 @@ export class ProjectChatClient {
         if (next) content = next;
       }
 
+      await this.persistTurn(input, content, controller.signal);
       this.options.onEvent({
         requestId: input.requestId,
         type: controller.signal.aborted ? "stopped" : "complete",
@@ -123,6 +125,61 @@ export class ProjectChatClient {
   stopAll(): void {
     for (const controller of this.activeRequests.values()) {
       controller.abort();
+    }
+  }
+
+  private async prepareSession(input: ProjectChatRequest, signal: AbortSignal) {
+    const response = await this.request("/sessions", {
+      method: "POST",
+      signal,
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        session_id: input.sessionId,
+        title: input.project.displayName,
+        model_code: input.model,
+        system_prompt: buildSystemPrompt(input)
+      })
+    });
+    if (!response.ok) {
+      const payload = await response.json().catch(() => null);
+      throw new Error(readResponseError(payload, response.status));
+    }
+  }
+
+  private async persistTurn(
+    input: ProjectChatRequest,
+    content: string,
+    signal: AbortSignal
+  ) {
+    const response = await this.request(
+      `/sessions/${encodeURIComponent(input.sessionId)}/turns`,
+      {
+        method: "POST",
+        signal,
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          user_message: {
+            id: `user:${input.requestId}`,
+            role: "user",
+            content: buildMessageContent(input),
+            sentAt: input.sentAt
+          },
+          assistant_message: {
+            id: `assistant:${input.requestId}`,
+            role: "assistant",
+            content,
+            sentAt: input.sentAt
+          }
+        })
+      }
+    );
+    if (!response.ok) {
+      const payload = await response.json().catch(() => null);
+      throw new Error(readResponseError(payload, response.status));
     }
   }
 

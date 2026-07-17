@@ -68,8 +68,7 @@ button {
   flex: 1;
 }
 
-.rail-button,
-.avatar {
+.rail-button {
   display: grid;
   place-items: center;
   width: 36px;
@@ -90,13 +89,6 @@ button {
 
 .rail-button.active {
   box-shadow: inset 2px 0 #8dd0a9;
-}
-
-.avatar {
-  color: #f8f4ec;
-  background: #b95f4b;
-  font-size: 11px;
-  font-weight: 750;
 }
 
 .project-sidebar {
@@ -277,7 +269,7 @@ kbd {
 
 .account-panel {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 27px;
+  grid-template-columns: 32px minmax(0, 1fr) 27px;
   align-items: center;
   gap: 9px;
   min-height: 58px;
@@ -286,7 +278,21 @@ kbd {
 }
 
 .account-panel.signed-out {
+  grid-template-columns: minmax(0, 1fr) 27px;
   background: #e5e8e3;
+}
+
+.account-avatar {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  color: #f8f4ec;
+  background: #b95f4b;
+  border: 1px solid rgb(120 52 39 / 18%);
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 750;
 }
 
 .account-copy {

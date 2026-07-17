@@ -72,6 +72,7 @@ export type ChatModel = {
 export type ProjectChatRequest = {
   requestId: string;
   sessionId: string;
+  sentAt: string;
   model: string;
   message: string;
   project: {
