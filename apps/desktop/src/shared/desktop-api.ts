@@ -60,6 +60,54 @@ export type WorkState = {
   activities: ActivityItem[];
 };
 
+export type ChatModel = {
+  code: string;
+  displayName: string;
+  category: "chat" | "reasoning";
+  supportsTools: boolean;
+  supportsVision: boolean;
+  supportsStream: boolean;
+};
+
+export type ProjectChatRequest = {
+  requestId: string;
+  sessionId: string;
+  model: string;
+  message: string;
+  project: {
+    localProjectId: string;
+    displayName: string;
+  };
+  contextFile?: {
+    relativePath: string;
+    uri: string;
+    text: string;
+    truncated: boolean;
+  };
+};
+
+export type ProjectChatEvent =
+  | {
+      requestId: string;
+      type: "delta";
+      content: string;
+    }
+  | {
+      requestId: string;
+      type: "complete";
+      content: string;
+    }
+  | {
+      requestId: string;
+      type: "stopped";
+      content: string;
+    }
+  | {
+      requestId: string;
+      type: "error";
+      message: string;
+    };
+
 export type RouteMarketWorkApi = {
   getState(): Promise<WorkState>;
   signIn(): Promise<WorkState>;
@@ -67,4 +115,8 @@ export type RouteMarketWorkApi = {
   chooseProject(): Promise<ProjectSummary | null>;
   listProjectFiles(localProjectId: string): Promise<ProjectFileTree>;
   readProjectFile(localProjectId: string, relativePath: string): Promise<ReadResult>;
+  listChatModels(): Promise<ChatModel[]>;
+  sendProjectMessage(input: ProjectChatRequest): Promise<void>;
+  stopProjectMessage(requestId: string): Promise<void>;
+  onProjectChatEvent(listener: (event: ProjectChatEvent) => void): () => void;
 };

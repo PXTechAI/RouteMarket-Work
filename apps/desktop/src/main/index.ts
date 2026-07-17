@@ -5,12 +5,14 @@ import { join, resolve } from "node:path";
 import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import type {
   ActivityItem,
+  ProjectChatRequest,
   ProjectSummary,
   WorkState
 } from "../shared/desktop-api";
 import { CloudWorkerClient } from "./cloud-worker-client";
 import { DesktopAuthManager } from "./desktop-auth-manager";
 import { DeviceCredentialStore } from "./device-credential-store";
+import { ProjectChatClient } from "./project-chat-client";
 import { WorkerClient } from "./worker-client";
 
 declare const __ROUTEMARKET_WORK_DEFAULT_API_URL__: string;
@@ -25,6 +27,7 @@ let mainWindow: BrowserWindow | null = null;
 let workerClient: WorkerClient | null = null;
 let cloudWorkerClient: CloudWorkerClient | null = null;
 let desktopAuthManager: DesktopAuthManager | null = null;
+let projectChatClient: ProjectChatClient | null = null;
 let pendingDeepLink: string | null = null;
 const activities: ActivityItem[] = [];
 
@@ -179,6 +182,27 @@ function registerIpc(): void {
     }
     }
   );
+
+  ipcMain.handle("work:list-chat-models", async () => {
+    if (!projectChatClient) {
+      throw new Error("RouteMarket chat is unavailable.");
+    }
+    return projectChatClient.listModels();
+  });
+
+  ipcMain.handle(
+    "work:send-project-message",
+    async (_event, input: ProjectChatRequest) => {
+      if (!projectChatClient) {
+        throw new Error("RouteMarket chat is unavailable.");
+      }
+      void projectChatClient.send(input);
+    }
+  );
+
+  ipcMain.handle("work:stop-project-message", (_event, requestId: string) => {
+    projectChatClient?.stop(requestId);
+  });
 }
 
 async function loadInstallationId(workDataPath: string): Promise<string> {
@@ -262,6 +286,11 @@ if (!hasSingleInstanceLock) {
       openExternal: (url) => shell.openExternal(url),
       onAccessToken: (token) => cloudWorkerClient?.setAccessToken(token)
     });
+    projectChatClient = new ProjectChatClient({
+      apiBaseUrl: API_BASE_URL,
+      getAccessToken: () => desktopAuthManager?.getAccessToken(),
+      onEvent: (event) => mainWindow?.webContents.send("work:project-chat-event", event)
+    });
     await desktopAuthManager.initialize();
     await cloudWorkerClient.start();
 
@@ -287,6 +316,7 @@ app.on("window-all-closed", () => {
 });
 
 app.on("before-quit", () => {
+  projectChatClient?.stopAll();
   cloudWorkerClient?.stop();
   workerClient?.stop();
 });

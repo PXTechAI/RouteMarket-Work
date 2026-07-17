@@ -8,6 +8,12 @@ import type {
 
 const CALLBACK_URL = "routemarket-work://auth/callback";
 const PENDING_AUTHORIZATION_TTL_MS = 15 * 60 * 1000;
+const REQUIRED_SCOPES = [
+  "work:runtime",
+  "work:projects",
+  "work:jobs",
+  "work:chat"
+] as const;
 
 export type DesktopAuthStatus = "signed_out" | "authorizing" | "signed_in" | "error";
 
@@ -77,7 +83,11 @@ export class DesktopAuthManager {
         ? payload.pendingAuthorization
         : undefined;
 
-      if (credentials && Date.parse(credentials.expiresAt) > Date.now()) {
+      if (
+        credentials &&
+        Date.parse(credentials.expiresAt) > Date.now() &&
+        hasRequiredScopes(credentials.scopes)
+      ) {
         this.credentials = credentials;
         this.state = {
           authStatus: "signed_in",
@@ -212,6 +222,9 @@ export class DesktopAuthManager {
               : result.message
             : undefined;
         throw new Error(message || "RouteMarket desktop sign-in failed.");
+      }
+      if (!hasRequiredScopes(result.scopes)) {
+        throw new Error("RouteMarket desktop authorization is missing required permissions.");
       }
 
       const credentials: DeviceCredentials = {
@@ -359,4 +372,8 @@ function isExchangeResponse(value: unknown): value is ExchangeResponse {
     typeof response.account?.id === "string" &&
     typeof response.account?.display_name === "string"
   );
+}
+
+function hasRequiredScopes(scopes: string[]) {
+  return REQUIRED_SCOPES.every((scope) => scopes.includes(scope));
 }

@@ -101,7 +101,7 @@ describe("DesktopAuthManager", () => {
       jsonResponse({
         access_token: `rmw_dt_${"a".repeat(43)}`,
         expires_at: "2027-01-13T00:00:00.000Z",
-        scopes: ["work:runtime", "work:projects", "work:jobs"],
+        scopes: ["work:runtime", "work:projects", "work:jobs", "work:chat"],
         account: {
           id: "account_test",
           display_name: "RouteMarket User",
@@ -148,7 +148,7 @@ describe("DesktopAuthManager", () => {
       credentials: {
         accessToken: `rmw_dt_${"a".repeat(43)}`,
         expiresAt: "2027-01-13T00:00:00.000Z",
-        scopes: ["work:runtime"],
+        scopes: ["work:runtime", "work:projects", "work:jobs", "work:chat"],
         account: {
           id: "account_test",
           displayName: "RouteMarket User",
@@ -205,6 +205,31 @@ describe("DesktopAuthManager", () => {
     expect(credentialStore.payload).toEqual({});
     expect(onAccessToken).not.toHaveBeenCalledWith(`rmw_dt_${"b".repeat(43)}`);
     expect(onAccessToken).toHaveBeenLastCalledWith(undefined);
+    expect(manager.getState()).toEqual({
+      authStatus: "signed_out",
+      authError: null
+    });
+  });
+
+  it("clears an old Device Token that is missing required scopes", async () => {
+    const { manager, credentialStore, onAccessToken } = createManager();
+    credentialStore.payload = {
+      credentials: {
+        accessToken: `rmw_dt_${"a".repeat(43)}`,
+        expiresAt: "2027-01-13T00:00:00.000Z",
+        scopes: ["work:runtime", "work:projects", "work:jobs"],
+        account: {
+          id: "account_test",
+          displayName: "RouteMarket User",
+          email: null
+        }
+      }
+    };
+
+    await manager.initialize();
+
+    expect(credentialStore.payload).toEqual({});
+    expect(onAccessToken).toHaveBeenCalledWith(undefined);
     expect(manager.getState()).toEqual({
       authStatus: "signed_out",
       authError: null
