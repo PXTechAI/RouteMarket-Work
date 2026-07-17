@@ -148,24 +148,34 @@ function registerIpc(): void {
     return project;
   });
 
-  ipcMain.handle("work:read-readme", async (_event, localProjectId: string) => {
+  ipcMain.handle("work:list-project-files", async (_event, localProjectId: string) => {
     if (!workerClient) {
       throw new Error("RouteMarket Worker is offline.");
     }
-    addActivity("job.started", "读取 README", localProjectId);
+    return workerClient.listProjectFiles(localProjectId);
+  });
+
+  ipcMain.handle(
+    "work:read-project-file",
+    async (_event, localProjectId: string, relativePath: string) => {
+    if (!workerClient) {
+      throw new Error("RouteMarket Worker is offline.");
+    }
+    addActivity("job.started", "读取项目文件", relativePath);
     try {
-      const result = await workerClient.readReadme(localProjectId);
-      addActivity("job.succeeded", "README 读取完成", `${result.bytesRead} bytes`);
+      const result = await workerClient.readProjectFile(localProjectId, relativePath);
+      addActivity("job.succeeded", "文件读取完成", `${relativePath} · ${result.bytesRead} bytes`);
       return result;
     } catch (error) {
       addActivity(
         "job.failed",
-        "README 读取失败",
+        "文件读取失败",
         error instanceof Error ? error.message : "Unknown worker error"
       );
       throw error;
     }
-  });
+    }
+  );
 }
 
 async function loadInstallationId(workDataPath: string): Promise<string> {

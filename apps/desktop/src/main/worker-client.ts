@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { utilityProcess, type UtilityProcess } from "electron";
 import type { DesktopJob, JobEvent } from "@routemarket/work-protocol";
 import type {
+  ProjectFileTree,
   ProjectSummary,
   ReadResult
 } from "../shared/desktop-api";
@@ -10,7 +11,11 @@ import type {
 type WorkerRequestInput =
   | { type: "projects.list" }
   | { type: "projects.bind"; payload: { rootPath: string } }
-  | { type: "local.fs.read-readme"; payload: { localProjectId: string } }
+  | { type: "projects.files"; payload: { localProjectId: string } }
+  | {
+      type: "local.fs.read";
+      payload: { localProjectId: string; relativePath: string };
+    }
   | {
       type: "job.execute";
       payload: { job: DesktopJob; leaseId: string; leaseEpoch: number };
@@ -71,10 +76,17 @@ export class WorkerClient {
     });
   }
 
-  readReadme(localProjectId: string): Promise<ReadResult> {
-    return this.request<ReadResult>({
-      type: "local.fs.read-readme",
+  listProjectFiles(localProjectId: string): Promise<ProjectFileTree> {
+    return this.request<ProjectFileTree>({
+      type: "projects.files",
       payload: { localProjectId }
+    });
+  }
+
+  readProjectFile(localProjectId: string, relativePath: string): Promise<ReadResult> {
+    return this.request<ReadResult>({
+      type: "local.fs.read",
+      payload: { localProjectId, relativePath }
     });
   }
 

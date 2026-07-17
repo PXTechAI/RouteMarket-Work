@@ -3,9 +3,12 @@ import {
   Bot,
   Check,
   ChevronDown,
+  ChevronRight,
   CircleAlert,
+  File,
   FileText,
   Folder,
+  FolderOpen,
   FolderPlus,
   GitBranch,
   Globe2,
@@ -13,7 +16,6 @@ import {
   LogIn,
   LogOut,
   MoreHorizontal,
-  Play,
   RefreshCw,
   Search,
   Settings2,
@@ -23,6 +25,8 @@ import {
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
   ActivityItem,
+  ProjectFileEntry,
+  ProjectFileTree,
   ProjectSummary,
   ReadResult,
   RouteMarketWorkApi,
@@ -72,9 +76,34 @@ const previewApi: RouteMarketWorkApi = {
   async chooseProject() {
     return null;
   },
-  async readReadme(localProjectId) {
+  async listProjectFiles() {
     return {
-      uri: `project://${localProjectId}/README.md`,
+      entries: [
+        {
+          name: "src",
+          relativePath: "src",
+          kind: "directory",
+          children: [
+            {
+              name: "App.tsx",
+              relativePath: "src/App.tsx",
+              kind: "file"
+            }
+          ]
+        },
+        {
+          name: "README.md",
+          relativePath: "README.md",
+          kind: "file"
+        }
+      ],
+      totalEntries: 3,
+      truncated: false
+    };
+  },
+  async readProjectFile(localProjectId, relativePath) {
+    return {
+      uri: `project://${localProjectId}/${relativePath}`,
       text: "# RouteMarket Work\n\nLocal-first AI workspace for projects, workflows, agents and browser tasks.\n",
       bytesRead: 96,
       truncated: false,
@@ -97,8 +126,11 @@ export function App() {
     activities: []
   });
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const [projectFiles, setProjectFiles] = useState<ProjectFileTree | null>(null);
+  const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
   const [readResult, setReadResult] = useState<ReadResult | null>(null);
   const [loading, setLoading] = useState(false);
+  const [treeLoading, setTreeLoading] = useState(false);
   const [authAction, setAuthAction] = useState<"sign-in" | "sign-out" | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -126,6 +158,36 @@ export function App() {
     }, 2_000);
     return () => window.clearInterval(timer);
   }, [refreshState]);
+
+  useEffect(() => {
+    let active = true;
+    setProjectFiles(null);
+    setSelectedFilePath(null);
+    setReadResult(null);
+    if (!selectedProjectId) {
+      setTreeLoading(false);
+      return () => {
+        active = false;
+      };
+    }
+
+    setTreeLoading(true);
+    void api.listProjectFiles(selectedProjectId)
+      .then((tree) => {
+        if (active) setProjectFiles(tree);
+      })
+      .catch((nextError) => {
+        if (active) {
+          setError(nextError instanceof Error ? nextError.message : "项目文件加载失败");
+        }
+      })
+      .finally(() => {
+        if (active) setTreeLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [selectedProjectId]);
 
   async function signIn() {
     setAuthAction("sign-in");
@@ -160,15 +222,32 @@ export function App() {
     setReadResult(null);
   }
 
-  async function readReadme() {
+  async function refreshProjectFiles() {
     if (!selectedProject) return;
+    setTreeLoading(true);
+    setError(null);
+    try {
+      setProjectFiles(await api.listProjectFiles(selectedProject.localProjectId));
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "项目文件加载失败");
+    } finally {
+      setTreeLoading(false);
+    }
+  }
+
+  async function readProjectFile(relativePath: string) {
+    if (!selectedProject) return;
+    setSelectedFilePath(relativePath);
     setLoading(true);
     setError(null);
     try {
-      setReadResult(await api.readReadme(selectedProject.localProjectId));
+      setReadResult(
+        await api.readProjectFile(selectedProject.localProjectId, relativePath)
+      );
       await refreshState();
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "README 读取失败");
+      setReadResult(null);
+      setError(nextError instanceof Error ? nextError.message : "项目文件读取失败");
       await refreshState();
     } finally {
       setLoading(false);
@@ -277,7 +356,7 @@ export function App() {
             <div className="project-icon"><Folder size={18} /></div>
             <div>
               <h1>{selectedProject?.displayName ?? "选择项目"}</h1>
-              <span>本地项目</span>
+              <span>{selectedFilePath ?? "本地项目"}</span>
             </div>
             {selectedProject && (
               <button className="icon-button compact" type="button" title="切换项目">
@@ -290,22 +369,73 @@ export function App() {
             <button
               className="primary-button"
               type="button"
-              disabled={!selectedProject || loading}
-              onClick={() => void readReadme()}
+              disabled={!selectedProject || treeLoading}
+              onClick={() => void refreshProjectFiles()}
             >
-              {loading ? <LoaderCircle className="spin" size={16} /> : <Play size={16} />}
-              读取 README
+              {treeLoading
+                ? <LoaderCircle className="spin" size={16} />
+                : <RefreshCw size={16} />}
+              刷新文件
             </button>
           </div>
         </header>
 
         <div className="workspace-tabs" role="tablist">
-          <button className="tab active" type="button"><FileText size={15} />README</button>
+          <button className="tab active" type="button"><FileText size={15} />文件</button>
           <button className="tab" type="button"><Activity size={15} />运行</button>
           <button className="tab" type="button"><GitBranch size={15} />更改</button>
         </div>
 
         <div className="workspace-body">
+          <aside className="file-pane">
+            <div className="file-pane-heading">
+              <span>项目文件</span>
+              <button
+                className="icon-button compact"
+                type="button"
+                title="刷新文件列表"
+                disabled={!selectedProject || treeLoading}
+                onClick={() => void refreshProjectFiles()}
+              >
+                {treeLoading
+                  ? <LoaderCircle className="spin" size={14} />
+                  : <RefreshCw size={14} />}
+              </button>
+            </div>
+            <div className="file-tree">
+              {projectFiles && projectFiles.entries.length > 0 && (
+                <FileTree
+                  entries={projectFiles.entries}
+                  selectedPath={selectedFilePath}
+                  onSelect={(relativePath) => void readProjectFile(relativePath)}
+                />
+              )}
+              {selectedProject && treeLoading && !projectFiles && (
+                <div className="file-tree-state">
+                  <LoaderCircle className="spin" size={18} />
+                </div>
+              )}
+              {selectedProject && !treeLoading && projectFiles?.entries.length === 0 && (
+                <div className="file-tree-state">
+                  <Folder size={18} />
+                  <span>空项目</span>
+                </div>
+              )}
+              {!selectedProject && (
+                <div className="file-tree-state">
+                  <Folder size={18} />
+                  <span>未选择项目</span>
+                </div>
+              )}
+            </div>
+            {projectFiles && (
+              <div className="file-pane-footer">
+                <span>{projectFiles.totalEntries} 项</span>
+                {projectFiles.truncated && <span>已截断</span>}
+              </div>
+            )}
+          </aside>
+
           <section className="document-pane">
             {!selectedProject && (
               <div className="blank-state">
@@ -321,18 +451,14 @@ export function App() {
             {selectedProject && !readResult && !loading && (
               <div className="ready-state">
                 <FileText size={30} />
-                <h2>README.md</h2>
-                <button className="primary-button" type="button" onClick={() => void readReadme()}>
-                  <Play size={16} />
-                  读取文件
-                </button>
+                <h2>{selectedFilePath ?? "选择项目文件"}</h2>
               </div>
             )}
 
             {loading && (
               <div className="ready-state">
                 <LoaderCircle className="spin" size={30} />
-                <h2>正在读取 README.md</h2>
+                <h2>正在读取 {selectedFilePath}</h2>
               </div>
             )}
 
@@ -490,6 +616,84 @@ function ProjectButton({
       <Folder size={17} />
       <span>{project.displayName}</span>
     </button>
+  );
+}
+
+function FileTree({
+  entries,
+  selectedPath,
+  onSelect
+}: {
+  entries: ProjectFileEntry[];
+  selectedPath: string | null;
+  onSelect(relativePath: string): void;
+}) {
+  return (
+    <>
+      {entries.map((entry) => (
+        <FileTreeRow
+          key={entry.relativePath}
+          entry={entry}
+          depth={0}
+          selectedPath={selectedPath}
+          onSelect={onSelect}
+        />
+      ))}
+    </>
+  );
+}
+
+function FileTreeRow({
+  entry,
+  depth,
+  selectedPath,
+  onSelect
+}: {
+  entry: ProjectFileEntry;
+  depth: number;
+  selectedPath: string | null;
+  onSelect(relativePath: string): void;
+}) {
+  const [expanded, setExpanded] = useState(depth === 0);
+  const isDirectory = entry.kind === "directory";
+  return (
+    <div className="file-tree-node">
+      <button
+        className={`file-tree-row ${selectedPath === entry.relativePath ? "active" : ""}`}
+        type="button"
+        title={entry.relativePath}
+        style={{ paddingLeft: `${8 + depth * 14}px` }}
+        onClick={() => {
+          if (isDirectory) setExpanded((current) => !current);
+          else onSelect(entry.relativePath);
+        }}
+      >
+        <span className="tree-disclosure">
+          {isDirectory && (
+            <ChevronRight className={expanded ? "expanded" : ""} size={13} />
+          )}
+        </span>
+        {isDirectory
+          ? expanded
+            ? <FolderOpen size={15} />
+            : <Folder size={15} />
+          : <File size={14} />}
+        <span>{entry.name}</span>
+      </button>
+      {isDirectory && expanded && entry.children && (
+        <div>
+          {entry.children.map((child) => (
+            <FileTreeRow
+              key={child.relativePath}
+              entry={child}
+              depth={depth + 1}
+              selectedPath={selectedPath}
+              onSelect={onSelect}
+            />
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 

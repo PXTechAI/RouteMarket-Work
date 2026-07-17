@@ -5,6 +5,7 @@ import type { JobEvent } from "@routemarket/work-protocol";
 import {
   executeLocalFsRead,
   JobStore,
+  listProjectFiles,
   ProjectRegistry,
   WorkerError
 } from "@routemarket/work-worker-core";
@@ -13,7 +14,12 @@ import type { ProjectSummary } from "../shared/desktop-api";
 type WorkerRequest =
   | { requestId: string; type: "projects.list" }
   | { requestId: string; type: "projects.bind"; payload: { rootPath: string } }
-  | { requestId: string; type: "local.fs.read-readme"; payload: { localProjectId: string } }
+  | { requestId: string; type: "projects.files"; payload: { localProjectId: string } }
+  | {
+      requestId: string;
+      type: "local.fs.read";
+      payload: { localProjectId: string; relativePath: string };
+    }
   | {
       requestId: string;
       type: "job.execute";
@@ -57,8 +63,12 @@ function summarizeProject(project: {
   };
 }
 
-function createReadmeJob(localProjectId: string): DesktopJob {
-  const idempotencySource = `${localProjectId}:README.md:${Date.now()}`;
+function createReadJob(localProjectId: string, relativePath: string): DesktopJob {
+  const uriPath = relativePath
+    .split(/[\\/]+/)
+    .map((part) => encodeURIComponent(part))
+    .join("/");
+  const idempotencySource = `${localProjectId}:${relativePath}:${Date.now()}`;
   return {
     jobId: `djob_${randomUUID().replaceAll("-", "")}`,
     workflowRunId: null,
@@ -68,8 +78,8 @@ function createReadmeJob(localProjectId: string): DesktopJob {
     executorKey: "local.fs.read",
     executorVersion: 1,
     input: {
-      uri: `project://${localProjectId}/README.md`,
-      maxBytes: 65_536
+      uri: `project://${localProjectId}/${uriPath}`,
+      maxBytes: 262_144
     },
     requiredCapabilities: ["local.fs.read"],
     executionClass: "pure_read",
@@ -175,10 +185,12 @@ parentPort.on("message", async ({ data: request }) => {
       result = registry.list().map(summarizeProject);
     } else if (request.type === "projects.bind") {
       result = summarizeProject(await registry.bindFolder(request.payload.rootPath));
-    } else if (request.type === "local.fs.read-readme") {
+    } else if (request.type === "projects.files") {
+      result = await listProjectFiles(registry, request.payload.localProjectId);
+    } else if (request.type === "local.fs.read") {
       result = await executeLocalFsRead(
         registry,
-        createReadmeJob(request.payload.localProjectId)
+        createReadJob(request.payload.localProjectId, request.payload.relativePath)
       );
     } else if (request.type === "job.execute") {
       result = await executeCloudJob(request.payload);

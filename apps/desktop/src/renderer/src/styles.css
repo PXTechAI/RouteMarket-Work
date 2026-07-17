@@ -498,9 +498,109 @@ kbd {
 
 .workspace-body {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 300px;
+  grid-template-columns: 230px minmax(0, 1fr) 300px;
   min-width: 0;
   min-height: 0;
+}
+
+.file-pane {
+  display: grid;
+  grid-template-rows: 38px minmax(0, 1fr) 30px;
+  min-width: 0;
+  min-height: 0;
+  background: #efeee9;
+  border-right: 1px solid #d9d7d0;
+}
+
+.file-pane-heading,
+.file-pane-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.file-pane-heading {
+  padding: 0 7px 0 12px;
+  color: #626865;
+  border-bottom: 1px solid #dddbd4;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.file-pane-footer {
+  padding: 0 11px;
+  color: #8a8f8c;
+  border-top: 1px solid #dddbd4;
+  font-size: 9px;
+}
+
+.file-tree {
+  min-height: 0;
+  padding: 5px 0;
+  overflow: auto;
+}
+
+.file-tree-row {
+  display: grid;
+  grid-template-columns: 14px 17px minmax(0, 1fr);
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  height: 27px;
+  padding-top: 0;
+  padding-right: 8px;
+  padding-bottom: 0;
+  color: #555b58;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.file-tree-row:hover {
+  color: #2d332f;
+  background: #e2e1dc;
+}
+
+.file-tree-row.active {
+  color: #233b30;
+  background: #d4e3d9;
+}
+
+.file-tree-row > span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tree-disclosure {
+  display: grid;
+  place-items: center;
+  width: 14px;
+  height: 20px;
+}
+
+.tree-disclosure svg {
+  transition: transform 120ms ease;
+}
+
+.tree-disclosure svg.expanded {
+  transform: rotate(90deg);
+}
+
+.file-tree-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  min-height: 130px;
+  gap: 7px;
+  color: #8a8f8c;
+  font-size: 10px;
 }
 
 .document-pane {
@@ -716,10 +816,20 @@ kbd {
   }
 
   .workspace-body {
-    grid-template-columns: minmax(0, 1fr) 260px;
+    grid-template-columns: 210px minmax(0, 1fr) 260px;
   }
 
   .capability-badge {
+    display: none;
+  }
+}
+
+@media (max-width: 1080px) {
+  .workspace-body {
+    grid-template-columns: 210px minmax(0, 1fr);
+  }
+
+  .activity-pane {
     display: none;
   }
 }

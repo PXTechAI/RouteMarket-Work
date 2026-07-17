@@ -14,6 +14,19 @@ export type ReadResult = {
   encoding: "utf8";
 };
 
+export type ProjectFileEntry = {
+  name: string;
+  relativePath: string;
+  kind: "file" | "directory";
+  children?: ProjectFileEntry[];
+};
+
+export type ProjectFileTree = {
+  entries: ProjectFileEntry[];
+  totalEntries: number;
+  truncated: boolean;
+};
+
 export type ActivityItem = {
   id: string;
   kind:
@@ -52,5 +65,6 @@ export type RouteMarketWorkApi = {
   signIn(): Promise<WorkState>;
   signOut(): Promise<WorkState>;
   chooseProject(): Promise<ProjectSummary | null>;
-  readReadme(localProjectId: string): Promise<ReadResult>;
+  listProjectFiles(localProjectId: string): Promise<ProjectFileTree>;
+  readProjectFile(localProjectId: string, relativePath: string): Promise<ReadResult>;
 };
