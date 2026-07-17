@@ -13,9 +13,12 @@ import { DesktopAuthManager } from "./desktop-auth-manager";
 import { DeviceCredentialStore } from "./device-credential-store";
 import { WorkerClient } from "./worker-client";
 
+declare const __ROUTEMARKET_WORK_DEFAULT_API_URL__: string;
+
 const PROTOCOL = "routemarket-work";
 const API_BASE_URL = (
-  process.env.ROUTEMARKET_WORK_API_URL ?? "https://console.routemarket.ai"
+  process.env.ROUTEMARKET_WORK_API_URL ??
+  __ROUTEMARKET_WORK_DEFAULT_API_URL__
 ).replace(/\/+$/, "");
 
 let mainWindow: BrowserWindow | null = null;

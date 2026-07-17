@@ -60,10 +60,11 @@
   "scripts": {
     "prebuild": "corepack pnpm --filter @routemarket/work-protocol build && corepack pnpm --filter @routemarket/work-worker-core build",
     "build": "electron-vite build",
+    "build:local": "electron-vite build --mode desktop-local",
     "predev": "corepack pnpm --filter @routemarket/work-protocol build && corepack pnpm --filter @routemarket/work-worker-core build",
     "dev": "electron-vite dev",
     "dist:win": "corepack pnpm run build && electron-builder --win nsis --x64",
-    "dist:win:dir": "corepack pnpm run build && electron-builder --win dir --x64",
+    "dist:win:dir": "corepack pnpm run build:local && electron-builder --win dir --x64",
     "dist:mac": "corepack pnpm run build && electron-builder --mac dmg",
     "lint": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run --passWithNoTests",
