@@ -1,10 +1,23 @@
 {
   "name": "@routemarket/work-desktop",
   "version": "0.1.0",
+  "description": "Local-first desktop workspace for RouteMarket workflows, projects, agents and browser tasks.",
+  "author": "PX Labs",
   "private": true,
   "type": "module",
   "main": "./out/main/index.js",
   "build": {
+    "appId": "ai.routemarket.work",
+    "productName": "RouteMarket Work",
+    "asar": true,
+    "directories": {
+      "output": "../../release",
+      "buildResources": "build"
+    },
+    "files": [
+      "out/**/*",
+      "package.json"
+    ],
     "protocols": [
       {
         "name": "RouteMarket Work",
@@ -12,13 +25,46 @@
           "routemarket-work"
         ]
       }
-    ]
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.png",
+      "artifactName": "${productName}-Setup-${version}-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": true,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "shortcutName": "RouteMarket Work",
+      "runAfterFinish": true
+    },
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "icon": "build/icon.png",
+      "category": "public.app-category.productivity",
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
+    }
   },
   "scripts": {
     "prebuild": "corepack pnpm --filter @routemarket/work-protocol build && corepack pnpm --filter @routemarket/work-worker-core build",
     "build": "electron-vite build",
     "predev": "corepack pnpm --filter @routemarket/work-protocol build && corepack pnpm --filter @routemarket/work-worker-core build",
     "dev": "electron-vite dev",
+    "dist:win": "corepack pnpm run build && electron-builder --win nsis --x64",
+    "dist:win:dir": "corepack pnpm run build && electron-builder --win dir --x64",
+    "dist:mac": "corepack pnpm run build && electron-builder --mac dmg",
     "lint": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run --passWithNoTests",
     "typecheck": "tsc -p tsconfig.json --noEmit"
@@ -36,6 +82,7 @@
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^4.6.0",
     "electron": "^37.2.3",
+    "electron-builder": "26.15.3",
     "electron-vite": "^4.0.0",
     "typescript": "^5.8.3",
     "vite": "^7.0.5",

@@ -6,6 +6,9 @@
   "scripts": {
     "build": "corepack pnpm -r run build",
     "dev": "corepack pnpm --filter @routemarket/work-desktop dev",
+    "dist:win": "corepack pnpm --filter @routemarket/work-desktop run dist:win",
+    "dist:win:dir": "corepack pnpm --filter @routemarket/work-desktop run dist:win:dir",
+    "dist:mac": "corepack pnpm --filter @routemarket/work-desktop run dist:mac",
     "lint": "corepack pnpm -r run lint",
     "test": "corepack pnpm -r run test",
     "typecheck": "corepack pnpm -r run typecheck"
