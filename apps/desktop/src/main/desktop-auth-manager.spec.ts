@@ -168,4 +168,46 @@ describe("DesktopAuthManager", () => {
       authError: null
     });
   });
+
+  it("does not restore a session when an old callback finishes after sign-out", async () => {
+    const { manager, credentialStore, onAccessToken } = createManager();
+    await manager.signIn();
+    const pending = credentialStore.payload.pendingAuthorization!;
+    let resolveExchange: ((response: Response) => void) | undefined;
+    const fetchMock = vi.fn<typeof fetch>(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveExchange = resolve;
+        })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const callback = manager.handleCallback(
+      `routemarket-work://auth/callback?code=${"c".repeat(43)}&state=${pending.state}`
+    );
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+
+    await manager.signOut();
+    resolveExchange?.(
+      jsonResponse({
+        access_token: `rmw_dt_${"b".repeat(43)}`,
+        expires_at: "2027-01-13T00:00:00.000Z",
+        scopes: ["work:runtime"],
+        account: {
+          id: "account_stale",
+          display_name: "Stale User",
+          email: null
+        }
+      })
+    );
+    await callback;
+
+    expect(credentialStore.payload).toEqual({});
+    expect(onAccessToken).not.toHaveBeenCalledWith(`rmw_dt_${"b".repeat(43)}`);
+    expect(onAccessToken).toHaveBeenLastCalledWith(undefined);
+    expect(manager.getState()).toEqual({
+      authStatus: "signed_out",
+      authError: null
+    });
+  });
 });

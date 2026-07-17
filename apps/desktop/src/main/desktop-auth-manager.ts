@@ -52,7 +52,12 @@ export class DesktopAuthManager {
     authError: null
   };
   private credentials: DeviceCredentials | undefined;
-  private exchangeInFlight: Promise<void> | null = null;
+  private authorizationGeneration = 0;
+  private credentialMutationTail: Promise<void> = Promise.resolve();
+  private exchangeInFlight: {
+    generation: number;
+    promise: Promise<void>;
+  } | null = null;
 
   constructor(private readonly options: DesktopAuthManagerOptions) {}
 
@@ -106,6 +111,7 @@ export class DesktopAuthManager {
   }
 
   async signIn(): Promise<void> {
+    const generation = ++this.authorizationGeneration;
     const state = randomBytes(32).toString("base64url");
     const codeVerifier = randomBytes(32).toString("base64url");
     const pendingAuthorization: PendingDesktopAuthorization = {
@@ -115,10 +121,14 @@ export class DesktopAuthManager {
     };
 
     try {
-      await this.options.credentialStore.write({
-        ...(this.credentials ? { credentials: this.credentials } : {}),
-        pendingAuthorization
+      await this.mutateCredentials(async () => {
+        if (!this.isAuthorizationCurrent(generation)) return;
+        await this.options.credentialStore.write({
+          ...(this.credentials ? { credentials: this.credentials } : {}),
+          pendingAuthorization
+        });
       });
+      if (!this.isAuthorizationCurrent(generation)) return;
       this.state = {
         authStatus: "authorizing",
         account: this.credentials?.account,
@@ -126,33 +136,45 @@ export class DesktopAuthManager {
       };
       await this.options.openExternal(this.authorizationUrl(state, codeVerifier));
     } catch (error) {
-      this.setError(error);
+      if (this.isAuthorizationCurrent(generation)) {
+        this.setError(error);
+      }
     }
   }
 
   handleCallback(rawUrl: string): Promise<void> {
-    if (this.exchangeInFlight) return this.exchangeInFlight;
-    this.exchangeInFlight = this.exchangeCallback(rawUrl).finally(() => {
-      this.exchangeInFlight = null;
+    const generation = this.authorizationGeneration;
+    if (this.exchangeInFlight?.generation === generation) {
+      return this.exchangeInFlight.promise;
+    }
+    const promise = this.exchangeCallback(rawUrl, generation).finally(() => {
+      if (this.exchangeInFlight?.promise === promise) {
+        this.exchangeInFlight = null;
+      }
     });
-    return this.exchangeInFlight;
+    this.exchangeInFlight = { generation, promise };
+    return promise;
   }
 
   async signOut(): Promise<void> {
+    const generation = ++this.authorizationGeneration;
+    this.credentials = undefined;
+    this.options.onAccessToken(undefined);
+    this.state = { authStatus: "signed_out", authError: null };
     try {
-      await this.options.credentialStore.clear();
-      this.credentials = undefined;
-      this.options.onAccessToken(undefined);
-      this.state = { authStatus: "signed_out", authError: null };
+      await this.mutateCredentials(() => this.options.credentialStore.clear());
     } catch (error) {
-      this.setError(error);
+      if (this.isAuthorizationCurrent(generation)) {
+        this.setError(error);
+      }
     }
   }
 
-  private async exchangeCallback(rawUrl: string): Promise<void> {
+  private async exchangeCallback(rawUrl: string, generation: number): Promise<void> {
     try {
       const callback = parseCallbackUrl(rawUrl);
       const payload = await this.options.credentialStore.read();
+      if (!this.isAuthorizationCurrent(generation)) return;
       const pending = payload.pendingAuthorization;
       if (
         !validPendingAuthorization(pending) ||
@@ -176,10 +198,12 @@ export class DesktopAuthManager {
           })
         }
       );
+      if (!this.isAuthorizationCurrent(generation)) return;
       const result = (await response.json().catch(() => null)) as
         | ExchangeResponse
         | { message?: string | string[] }
         | null;
+      if (!this.isAuthorizationCurrent(generation)) return;
       if (!response.ok || !isExchangeResponse(result)) {
         const message =
           result && "message" in result
@@ -200,7 +224,12 @@ export class DesktopAuthManager {
           email: result.account.email
         }
       };
-      await this.options.credentialStore.write({ credentials });
+      const committed = await this.mutateCredentials(async () => {
+        if (!this.isAuthorizationCurrent(generation)) return false;
+        await this.options.credentialStore.write({ credentials });
+        return true;
+      });
+      if (!committed || !this.isAuthorizationCurrent(generation)) return;
       this.credentials = credentials;
       this.options.onAccessToken(credentials.accessToken);
       this.state = {
@@ -209,8 +238,23 @@ export class DesktopAuthManager {
         authError: null
       };
     } catch (error) {
-      this.setError(error);
+      if (this.isAuthorizationCurrent(generation)) {
+        this.setError(error);
+      }
     }
+  }
+
+  private mutateCredentials<TResult>(operation: () => Promise<TResult>): Promise<TResult> {
+    const result = this.credentialMutationTail.then(operation, operation);
+    this.credentialMutationTail = result.then(
+      () => undefined,
+      () => undefined
+    );
+    return result;
+  }
+
+  private isAuthorizationCurrent(generation: number): boolean {
+    return generation === this.authorizationGeneration;
   }
 
   private authorizationUrl(state: string, codeVerifier: string) {

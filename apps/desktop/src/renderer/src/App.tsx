@@ -57,21 +57,25 @@ const previewState: WorkState = {
   activities: []
 };
 
+let previewCurrentState = previewState;
+
 const previewApi: RouteMarketWorkApi = {
   async getState() {
-    return previewState;
+    return previewCurrentState;
   },
   async signIn() {
-    return previewState;
+    previewCurrentState = previewState;
+    return previewCurrentState;
   },
   async signOut() {
-    return {
+    previewCurrentState = {
       ...previewState,
       cloudStatus: "disabled",
       runtimeId: null,
       authStatus: "signed_out",
       account: undefined
     };
+    return previewCurrentState;
   },
   async chooseProject() {
     return null;
@@ -112,7 +116,23 @@ const previewApi: RouteMarketWorkApi = {
   }
 };
 
-const api = window.routeMarketWork ?? previewApi;
+function desktopBridgeUnavailable(): never {
+  throw new Error(
+    "RouteMarket Work 桌面桥接加载失败。请重新启动应用；如果问题仍然存在，请重新安装最新版本。"
+  );
+}
+
+const unavailableApi: RouteMarketWorkApi = {
+  getState: async () => desktopBridgeUnavailable(),
+  signIn: async () => desktopBridgeUnavailable(),
+  signOut: async () => desktopBridgeUnavailable(),
+  chooseProject: async () => desktopBridgeUnavailable(),
+  listProjectFiles: async () => desktopBridgeUnavailable(),
+  readProjectFile: async () => desktopBridgeUnavailable()
+};
+
+const api =
+  window.routeMarketWork ?? (import.meta.env.DEV ? previewApi : unavailableApi);
 
 export function App() {
   const [state, setState] = useState<WorkState>({
@@ -154,7 +174,9 @@ export function App() {
       setError(nextError instanceof Error ? nextError.message : "无法连接 RouteMarket Worker");
     });
     const timer = window.setInterval(() => {
-      void refreshState();
+      void refreshState().catch((nextError) => {
+        setError(nextError instanceof Error ? nextError.message : "无法连接 RouteMarket Worker");
+      });
     }, 2_000);
     return () => window.clearInterval(timer);
   }, [refreshState]);
@@ -517,7 +539,7 @@ function AccountPanel({
   onSignIn(): void;
   onSignOut(): void;
 }) {
-  if (state.authStatus === "signed_in" && state.account) {
+  if (state.account) {
     return (
       <div className="account-panel">
         <div className="account-copy">
@@ -537,6 +559,9 @@ function AccountPanel({
     );
   }
 
+  const canClearAuth =
+    state.authStatus === "authorizing" || state.authStatus === "error";
+
   return (
     <div className="account-panel signed-out">
       <div className="account-copy">
@@ -552,13 +577,21 @@ function AccountPanel({
       <button
         className="account-action"
         type="button"
-        title={state.authStatus === "authorizing" ? "重新打开登录" : "登录"}
+        title={
+          state.authStatus === "authorizing"
+            ? "取消登录"
+            : state.authStatus === "error"
+              ? "清除登录状态"
+              : "登录"
+        }
         disabled={busy}
-        onClick={onSignIn}
+        onClick={canClearAuth ? onSignOut : onSignIn}
       >
         {busy
           ? <LoaderCircle className="spin" size={15} />
-          : <LogIn size={15} />}
+          : canClearAuth
+            ? <LogOut size={15} />
+            : <LogIn size={15} />}
       </button>
     </div>
   );
