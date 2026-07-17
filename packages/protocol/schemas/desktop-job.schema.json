@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.routemarket.ai/work/v1/desktop-job.schema.json",
+  "title": "RouteMarket Work Desktop Job",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "jobId",
+    "runtimeId",
+    "projectBindingId",
+    "executorKey",
+    "executorVersion",
+    "input",
+    "requiredCapabilities",
+    "executionClass",
+    "approvalPolicy",
+    "idempotencyKey",
+    "deadlineAt",
+    "maxInlineResultBytes"
+  ],
+  "properties": {
+    "jobId": { "type": "string", "minLength": 8 },
+    "workflowRunId": { "type": ["string", "null"] },
+    "workflowNodeRunId": { "type": ["string", "null"] },
+    "runtimeId": { "type": "string", "minLength": 8 },
+    "projectBindingId": { "type": "string", "minLength": 8 },
+    "executorKey": { "const": "local.fs.read" },
+    "executorVersion": { "const": 1 },
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["uri"],
+      "properties": {
+        "uri": {
+          "type": "string",
+          "pattern": "^project://[A-Za-z0-9_-]{8,}/[^\\u0000]*$",
+          "maxLength": 4096
+        },
+        "maxBytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 262144,
+          "default": 65536
+        }
+      }
+    },
+    "requiredCapabilities": {
+      "type": "array",
+      "const": ["local.fs.read"]
+    },
+    "executionClass": { "const": "pure_read" },
+    "approvalPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["risk", "mode"],
+      "properties": {
+        "risk": { "const": "R0" },
+        "mode": { "const": "project_grant" }
+      }
+    },
+    "idempotencyKey": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "deadlineAt": { "type": "string", "format": "date-time" },
+    "maxInlineResultBytes": {
+      "type": "integer",
+      "minimum": 1024,
+      "maximum": 262144
+    }
+  }
+}

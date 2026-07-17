@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.routemarket.ai/work/v1/envelope.schema.json",
+  "title": "RouteMarket Work Protocol Envelope",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["protocol", "messageId", "type", "sentAt", "payload"],
+  "properties": {
+    "protocol": {
+      "const": "routemarket-work/1"
+    },
+    "messageId": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 128
+    },
+    "type": {
+      "type": "string",
+      "enum": [
+        "session.ready",
+        "runtime.hello",
+        "runtime.resume",
+        "runtime.heartbeat",
+        "runtime.ping",
+        "runtime.pong",
+        "runtime.capability_refresh",
+        "auth.expiring",
+        "job.offer",
+        "job.accept",
+        "job.reject",
+        "job.cancel",
+        "job.cancel_ack",
+        "job.event",
+        "job.event_ack",
+        "job.event_nack"
+      ]
+    },
+    "sentAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "payload": {
+      "type": "object"
+    }
+  }
+}

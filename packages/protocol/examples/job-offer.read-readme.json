@@ -1,0 +1,28 @@
+{
+  "protocol": "routemarket-work/1",
+  "messageId": "msg_phase0_read_readme",
+  "type": "job.offer",
+  "sentAt": "2026-07-17T08:00:00.000Z",
+  "payload": {
+    "jobId": "djob_phase0_read_readme",
+    "workflowRunId": null,
+    "workflowNodeRunId": null,
+    "runtimeId": "runtime_phase0_windows",
+    "projectBindingId": "binding_phase0_project",
+    "executorKey": "local.fs.read",
+    "executorVersion": 1,
+    "input": {
+      "uri": "project://project_phase0/README.md",
+      "maxBytes": 65536
+    },
+    "requiredCapabilities": ["local.fs.read"],
+    "executionClass": "pure_read",
+    "approvalPolicy": {
+      "risk": "R0",
+      "mode": "project_grant"
+    },
+    "idempotencyKey": "sha256:772a62e9487d54df6bf2e68bf7971b565f8f8f95f55f6f3c6f919f368d0e8561",
+    "deadlineAt": "2026-07-17T08:10:00.000Z",
+    "maxInlineResultBytes": 262144
+  }
+}

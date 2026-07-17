@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "revision": 1,
+  "generatedAt": "2026-07-17T08:00:00.000Z",
+  "runtime": {
+    "platform": "windows",
+    "arch": "x64",
+    "appVersion": "0.1.0",
+    "workerVersion": "0.1.0"
+  },
+  "limits": {
+    "maxConcurrentJobs": 1,
+    "maxInlineResultBytes": 262144
+  },
+  "capabilities": [
+    {
+      "key": "local.fs.read",
+      "version": 1,
+      "risk": "R0",
+      "operations": ["read_text", "stat", "list"]
+    }
+  ],
+  "projects": [],
+  "mcpServers": []
+}

@@ -1,0 +1,13 @@
+{
+  "name": "routemarket-work",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@10.8.1",
+  "scripts": {
+    "build": "corepack pnpm -r run build",
+    "dev": "corepack pnpm --filter @routemarket/work-desktop dev",
+    "lint": "corepack pnpm -r run lint",
+    "test": "corepack pnpm -r run test",
+    "typecheck": "corepack pnpm -r run typecheck"
+  }
+}

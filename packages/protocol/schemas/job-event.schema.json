@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.routemarket.ai/work/v1/job-event.schema.json",
+  "title": "RouteMarket Work Job Event",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["eventId", "jobId", "runtimeId", "leaseId", "leaseEpoch", "seq", "eventType", "occurredAt", "data"],
+  "properties": {
+    "eventId": { "type": "string", "minLength": 8 },
+    "jobId": { "type": "string", "minLength": 8 },
+    "runtimeId": { "type": "string", "minLength": 8 },
+    "leaseId": { "type": "string", "minLength": 8 },
+    "leaseEpoch": { "type": "integer", "minimum": 1 },
+    "seq": { "type": "integer", "minimum": 1 },
+    "eventType": {
+      "enum": [
+        "job.accepted",
+        "job.started",
+        "job.progress",
+        "job.log",
+        "approval.requested",
+        "approval.resolved",
+        "artifact.ready",
+        "job.succeeded",
+        "job.failed",
+        "job.canceled"
+      ]
+    },
+    "occurredAt": { "type": "string", "format": "date-time" },
+    "data": { "type": "object" }
+  }
+}
