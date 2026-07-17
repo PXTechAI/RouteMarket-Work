@@ -275,6 +275,66 @@ kbd {
   border-top: 1px solid #d7d5ce;
 }
 
+.account-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 27px;
+  align-items: center;
+  gap: 9px;
+  min-height: 58px;
+  padding: 10px 11px 10px 16px;
+  border-top: 1px solid #d7d5ce;
+}
+
+.account-panel.signed-out {
+  background: #e5e8e3;
+}
+
+.account-copy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.account-copy strong,
+.account-copy span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-copy strong {
+  color: #353a37;
+  font-size: 11px;
+}
+
+.account-copy span {
+  color: #777d79;
+  font-size: 10px;
+}
+
+.account-action {
+  display: grid;
+  place-items: center;
+  width: 27px;
+  height: 27px;
+  padding: 0;
+  color: #f7faf8;
+  background: #2d6849;
+  border: 0;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.account-action:hover {
+  background: #245d40;
+}
+
+.account-action:disabled,
+.icon-button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
 .status-dot {
   width: 7px;
   height: 7px;

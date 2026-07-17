@@ -36,12 +36,21 @@ export type WorkState = {
   cloudStatus: CloudWorkerStatus;
   runtimeId: string | null;
   cloudError: string | null;
+  authStatus: "signed_out" | "authorizing" | "signed_in" | "error";
+  account?: {
+    id: string;
+    displayName: string;
+    email: string | null;
+  };
+  authError: string | null;
   projects: ProjectSummary[];
   activities: ActivityItem[];
 };
 
 export type RouteMarketWorkApi = {
   getState(): Promise<WorkState>;
+  signIn(): Promise<WorkState>;
+  signOut(): Promise<WorkState>;
   chooseProject(): Promise<ProjectSummary | null>;
   readReadme(localProjectId: string): Promise<ReadResult>;
 };

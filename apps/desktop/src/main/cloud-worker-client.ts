@@ -13,7 +13,6 @@ export type CloudWorkerTransport = Pick<
 
 type CloudWorkerOptions = {
   apiBaseUrl: string;
-  sessionToken: string | undefined;
   installationId: string;
   deviceName: string;
   platform: "windows" | "macos";
@@ -35,22 +34,23 @@ type JobResponse = DesktopJob & {
 };
 
 export class CloudWorkerClient {
+  private accessToken: string | undefined;
   private runtimeId: string | null = null;
   private manifestRevision = 0;
-  private status: CloudWorkerStatus;
+  private status: CloudWorkerStatus = "disabled";
   private lastError: string | null = null;
   private heartbeatTimer: NodeJS.Timeout | null = null;
   private pollTimer: NodeJS.Timeout | null = null;
   private reconnectTimer: NodeJS.Timeout | null = null;
   private reconnectAttempt = 0;
-  private connecting: Promise<void> | null = null;
-  private processing = false;
-  private syncing: Promise<void> | null = null;
+  private connecting: { generation: number; promise: Promise<void> } | null = null;
+  private syncing: { generation: number; promise: Promise<void> } | null = null;
+  private processingGeneration: number | null = null;
+  private generation = 0;
+  private started = false;
   private stopped = false;
 
-  constructor(private readonly options: CloudWorkerOptions) {
-    this.status = options.sessionToken ? "connecting" : "disabled";
-  }
+  constructor(private readonly options: CloudWorkerOptions) {}
 
   getState() {
     return {
@@ -61,23 +61,65 @@ export class CloudWorkerClient {
   }
 
   async start(): Promise<void> {
-    if (!this.options.sessionToken || this.stopped) return;
-    return this.connect();
+    if (this.stopped) return;
+    this.started = true;
+    if (!this.accessToken) {
+      this.status = "disabled";
+      return;
+    }
+    return this.connect(this.generation);
   }
 
-  private connect(): Promise<void> {
-    if (this.connecting) return this.connecting;
-    this.connecting = this.performConnect().finally(() => {
-      this.connecting = null;
+  setAccessToken(token: string | undefined): void {
+    if (this.stopped || token === this.accessToken) return;
+
+    this.generation += 1;
+    this.accessToken = token;
+    this.disconnect();
+
+    if (!token) {
+      this.status = "disabled";
+      return;
+    }
+
+    this.status = "connecting";
+    if (this.started) {
+      void this.connect(this.generation);
+    }
+  }
+
+  stop(): void {
+    this.stopped = true;
+    this.started = false;
+    this.generation += 1;
+    this.accessToken = undefined;
+    this.disconnect();
+    this.status = "disabled";
+  }
+
+  syncProjects(): Promise<void> {
+    return this.syncProjectsForGeneration(this.generation);
+  }
+
+  private connect(generation: number): Promise<void> {
+    if (!this.isActive(generation)) return Promise.resolve();
+    if (this.connecting?.generation === generation) return this.connecting.promise;
+
+    const promise = this.performConnect(generation).finally(() => {
+      if (this.connecting?.generation === generation) {
+        this.connecting = null;
+      }
     });
-    return this.connecting;
+    this.connecting = { generation, promise };
+    return promise;
   }
 
-  private async performConnect(): Promise<void> {
+  private async performConnect(generation: number): Promise<void> {
     try {
       this.clearRecurringTimers();
+      this.assertActive(generation);
       this.status = "connecting";
-      const runtime = await this.request<RuntimeResponse>("/runtimes/register", {
+      const runtime = await this.request<RuntimeResponse>(generation, "/runtimes/register", {
         method: "POST",
         body: {
           installation_id: this.options.installationId,
@@ -89,47 +131,48 @@ export class CloudWorkerClient {
           protocol_version: "routemarket-work/1"
         }
       });
+      this.assertActive(generation);
       this.runtimeId = runtime.runtime_id;
       this.manifestRevision = runtime.manifest_revision;
-      await this.syncProjects();
-      await this.flushPendingEvents();
+      await this.syncProjectsForGeneration(generation);
+      await this.flushPendingEvents(generation);
+      this.assertActive(generation);
+
       this.status = "online";
       this.lastError = null;
       this.reconnectAttempt = 0;
-      this.options.onActivity("cloud.connected", "云端 Worker 已连接", runtime.runtime_id);
-      this.heartbeatTimer = setInterval(() => void this.heartbeat(), 10_000);
-      this.pollTimer = setInterval(() => void this.poll(), 2_000);
-      await this.poll();
+      this.options.onActivity("cloud.connected", "Cloud Worker connected", runtime.runtime_id);
+      this.heartbeatTimer = setInterval(() => void this.heartbeat(generation), 10_000);
+      this.pollTimer = setInterval(() => void this.poll(generation), 2_000);
+      await this.poll(generation);
     } catch (error) {
-      this.handleError(error);
+      this.handleError(error, generation);
     }
   }
 
-  stop(): void {
-    this.stopped = true;
-    this.clearRecurringTimers();
-    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
-    this.reconnectTimer = null;
-  }
+  private syncProjectsForGeneration(generation: number): Promise<void> {
+    if (!this.isActive(generation) || !this.runtimeId) return Promise.resolve();
+    if (this.syncing?.generation === generation) return this.syncing.promise;
 
-  syncProjects(): Promise<void> {
-    if (!this.options.sessionToken || !this.runtimeId) return Promise.resolve();
-    if (this.syncing) return this.syncing;
-    this.syncing = this.performProjectSync().finally(() => {
-      this.syncing = null;
+    const promise = this.performProjectSync(generation).finally(() => {
+      if (this.syncing?.generation === generation) {
+        this.syncing = null;
+      }
     });
-    return this.syncing;
+    this.syncing = { generation, promise };
+    return promise;
   }
 
-  private async performProjectSync(): Promise<void> {
+  private async performProjectSync(generation: number): Promise<void> {
     if (!this.runtimeId) return;
     const projects = await this.options.workerClient.listProjects();
+    this.assertActive(generation);
     const revision = this.manifestRevision + 1;
     const bindings = projects.map((project) => ({
       project,
       bindingId: bindingIdForProject(project.localProjectId)
     }));
-    await this.request(`/runtimes/${this.runtimeId}/capabilities`, {
+    await this.request(generation, `/runtimes/${this.runtimeId}/capabilities`, {
       method: "PUT",
       body: {
         schemaVersion: 1,
@@ -164,12 +207,16 @@ export class CloudWorkerClient {
     });
     this.manifestRevision = revision;
     for (const { project, bindingId } of bindings) {
-      await this.bindProject(project, bindingId);
+      await this.bindProject(generation, project, bindingId);
     }
   }
 
-  private bindProject(project: ProjectSummary, bindingId: string) {
-    return this.request("/projects/bind", {
+  private bindProject(
+    generation: number,
+    project: ProjectSummary,
+    bindingId: string
+  ): Promise<unknown> {
+    return this.request(generation, "/projects/bind", {
       method: "POST",
       body: {
         runtime_id: this.runtimeId,
@@ -182,34 +229,48 @@ export class CloudWorkerClient {
     });
   }
 
-  private async heartbeat(): Promise<void> {
-    if (!this.runtimeId || this.stopped) return;
+  private async heartbeat(generation: number): Promise<void> {
+    if (!this.runtimeId || !this.isActive(generation)) return;
     try {
-      await this.request(`/runtimes/${this.runtimeId}/heartbeat`, { method: "POST" });
+      await this.request(generation, `/runtimes/${this.runtimeId}/heartbeat`, {
+        method: "POST"
+      });
       if (this.status !== "online") {
         this.status = "online";
         this.lastError = null;
       }
     } catch (error) {
-      this.handleError(error);
+      this.handleError(error, generation);
     }
   }
 
-  private async poll(): Promise<void> {
-    if (!this.runtimeId || this.processing || this.stopped) return;
-    this.processing = true;
+  private async poll(generation: number): Promise<void> {
+    if (
+      !this.runtimeId ||
+      !this.isActive(generation) ||
+      this.processingGeneration === generation
+    ) {
+      return;
+    }
+    this.processingGeneration = generation;
     try {
-      await this.flushPendingEvents();
+      await this.flushPendingEvents(generation);
       const offers = await this.request<{ items: JobResponse[] }>(
+        generation,
         `/jobs/offers?runtime_id=${encodeURIComponent(this.runtimeId)}`
       );
       const offer = offers.items[0];
       if (!offer) return;
-      this.options.onActivity("job.offered", "收到云端任务", offer.jobId);
-      const accepted = await this.request<JobResponse>(`/jobs/${offer.jobId}/accept`, {
-        method: "POST",
-        body: { runtime_id: this.runtimeId }
-      });
+
+      this.options.onActivity("job.offered", "Cloud job received", offer.jobId);
+      const accepted = await this.request<JobResponse>(
+        generation,
+        `/jobs/${offer.jobId}/accept`,
+        {
+          method: "POST",
+          body: { runtime_id: this.runtimeId }
+        }
+      );
       if (!accepted.leaseId || accepted.leaseEpoch < 1) {
         throw new Error("Cloud accepted the Job without a valid lease.");
       }
@@ -218,22 +279,27 @@ export class CloudWorkerClient {
         accepted.leaseId,
         accepted.leaseEpoch
       );
-      await this.sendEvents(events);
+      this.assertActive(generation);
+      await this.sendEvents(generation, events);
     } catch (error) {
-      this.handleError(error);
+      this.handleError(error, generation);
     } finally {
-      this.processing = false;
+      if (this.processingGeneration === generation) {
+        this.processingGeneration = null;
+      }
     }
   }
 
-  private async flushPendingEvents(): Promise<void> {
+  private async flushPendingEvents(generation: number): Promise<void> {
     const events = await this.options.workerClient.pendingEvents();
-    await this.sendEvents(events);
+    this.assertActive(generation);
+    await this.sendEvents(generation, events);
   }
 
-  private async sendEvents(events: JobEvent[]): Promise<void> {
+  private async sendEvents(generation: number, events: JobEvent[]): Promise<void> {
     for (const event of events) {
       const ack = await this.request<{ acknowledged: boolean }>(
+        generation,
         `/jobs/${event.jobId}/events`,
         {
           method: "POST",
@@ -254,30 +320,38 @@ export class CloudWorkerClient {
         throw new Error(`Cloud did not acknowledge event ${event.eventId}.`);
       }
       await this.options.workerClient.acknowledgeEvent(event.eventId);
+      this.assertActive(generation);
       if (event.eventType === "job.succeeded") {
-        this.options.onActivity("job.succeeded", "云端任务完成", event.jobId);
+        this.options.onActivity("job.succeeded", "Cloud job completed", event.jobId);
       } else if (event.eventType === "job.failed") {
-        this.options.onActivity("job.failed", "云端任务失败", event.jobId);
+        this.options.onActivity("job.failed", "Cloud job failed", event.jobId);
       }
     }
   }
 
   private async request<TResult = unknown>(
+    generation: number,
     path: string,
     options: {
       method?: "GET" | "POST" | "PUT";
       body?: unknown;
     } = {}
   ): Promise<TResult> {
+    this.assertActive(generation);
+    const accessToken = this.accessToken;
+    if (!accessToken) throw new StaleConnectionError();
+
     const response = await fetch(`${this.options.apiBaseUrl}/api/app/v1/work${path}`, {
       method: options.method ?? "GET",
       headers: {
-        Authorization: `Bearer ${this.options.sessionToken}`,
+        Authorization: `Bearer ${accessToken}`,
         ...(options.body === undefined ? {} : { "Content-Type": "application/json" })
       },
       body: options.body === undefined ? undefined : JSON.stringify(options.body)
     });
+    this.assertActive(generation);
     const payload = await response.json().catch(() => null);
+    this.assertActive(generation);
     if (!response.ok) {
       const message =
         payload && typeof payload === "object" && "message" in payload
@@ -288,17 +362,18 @@ export class CloudWorkerClient {
     return payload as TResult;
   }
 
-  private handleError(error: unknown): void {
+  private handleError(error: unknown, generation: number): void {
+    if (error instanceof StaleConnectionError || !this.isActive(generation)) return;
     const message = error instanceof Error ? error.message : "Unknown cloud worker error";
     this.clearRecurringTimers();
     this.status = "error";
     this.lastError = message;
-    this.options.onActivity("cloud.error", "云端 Worker 连接异常", message);
-    this.scheduleReconnect();
+    this.options.onActivity("cloud.error", "Cloud Worker connection error", message);
+    this.scheduleReconnect(generation);
   }
 
-  private scheduleReconnect(): void {
-    if (this.stopped || this.reconnectTimer || !this.options.sessionToken) return;
+  private scheduleReconnect(generation: number): void {
+    if (!this.isActive(generation) || this.reconnectTimer) return;
     const delay = Math.min(
       INITIAL_RECONNECT_DELAY_MS * 2 ** this.reconnectAttempt,
       MAX_RECONNECT_DELAY_MS
@@ -306,8 +381,29 @@ export class CloudWorkerClient {
     this.reconnectAttempt += 1;
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
-      void this.connect();
+      void this.connect(generation);
     }, delay);
+  }
+
+  private disconnect(): void {
+    this.clearRecurringTimers();
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
+    this.runtimeId = null;
+    this.manifestRevision = 0;
+    this.lastError = null;
+    this.reconnectAttempt = 0;
+    this.connecting = null;
+    this.syncing = null;
+    this.processingGeneration = null;
+  }
+
+  private isActive(generation: number): boolean {
+    return !this.stopped && Boolean(this.accessToken) && this.generation === generation;
+  }
+
+  private assertActive(generation: number): void {
+    if (!this.isActive(generation)) throw new StaleConnectionError();
   }
 
   private clearRecurringTimers(): void {
@@ -317,6 +413,8 @@ export class CloudWorkerClient {
     this.pollTimer = null;
   }
 }
+
+class StaleConnectionError extends Error {}
 
 function bindingIdForProject(localProjectId: string) {
   return `binding_${createHash("sha256").update(localProjectId).digest("hex").slice(0, 32)}`;

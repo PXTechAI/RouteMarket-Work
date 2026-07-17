@@ -10,6 +10,8 @@ import {
   GitBranch,
   Globe2,
   LoaderCircle,
+  LogIn,
+  LogOut,
   MoreHorizontal,
   Play,
   RefreshCw,
@@ -27,23 +29,44 @@ import type {
   WorkState
 } from "../../shared/desktop-api";
 
+const previewState: WorkState = {
+  workerStatus: "online",
+  cloudStatus: "online",
+  runtimeId: "runtime_preview",
+  cloudError: null,
+  authStatus: "signed_in",
+  account: {
+    id: "account_preview",
+    displayName: "PX Labs",
+    email: "hello@routemarket.ai"
+  },
+  authError: null,
+  projects: [
+    {
+      localProjectId: "project_preview",
+      displayName: "RouteMarket-Desktop",
+      rootFingerprint: "sha256:preview",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    }
+  ],
+  activities: []
+};
+
 const previewApi: RouteMarketWorkApi = {
   async getState() {
+    return previewState;
+  },
+  async signIn() {
+    return previewState;
+  },
+  async signOut() {
     return {
-      workerStatus: "online",
-      cloudStatus: "online",
-      runtimeId: "runtime_preview",
-      cloudError: null,
-      projects: [
-        {
-          localProjectId: "project_preview",
-          displayName: "RouteMarket-Desktop",
-          rootFingerprint: "sha256:preview",
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString()
-        }
-      ],
-      activities: []
+      ...previewState,
+      cloudStatus: "disabled",
+      runtimeId: null,
+      authStatus: "signed_out",
+      account: undefined
     };
   },
   async chooseProject() {
@@ -65,15 +88,18 @@ const api = window.routeMarketWork ?? previewApi;
 export function App() {
   const [state, setState] = useState<WorkState>({
     workerStatus: "starting",
-    cloudStatus: "connecting",
+    cloudStatus: "disabled",
     runtimeId: null,
     cloudError: null,
+    authStatus: "signed_out",
+    authError: null,
     projects: [],
     activities: []
   });
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [readResult, setReadResult] = useState<ReadResult | null>(null);
   const [loading, setLoading] = useState(false);
+  const [authAction, setAuthAction] = useState<"sign-in" | "sign-out" | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const selectedProject = useMemo(
@@ -95,7 +121,35 @@ export function App() {
     void refreshState().catch((nextError) => {
       setError(nextError instanceof Error ? nextError.message : "无法连接 RouteMarket Worker");
     });
+    const timer = window.setInterval(() => {
+      void refreshState();
+    }, 2_000);
+    return () => window.clearInterval(timer);
   }, [refreshState]);
+
+  async function signIn() {
+    setAuthAction("sign-in");
+    setError(null);
+    try {
+      setState(await api.signIn());
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "无法打开 RouteMarket 登录");
+    } finally {
+      setAuthAction(null);
+    }
+  }
+
+  async function signOut() {
+    setAuthAction("sign-out");
+    setError(null);
+    try {
+      setState(await api.signOut());
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "退出登录失败");
+    } finally {
+      setAuthAction(null);
+    }
+  }
 
   async function chooseProject() {
     setError(null);
@@ -121,6 +175,8 @@ export function App() {
     }
   }
 
+  const accountInitials = getInitials(state.account?.displayName);
+
   return (
     <div className="app-shell">
       <nav className="rail" aria-label="主导航">
@@ -134,7 +190,7 @@ export function App() {
         </div>
         <div className="rail-spacer" />
         <IconButton label="设置"><Settings2 size={19} /></IconButton>
-        <button className="avatar" title="账户" type="button">PX</button>
+        <button className="avatar" title="账户" type="button">{accountInitials}</button>
       </nav>
 
       <aside className="project-sidebar">
@@ -187,6 +243,13 @@ export function App() {
           )}
         </div>
 
+        <AccountPanel
+          state={state}
+          busy={authAction !== null}
+          onSignIn={() => void signIn()}
+          onSignOut={() => void signOut()}
+        />
+
         <div className="worker-status">
           <span className={`status-dot ${state.workerStatus}`} />
           <div>
@@ -197,7 +260,12 @@ export function App() {
               {cloudStatusLabel(state.cloudStatus)}
             </span>
           </div>
-          <button className="icon-button compact" type="button" title="刷新" onClick={() => void refreshState()}>
+          <button
+            className="icon-button compact"
+            type="button"
+            title="刷新"
+            onClick={() => void refreshState()}
+          >
             <RefreshCw size={15} />
           </button>
         </div>
@@ -312,11 +380,75 @@ export function App() {
   );
 }
 
+function AccountPanel({
+  state,
+  busy,
+  onSignIn,
+  onSignOut
+}: {
+  state: WorkState;
+  busy: boolean;
+  onSignIn(): void;
+  onSignOut(): void;
+}) {
+  if (state.authStatus === "signed_in" && state.account) {
+    return (
+      <div className="account-panel">
+        <div className="account-copy">
+          <strong>{state.account.displayName}</strong>
+          <span>{state.account.email ?? "RouteMarket account"}</span>
+        </div>
+        <button
+          className="icon-button compact"
+          type="button"
+          title="退出登录"
+          disabled={busy}
+          onClick={onSignOut}
+        >
+          {busy ? <LoaderCircle className="spin" size={15} /> : <LogOut size={15} />}
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="account-panel signed-out">
+      <div className="account-copy">
+        <strong>
+          {state.authStatus === "authorizing" ? "等待浏览器授权" : "RouteMarket 账户"}
+        </strong>
+        <span>
+          {state.authError ?? (
+            state.authStatus === "authorizing" ? "完成后将自动连接云端" : "登录后连接 Work API"
+          )}
+        </span>
+      </div>
+      <button
+        className="account-action"
+        type="button"
+        title={state.authStatus === "authorizing" ? "重新打开登录" : "登录"}
+        disabled={busy}
+        onClick={onSignIn}
+      >
+        {busy
+          ? <LoaderCircle className="spin" size={15} />
+          : <LogIn size={15} />}
+      </button>
+    </div>
+  );
+}
+
 function cloudStatusLabel(status: WorkState["cloudStatus"]) {
   if (status === "online") return "云端已连接";
   if (status === "connecting") return "云端连接中";
   if (status === "error") return "云端异常";
   return "云端未登录";
+}
+
+function getInitials(displayName?: string) {
+  if (!displayName) return "PX";
+  const words = displayName.trim().split(/\s+/).filter(Boolean);
+  return words.slice(0, 2).map((word) => word[0]).join("").toUpperCase() || "PX";
 }
 
 function IconButton({
@@ -363,17 +495,26 @@ function ProjectButton({
 
 function ActivityRow({ item }: { item: ActivityItem }) {
   const succeeded = item.kind === "job.succeeded" || item.kind === "project.bound";
-  const failed = item.kind === "job.failed";
+  const failed = item.kind === "job.failed" || item.kind === "cloud.error";
   return (
     <div className="activity-row">
       <span className={`activity-icon ${succeeded ? "success" : failed ? "failed" : "running"}`}>
-        {succeeded ? <Check size={13} /> : failed ? <CircleAlert size={13} /> : <LoaderCircle size={13} />}
+        {succeeded
+          ? <Check size={13} />
+          : failed
+            ? <CircleAlert size={13} />
+            : <LoaderCircle size={13} />}
       </span>
       <div>
         <strong>{item.title}</strong>
         <span>{item.detail}</span>
       </div>
-      <time>{new Date(item.occurredAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}</time>
+      <time>
+        {new Date(item.occurredAt).toLocaleTimeString("zh-CN", {
+          hour: "2-digit",
+          minute: "2-digit"
+        })}
+      </time>
     </div>
   );
 }

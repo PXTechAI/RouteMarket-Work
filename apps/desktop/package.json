@@ -4,6 +4,16 @@
   "private": true,
   "type": "module",
   "main": "./out/main/index.js",
+  "build": {
+    "protocols": [
+      {
+        "name": "RouteMarket Work",
+        "schemes": [
+          "routemarket-work"
+        ]
+      }
+    ]
+  },
   "scripts": {
     "prebuild": "corepack pnpm --filter @routemarket/work-protocol build && corepack pnpm --filter @routemarket/work-worker-core build",
     "build": "electron-vite build",

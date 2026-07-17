@@ -33,7 +33,6 @@ function createClient(
 ): CloudWorkerClient {
   return new CloudWorkerClient({
     apiBaseUrl: "https://api.example.test",
-    sessionToken: "session-token",
     installationId: "install_test",
     deviceName: "Test Workstation",
     platform: "windows",
@@ -43,6 +42,11 @@ function createClient(
     workerClient,
     onActivity
   });
+}
+
+function signIn(client: CloudWorkerClient, token = "rmw_dt_test-token") {
+  client.setAccessToken(token);
+  return client.start();
 }
 
 describe("CloudWorkerClient", () => {
@@ -75,7 +79,7 @@ describe("CloudWorkerClient", () => {
     vi.stubGlobal("fetch", fetchMock);
     const client = createClient(createWorker());
 
-    await client.start();
+    await signIn(client);
     expect(client.getState()).toMatchObject({
       status: "error",
       error: "network unavailable"
@@ -100,7 +104,7 @@ describe("CloudWorkerClient", () => {
     vi.stubGlobal("fetch", fetchMock);
     const client = createClient(createWorker());
 
-    await client.start();
+    await signIn(client);
     client.stop();
     await vi.advanceTimersByTimeAsync(60_000);
 
@@ -161,7 +165,7 @@ describe("CloudWorkerClient", () => {
     vi.stubGlobal("fetch", fetchMock);
     const client = createClient(worker);
 
-    await client.start();
+    await signIn(client);
 
     const capabilityRequest = requests.find(({ url }) => url.endsWith("/capabilities"));
     expect(capabilityRequest).toMatchObject({
@@ -207,6 +211,89 @@ describe("CloudWorkerClient", () => {
       ])
     );
     expect(acknowledgeEvent).toHaveBeenCalledWith("event_1");
+    client.stop();
+  });
+
+  it("connects after sign-in and disables immediately after sign-out", async () => {
+    let resolveRegistration: ((response: Response) => void) | undefined;
+    const fetchMock = vi.fn<typeof fetch>(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveRegistration = resolve;
+        })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const client = createClient(createWorker());
+
+    await client.start();
+    expect(client.getState()).toMatchObject({
+      status: "disabled",
+      runtimeId: null
+    });
+
+    client.setAccessToken("rmw_dt_first");
+    expect(client.getState().status).toBe("connecting");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]?.[1]?.headers).toMatchObject({
+      Authorization: "Bearer rmw_dt_first"
+    });
+
+    client.setAccessToken(undefined);
+    expect(client.getState()).toEqual({
+      status: "disabled",
+      runtimeId: null,
+      error: null
+    });
+
+    resolveRegistration?.(jsonResponse(runtimeResponse));
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(client.getState()).toEqual({
+      status: "disabled",
+      runtimeId: null,
+      error: null
+    });
+    client.stop();
+  });
+
+  it("uses a rotated token without allowing the old connection to become online", async () => {
+    let resolveFirstRegistration: ((response: Response) => void) | undefined;
+    const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+      const url = String(input);
+      const authorization = (init?.headers as Record<string, string> | undefined)?.Authorization;
+      if (url.endsWith("/runtimes/register") && authorization === "Bearer rmw_dt_first") {
+        return new Promise<Response>((resolve) => {
+          resolveFirstRegistration = resolve;
+        });
+      }
+      if (url.endsWith("/runtimes/register") && authorization === "Bearer rmw_dt_second") {
+        return jsonResponse({ runtime_id: "runtime_second", manifest_revision: 0 });
+      }
+      if (url.endsWith("/capabilities")) return jsonResponse({});
+      if (url.includes("/jobs/offers?")) return jsonResponse({ items: [] });
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const client = createClient(createWorker());
+
+    client.setAccessToken("rmw_dt_first");
+    void client.start();
+    await Promise.resolve();
+    client.setAccessToken("rmw_dt_second");
+    await vi.waitFor(() => {
+      expect(client.getState()).toMatchObject({
+        status: "online",
+        runtimeId: "runtime_second"
+      });
+    });
+
+    resolveFirstRegistration?.(jsonResponse(runtimeResponse));
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(client.getState()).toMatchObject({
+      status: "online",
+      runtimeId: "runtime_second"
+    });
     client.stop();
   });
 });
