@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildDesktopWorkflowNodeRegistry } from "./workflow-node-registry";
 
 describe("buildDesktopWorkflowNodeRegistry", () => {
-  it("combines stable built-ins, live MCP tools and blocked project Skills", () => {
+  it("combines stable built-ins, live MCP tools and runnable project Skills", () => {
     const generatedAt = "2026-07-18T00:00:00.000Z";
     const registry = buildDesktopWorkflowNodeRegistry({
       generatedAt,
@@ -41,8 +41,15 @@ describe("buildDesktopWorkflowNodeRegistry", () => {
       }),
       expect.objectContaining({
         executorKey: "skill.local.review",
-        available: false,
-        blockedReason: "skill_runtime_not_installed"
+        available: true,
+        blockedReason: null,
+        requiredCapabilities: ["local.skill.invoke"],
+        inputSchema: expect.objectContaining({
+          properties: expect.objectContaining({
+            skillId: expect.objectContaining({ const: "review" }),
+            task: expect.objectContaining({ type: "string" })
+          })
+        })
       })
     ]));
     expect(registry.definitions.every((definition) =>

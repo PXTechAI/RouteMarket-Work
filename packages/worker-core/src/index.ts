@@ -5,6 +5,7 @@ export * from "./local-fs-read";
 export * from "./local-fs-create";
 export * from "./local-fs-patch";
 export * from "./local-fs-write";
+export * from "./local-skill-invoke";
 export * from "./mcp-registry";
 export * from "./project-files";
 export * from "./project-binding";

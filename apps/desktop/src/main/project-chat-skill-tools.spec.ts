@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import type { ProjectContext, ReadResult } from "../shared/desktop-api";
+import type {
+  LocalSkillInvocationResult,
+  ProjectContext
+} from "../shared/desktop-api";
 import { ProjectChatSkillRuntime } from "./project-chat-skill-tools";
 
 const projectId = "project_1";
@@ -30,21 +33,31 @@ function context(skills: ProjectContext["skills"]): ProjectContext {
   };
 }
 
-function readResult(text = "Follow these project instructions."): ReadResult {
+function invocationResult(
+  text = "Follow these project instructions.",
+  truncated = false
+): LocalSkillInvocationResult {
   return {
-    uri: "routemarket-work://project/project_1/.routemarket/skills/review/SKILL.md",
-    text,
-    bytesRead: Buffer.byteLength(text),
-    truncated: false,
-    encoding: "utf8",
-    sha256: "a".repeat(64)
+    skillId: "review",
+    name: "Skill review",
+    description: "Guidance for review.",
+    relativePath: ".routemarket/skills/review/SKILL.md",
+    task: "Review the current changes.",
+    instructions: text,
+    truncated,
+    directive:
+      "Apply these Skill instructions to the current task. Use separately authorized local Tools for concrete actions."
   };
 }
 
 function createClient(skills = [skill("review")]) {
   return {
     projectContext: vi.fn(async () => context(skills)),
-    readProjectFile: vi.fn(async () => readResult())
+    invokeProjectSkill: vi.fn(async (
+      _localProjectId: string,
+      _skillId: string,
+      task: string
+    ) => ({ ...invocationResult(), task }))
   };
 }
 
@@ -88,7 +101,7 @@ describe("ProjectChatSkillRuntime", () => {
     await expect(runtime.listDefinitions(projectId)).resolves.toHaveLength(100);
   });
 
-  it("reloads project context and reads the selected project Skill", async () => {
+  it("reloads project context and invokes the selected project Skill", async () => {
     const client = createClient();
     const runtime = new ProjectChatSkillRuntime({ client });
     const [definition] = await runtime.listDefinitions(projectId);
@@ -109,9 +122,10 @@ describe("ProjectChatSkillRuntime", () => {
       truncated: false
     });
     expect(client.projectContext).toHaveBeenCalledTimes(2);
-    expect(client.readProjectFile).toHaveBeenCalledWith(
+    expect(client.invokeProjectSkill).toHaveBeenCalledWith(
       projectId,
-      ".routemarket/skills/review/SKILL.md"
+      "review",
+      "Review the current changes."
     );
   });
 
@@ -131,7 +145,7 @@ describe("ProjectChatSkillRuntime", () => {
     expect(JSON.parse(result.content)).toMatchObject({
       error: { code: "PROJECT_SKILL_NOT_AVAILABLE" }
     });
-    expect(client.readProjectFile).not.toHaveBeenCalled();
+    expect(client.invokeProjectSkill).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -156,12 +170,14 @@ describe("ProjectChatSkillRuntime", () => {
 
     expect(result.isError).toBe(true);
     expect(result.summary).toContain(message);
-    expect(client.readProjectFile).not.toHaveBeenCalled();
+    expect(client.invokeProjectSkill).not.toHaveBeenCalled();
   });
 
   it("clips Skill instructions to 64 KiB", async () => {
     const client = createClient();
-    client.readProjectFile.mockResolvedValue(readResult("x".repeat(70 * 1024)));
+    client.invokeProjectSkill.mockResolvedValue(
+      invocationResult("x".repeat(64 * 1024), true)
+    );
     const runtime = new ProjectChatSkillRuntime({ client });
     const [definition] = await runtime.listDefinitions(projectId);
 
@@ -180,7 +196,7 @@ describe("ProjectChatSkillRuntime", () => {
     const client = createClient();
     const workerError = new Error("Skill file is unavailable.");
     Object.assign(workerError, { code: "PROJECT_FILE_NOT_FOUND" });
-    client.readProjectFile.mockRejectedValue(workerError);
+    client.invokeProjectSkill.mockRejectedValue(workerError);
     const runtime = new ProjectChatSkillRuntime({ client });
     const [definition] = await runtime.listDefinitions(projectId);
 
@@ -220,9 +236,9 @@ describe("ProjectChatSkillRuntime", () => {
     expect(client.projectContext).toHaveBeenCalledTimes(1);
 
     const after = new AbortController();
-    client.readProjectFile.mockImplementation(async () => {
+    client.invokeProjectSkill.mockImplementation(async () => {
       after.abort();
-      return readResult();
+      return invocationResult();
     });
     await expect(
       runtime.execute(

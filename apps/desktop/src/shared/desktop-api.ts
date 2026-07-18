@@ -384,6 +384,17 @@ export type ProjectContext = {
   }>;
 };
 
+export type LocalSkillInvocationResult = {
+  skillId: string;
+  name: string;
+  description: string;
+  relativePath: string;
+  task: string;
+  instructions: string;
+  truncated: boolean;
+  directive: string;
+};
+
 export type ProjectChatEvent =
   | {
       requestId: string;

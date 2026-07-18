@@ -218,6 +218,7 @@ describe("CloudWorkerClient", () => {
             risk: "R0",
             operations: ["read_text", "stat", "list"]
           },
+          expect.objectContaining({ key: "local.skill.invoke", risk: "R0" }),
           expect.objectContaining({ key: "local.browser.navigate", risk: "R1" }),
           expect.objectContaining({ key: "local.mcp.call", risk: "R2" })
         ]),
@@ -240,6 +241,7 @@ describe("CloudWorkerClient", () => {
             local_project_id: "project_local_1",
             capabilities: expect.arrayContaining([
               "local.fs.read",
+              "local.skill.invoke",
               "local.browser.navigate",
               "local.mcp.call"
             ])
@@ -256,6 +258,61 @@ describe("CloudWorkerClient", () => {
       ])
     );
     expect(acknowledgeEvent).toHaveBeenCalledWith("event_1");
+    client.stop();
+  });
+
+  it("routes local Skill Desktop Jobs directly through the Worker runtime", async () => {
+    const skillJob: DesktopJob = {
+      jobId: "job_skill_1",
+      workflowRunId: "workflow_skill_1",
+      workflowNodeRunId: "workflow_node_skill_1",
+      runtimeId: "runtime_test",
+      projectBindingId: "binding_skill_1",
+      executorKey: "local.skill.invoke",
+      executorVersion: 1,
+      input: { skillId: "review", task: "Review the current changes." },
+      requiredCapabilities: ["local.skill.invoke"],
+      executionClass: "pure_read",
+      approvalPolicy: { risk: "R0", mode: "project_grant" },
+      idempotencyKey: `sha256:${"d".repeat(64)}`,
+      deadlineAt: "2026-07-19T00:00:00.000Z",
+      maxInlineResultBytes: 65_536
+    };
+    const accepted = { ...skillJob, leaseId: "lease_skill_1", leaseEpoch: 1 };
+    const succeeded: JobEvent = {
+      eventId: "event_skill_1",
+      jobId: skillJob.jobId,
+      runtimeId: skillJob.runtimeId,
+      leaseId: "lease_skill_1",
+      leaseEpoch: 1,
+      seq: 3,
+      eventType: "job.succeeded",
+      occurredAt: "2026-07-18T00:00:00.000Z",
+      data: { output: { skillId: "review" } }
+    };
+    const executeJob = vi.fn(async () => [succeeded]);
+    const executeDesktopJob = vi.fn(async () => []);
+    const worker = createWorker({ executeJob });
+    let offered = false;
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/runtimes/register")) return jsonResponse(runtimeResponse);
+      if (url.endsWith("/capabilities")) return jsonResponse({});
+      if (url.includes("/jobs/offers?")) {
+        if (offered) return jsonResponse({ items: [] });
+        offered = true;
+        return jsonResponse({ items: [accepted] });
+      }
+      if (url.endsWith("/jobs/job_skill_1/accept")) return jsonResponse(accepted);
+      if (url.endsWith("/jobs/job_skill_1/events")) return jsonResponse({ acknowledged: true });
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+    const client = createClient(worker, vi.fn(), executeDesktopJob);
+
+    await signIn(client);
+
+    expect(executeJob).toHaveBeenCalledWith(skillJob, "lease_skill_1", 1);
+    expect(executeDesktopJob).not.toHaveBeenCalled();
     client.stop();
   });
 

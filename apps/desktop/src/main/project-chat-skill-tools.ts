@@ -1,5 +1,8 @@
 import { createHash } from "node:crypto";
-import type { ProjectContext, ReadResult } from "../shared/desktop-api";
+import type {
+  LocalSkillInvocationResult,
+  ProjectContext
+} from "../shared/desktop-api";
 import type { WorkerClient } from "./worker-client";
 import type {
   ProjectChatToolCall,
@@ -12,11 +15,10 @@ const MAX_DYNAMIC_SKILLS = 100;
 const MAX_FUNCTION_NAME_LENGTH = 64;
 const MAX_DESCRIPTION_CHARACTERS = 1_000;
 const MAX_TASK_CHARACTERS = 16_000;
-const MAX_SKILL_INSTRUCTION_CHARACTERS = 64 * 1024;
 
 type ProjectChatSkillClient = Pick<
   WorkerClient,
-  "projectContext" | "readProjectFile"
+  "projectContext" | "invokeProjectSkill"
 >;
 
 type ProjectSkillSummary = ProjectContext["skills"][number];
@@ -64,12 +66,13 @@ export class ProjectChatSkillRuntime {
       const skill = await this.resolve(localProjectId, call.name);
       throwIfAborted(signal);
       return await this.runWithActivity(skill, async () => {
-        const content = await this.options.client.readProjectFile(
+        const result = await this.options.client.invokeProjectSkill(
           localProjectId,
-          skill.relativePath
+          skill.id,
+          task
         );
         throwIfAborted(signal);
-        return skillResult(skill, task, content);
+        return skillResult(result);
       });
     } catch (error) {
       if (isAbortError(error)) throw error;
@@ -169,26 +172,20 @@ function sanitizeName(value: string): string {
 }
 
 function skillResult(
-  skill: ProjectSkillSummary,
-  task: string,
-  content: ReadResult
+  result: LocalSkillInvocationResult
 ): ProjectChatToolExecution {
-  const instructions = content.text.slice(0, MAX_SKILL_INSTRUCTION_CHARACTERS);
-  const truncated =
-    content.truncated || content.text.length > MAX_SKILL_INSTRUCTION_CHARACTERS;
   return {
     content: JSON.stringify({
-      skill_id: skill.id,
-      name: skill.name,
-      description: skill.description,
-      relative_path: skill.relativePath,
-      task,
-      instructions,
-      truncated,
-      directive:
-        "Apply these Skill instructions to the current task. Use the available local Tools for concrete actions."
+      skill_id: result.skillId,
+      name: result.name,
+      description: result.description,
+      relative_path: result.relativePath,
+      task: result.task,
+      instructions: result.instructions,
+      truncated: result.truncated,
+      directive: result.directive
     }),
-    summary: `${skill.name} · ${instructions.length} characters`,
+    summary: `${result.name} · ${result.instructions.length} characters`,
     isError: false
   };
 }

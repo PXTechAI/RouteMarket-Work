@@ -88,4 +88,31 @@ describe("RouteMarket Work protocol fixtures", () => {
     expect(checkDesktopJob(appJob)).toEqual({ ok: true });
     expect(checkDesktopJob({ ...appJob, input: { connectorId: "unknown" } }).ok).toBe(false);
   });
+
+  it("accepts a project Skill invocation only as an R0 pure read", async () => {
+    const envelope = await readExample("job-offer.read-readme.json") as {
+      payload: Record<string, unknown>;
+    };
+    const skillJob = {
+      ...envelope.payload,
+      executorKey: "local.skill.invoke",
+      input: {
+        skillId: "review",
+        task: "Review the current project changes."
+      },
+      requiredCapabilities: ["local.skill.invoke"],
+      executionClass: "pure_read",
+      approvalPolicy: { risk: "R0", mode: "project_grant" }
+    };
+
+    expect(checkDesktopJob(skillJob)).toEqual({ ok: true });
+    expect(checkDesktopJob({
+      ...skillJob,
+      approvalPolicy: { risk: "R2", mode: "invocation" }
+    }).ok).toBe(false);
+    expect(checkDesktopJob({
+      ...skillJob,
+      input: { skillId: "review", task: "", unexpected: true }
+    }).ok).toBe(false);
+  });
 });

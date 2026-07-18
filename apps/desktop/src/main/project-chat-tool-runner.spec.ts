@@ -164,13 +164,20 @@ function createSkillClient() {
   };
   return {
     projectContext: vi.fn(async () => projectContext),
-    readProjectFile: vi.fn(async () => ({
-      uri: "routemarket-work://project/project_1/.routemarket/skills/review/SKILL.md",
-      text: "Inspect changes and report findings by severity.",
-      bytesRead: 48,
+    invokeProjectSkill: vi.fn(async (
+      _localProjectId: string,
+      _skillId: string,
+      task: string
+    ) => ({
+      skillId: "review",
+      name: "Code review",
+      description: "Review project changes.",
+      relativePath: ".routemarket/skills/review/SKILL.md",
+      task,
+      instructions: "Inspect changes and report findings by severity.",
       truncated: false,
-      encoding: "utf8" as const,
-      sha256: "c".repeat(64)
+      directive:
+        "Apply these Skill instructions to the current task. Use separately authorized local Tools for concrete actions."
     }))
   };
 }
@@ -698,9 +705,10 @@ describe("ProjectChatToolRunner", () => {
       task: "Review current changes.",
       instructions: "Inspect changes and report findings by severity."
     });
-    expect(skillClient.readProjectFile).toHaveBeenCalledWith(
+    expect(skillClient.invokeProjectSkill).toHaveBeenCalledWith(
       "project_1",
-      ".routemarket/skills/review/SKILL.md"
+      "review",
+      "Review current changes."
     );
   });
 });

@@ -201,7 +201,7 @@ async function executeExternalDesktopJob(
   if (!workerClient) throw new Error("RouteMarket Worker is offline.");
   if (Date.parse(job.deadlineAt) <= Date.now()) throw new Error("The Desktop Job deadline has expired.");
   if (signal.aborted) throw Object.assign(new Error("Desktop Job was canceled."), { code: "TOOL_CANCELED" });
-  if (job.executorKey === "local.fs.read") {
+  if (job.executorKey === "local.fs.read" || job.executorKey === "local.skill.invoke") {
     return workerClient.executeJob(job, leaseId, leaseEpoch);
   }
   const began = await workerClient.beginExternalJob(job, leaseId, leaseEpoch);
@@ -248,7 +248,7 @@ async function executeExternalDesktopJob(
 }
 
 async function invokeExternalDesktopJob(
-  job: Exclude<DesktopJob, { executorKey: "local.fs.read" }>,
+  job: ExternalDesktopJob,
   localProjectId: string
 ): Promise<Record<string, unknown>> {
   if (job.executorKey === "local.browser.navigate") {
@@ -307,13 +307,18 @@ async function invokeExternalDesktopJob(
   return workerClient!.callMcpTool(server.serverId, job.input.name, job.input.arguments);
 }
 
-function externalJobTitle(job: Exclude<DesktopJob, { executorKey: "local.fs.read" }>): string {
+type ExternalDesktopJob = Exclude<
+  DesktopJob,
+  { executorKey: "local.fs.read" | "local.skill.invoke" }
+>;
+
+function externalJobTitle(job: ExternalDesktopJob): string {
   if (job.executorKey === "local.mcp.call") return `允许 Workflow 调用 MCP Tool ${job.input.name}？`;
   if (job.executorKey === "local.app.open") return `允许 Workflow 使用 ${job.input.connectorId} 打开项目内容？`;
   return `允许 Workflow 执行 ${job.executorKey}？`;
 }
 
-function externalJobDetail(job: Exclude<DesktopJob, { executorKey: "local.fs.read" }>): string {
+function externalJobDetail(job: ExternalDesktopJob): string {
   if (job.executorKey === "local.browser.navigate") return job.input.url;
   if (job.executorKey === "local.browser.screenshot") return "当前托管浏览器页面";
   if (job.executorKey === "local.mcp.call") return `${job.input.serverId} · ${job.input.name}`;
@@ -321,7 +326,7 @@ function externalJobDetail(job: Exclude<DesktopJob, { executorKey: "local.fs.rea
   return job.input.selector;
 }
 
-function externalJobAuditTarget(job: Exclude<DesktopJob, { executorKey: "local.fs.read" }>): string {
+function externalJobAuditTarget(job: ExternalDesktopJob): string {
   if (job.executorKey === "local.browser.navigate") return new URL(job.input.url).origin;
   if (job.executorKey === "local.mcp.call") return `${job.input.serverId}/${job.input.name}`;
   if (job.executorKey === "local.app.open") return `${job.input.connectorId}/${job.input.relativePath ?? "."}`;

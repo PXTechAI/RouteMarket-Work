@@ -7,10 +7,12 @@ import {
   buildDesktopWorkflowNodeRegistry,
   ControlledProcessManager,
   executeLocalFsRead,
+  executeLocalSkillInvoke,
   FileVersionStore,
   JobStore,
   listProjectFiles,
   loadProjectContext,
+  invokeProjectSkill,
   McpRegistry,
   projectBindingIdFor,
   readProjectAsset,
@@ -36,6 +38,11 @@ type WorkerRequest =
       requestId: string;
       type: "projects.context";
       payload: { localProjectId: string };
+    }
+  | {
+      requestId: string;
+      type: "local.skill.invoke";
+      payload: { localProjectId: string; skillId: string; task: string };
     }
   | {
       requestId: string;
@@ -288,7 +295,17 @@ async function executeCloudJob(input: {
       );
       jobStore.commitEvent(started, "running");
     }
-    const result = await executeLocalFsRead(registry, input.job);
+    let result: Record<string, unknown>;
+    if (input.job.executorKey === "local.fs.read") {
+      result = await executeLocalFsRead(registry, input.job);
+    } else if (input.job.executorKey === "local.skill.invoke") {
+      result = await executeLocalSkillInvoke(registry, input.job);
+    } else {
+      throw new WorkerError(
+        "CAPABILITY_UNSUPPORTED",
+        `Worker executor is unavailable: ${input.job.executorKey}`
+      );
+    }
     if (jobStore.getStatus(input.job.jobId) === "canceled") {
       return jobStore.pendingEvents(input.job.jobId);
     }
@@ -445,6 +462,8 @@ parentPort.on("message", async ({ data: request }) => {
       );
     } else if (request.type === "projects.context") {
       result = await loadProjectContext(registry, request.payload.localProjectId);
+    } else if (request.type === "local.skill.invoke") {
+      result = await invokeProjectSkill(registry, request.payload);
     } else if (request.type === "projects.asset") {
       result = await readProjectAsset(
         registry,

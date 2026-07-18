@@ -64,7 +64,7 @@ type ProjectChatToolRunnerOptions = {
     WorkerClient,
     "listMcpServers" | "startMcpServer" | "callMcpTool"
   >;
-  skillClient?: Pick<WorkerClient, "projectContext" | "readProjectFile">;
+  skillClient?: Pick<WorkerClient, "projectContext" | "invokeProjectSkill">;
   onActivity?: (
     type: "job.started" | "job.succeeded" | "job.failed",
     title: string,

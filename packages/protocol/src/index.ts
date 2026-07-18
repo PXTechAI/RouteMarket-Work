@@ -97,6 +97,13 @@ export type DesktopJob = DesktopJobBase & (
       approvalPolicy: { risk: "R2"; mode: "invocation" };
     }
   | {
+      executorKey: "local.skill.invoke";
+      input: { skillId: string; task: string };
+      requiredCapabilities: ["local.skill.invoke"];
+      executionClass: "pure_read";
+      approvalPolicy: { risk: "R0"; mode: "project_grant" };
+    }
+  | {
       executorKey: "local.app.open";
       input: { connectorId: "vscode" | "excel" | "powerpoint"; relativePath?: string };
       requiredCapabilities: ["local.app.open"];

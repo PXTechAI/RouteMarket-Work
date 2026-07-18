@@ -242,6 +242,7 @@ export class CloudWorkerClient {
           { key: "local.browser.extract", version: 1, risk: "R0", operations: ["extract"] },
           { key: "local.browser.screenshot", version: 1, risk: "R0", operations: ["screenshot"] },
           { key: "local.mcp.call", version: 1, risk: "R2", operations: ["call"] },
+          { key: "local.skill.invoke", version: 1, risk: "R0", operations: ["invoke"] },
           { key: "local.app.open", version: 1, risk: "R2", operations: ["open"] },
           { key: "desktop.trigger.file_changed", version: 1, risk: "R1", operations: ["watch"] },
           { key: "desktop.trigger.folder_added", version: 1, risk: "R1", operations: ["watch"] },
@@ -298,6 +299,7 @@ export class CloudWorkerClient {
           "local.browser.extract",
           "local.browser.screenshot",
           "local.mcp.call",
+          "local.skill.invoke",
           "local.app.open",
           "desktop.trigger.file_changed",
           "desktop.trigger.folder_added",
@@ -379,7 +381,7 @@ export class CloudWorkerClient {
     }
     const job = toDesktopJob(accepted);
     let events: JobEvent[];
-    if (job.executorKey === "local.fs.read") {
+    if (job.executorKey === "local.fs.read" || job.executorKey === "local.skill.invoke") {
       events = await this.options.workerClient.executeJob(job, accepted.leaseId, accepted.leaseEpoch);
     } else if (this.options.executeDesktopJob) {
       const controller = new AbortController();

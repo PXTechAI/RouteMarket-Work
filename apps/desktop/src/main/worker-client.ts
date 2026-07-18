@@ -5,6 +5,7 @@ import type { DesktopJob, DesktopWorkflowNodeRegistry, JobEvent } from "@routema
 import type {
   CreateResult,
   ManagedProcessSummary,
+  LocalSkillInvocationResult,
   McpServerSummary,
   ProjectAssetPreview,
   ProjectFileTree,
@@ -25,6 +26,10 @@ type WorkerRequestInput =
   | { type: "projects.files"; payload: { localProjectId: string } }
   | { type: "projects.search"; payload: { localProjectId: string; query: string } }
   | { type: "projects.context"; payload: { localProjectId: string } }
+  | {
+      type: "local.skill.invoke";
+      payload: { localProjectId: string; skillId: string; task: string };
+    }
   | { type: "projects.asset"; payload: { localProjectId: string; relativePath: string } }
   | { type: "workflow.registry"; payload: { localProjectId: string } }
   | {
@@ -195,6 +200,17 @@ export class WorkerClient {
     return this.request<ProjectContext>({
       type: "projects.context",
       payload: { localProjectId }
+    });
+  }
+
+  invokeProjectSkill(
+    localProjectId: string,
+    skillId: string,
+    task: string
+  ): Promise<LocalSkillInvocationResult> {
+    return this.request<LocalSkillInvocationResult>({
+      type: "local.skill.invoke",
+      payload: { localProjectId, skillId, task }
     });
   }
 

@@ -19,7 +19,7 @@
       "enum": [
         "local.fs.read", "local.browser.navigate", "local.browser.click",
         "local.browser.type", "local.browser.extract", "local.browser.screenshot",
-        "local.mcp.call", "local.app.open"
+        "local.mcp.call", "local.skill.invoke", "local.app.open"
       ]
     },
     "executorVersion": { "const": 1 },
@@ -136,6 +136,22 @@
         "requiredCapabilities": { "const": ["local.mcp.call"] },
         "executionClass": { "const": "external_side_effect" },
         "approvalPolicy": { "const": { "risk": "R2", "mode": "invocation" } }
+      }
+    },
+    {
+      "properties": {
+        "executorKey": { "const": "local.skill.invoke" },
+        "input": {
+          "type": "object", "additionalProperties": false,
+          "required": ["skillId", "task"],
+          "properties": {
+            "skillId": { "type": "string", "minLength": 1, "maxLength": 256 },
+            "task": { "type": "string", "minLength": 1, "maxLength": 16000 }
+          }
+        },
+        "requiredCapabilities": { "const": ["local.skill.invoke"] },
+        "executionClass": { "const": "pure_read" },
+        "approvalPolicy": { "const": { "risk": "R0", "mode": "project_grant" } }
       }
     },
     {

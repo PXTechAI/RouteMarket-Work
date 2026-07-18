@@ -92,14 +92,54 @@ function skillDefinition(skill: ProjectSkillSummary): DefinitionInput {
     definitionVersion: 1,
     source: "local_extension",
     executionTarget: "desktop",
-    inputSchema: objectSchema,
-    outputSchema: objectSchema,
+    inputSchema: {
+      type: "object",
+      properties: {
+        skillId: {
+          type: "string",
+          const: skill.id,
+          default: skill.id
+        },
+        task: {
+          type: "string",
+          minLength: 1,
+          maxLength: 16_000,
+          description: "需要这个 Skill 指导完成的具体任务。"
+        }
+      },
+      required: ["skillId", "task"],
+      additionalProperties: false
+    },
+    outputSchema: {
+      type: "object",
+      properties: {
+        skillId: { type: "string" },
+        name: { type: "string" },
+        description: { type: "string" },
+        relativePath: { type: "string" },
+        task: { type: "string" },
+        instructions: { type: "string" },
+        truncated: { type: "boolean" },
+        directive: { type: "string" }
+      },
+      required: [
+        "skillId",
+        "name",
+        "description",
+        "relativePath",
+        "task",
+        "instructions",
+        "truncated",
+        "directive"
+      ],
+      additionalProperties: false
+    },
     requiredCapabilities: ["local.skill.invoke"],
     portability: "requires_connector",
     title: skill.name,
     description: skill.description,
-    available: false,
-    blockedReason: "skill_runtime_not_installed"
+    available: true,
+    blockedReason: null
   };
 }
 
