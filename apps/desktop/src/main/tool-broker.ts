@@ -13,6 +13,13 @@ export type ToolAuthorizationRequest = {
   projectId?: string;
 };
 
+export type ToolAuthorizationDecision = "requested" | "approved" | "denied";
+
+export type ToolAuthorizationDecisionListener = (
+  request: ToolAuthorizationRequest,
+  decision: ToolAuthorizationDecision
+) => void | Promise<void>;
+
 export class ToolApprovalDeniedError extends Error {
   readonly code = "TOOL_APPROVAL_DENIED";
 
@@ -25,26 +32,33 @@ export class ToolApprovalDeniedError extends Error {
 export class LocalToolBroker {
   constructor(
     private readonly confirm: (request: ToolAuthorizationRequest) => Promise<boolean>,
-    private readonly onDecision?: (
-      request: ToolAuthorizationRequest,
-      decision: "requested" | "approved" | "denied"
-    ) => void
+    private readonly onDecision?: ToolAuthorizationDecisionListener
   ) {}
 
   async run<TResult>(
     input: Omit<ToolAuthorizationRequest, "invocationId">,
-    operation: () => Promise<TResult>
+    operation: () => Promise<TResult>,
+    onDecision?: ToolAuthorizationDecisionListener
   ): Promise<TResult> {
     const request: ToolAuthorizationRequest = {
       ...input,
       invocationId: `tool_${randomUUID().replaceAll("-", "")}`
     };
     if (request.risk !== "R0") {
-      this.onDecision?.(request, "requested");
+      await this.notifyDecision(request, "requested", onDecision);
       const approved = await this.confirm(request);
-      this.onDecision?.(request, approved ? "approved" : "denied");
+      await this.notifyDecision(request, approved ? "approved" : "denied", onDecision);
       if (!approved) throw new ToolApprovalDeniedError();
     }
     return operation();
+  }
+
+  private async notifyDecision(
+    request: ToolAuthorizationRequest,
+    decision: ToolAuthorizationDecision,
+    listener?: ToolAuthorizationDecisionListener
+  ): Promise<void> {
+    await this.onDecision?.(request, decision);
+    await listener?.(request, decision);
   }
 }

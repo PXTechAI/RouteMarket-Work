@@ -14,6 +14,11 @@ type JobLeaseInput = {
   leaseEpoch: number;
 };
 
+type ExternalApprovalInput = JobLeaseInput & {
+  eventType: "approval.requested" | "approval.resolved";
+  data: Record<string, unknown>;
+};
+
 export class CloudJobRuntime {
   private readonly activeJobs = new Set<string>();
 
@@ -124,6 +129,24 @@ export class CloudJobRuntime {
     }
     this.activeJobs.add(input.job.jobId);
     return { execute: true, events: this.jobStore.pendingEvents(input.job.jobId) };
+  }
+
+  recordExternalApproval(input: ExternalApprovalInput): JobEvent[] {
+    const status = this.jobStore.getStatus(input.job.jobId);
+    if (status === "succeeded" || status === "failed" || status === "canceled") {
+      return this.jobStore.pendingEvents(input.job.jobId);
+    }
+    const state = this.recoveryState().find((job) => job.jobId === input.job.jobId);
+    if (!state) return this.jobStore.pendingEvents(input.job.jobId);
+    this.jobStore.commitEvent(
+      createJobEvent(
+        input,
+        state.lastProducedSeq + 1,
+        input.eventType,
+        input.data
+      )
+    );
+    return this.jobStore.pendingEvents(input.job.jobId);
   }
 
   completeExternalJob(

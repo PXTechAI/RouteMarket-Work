@@ -77,6 +77,58 @@ function closeRuntime(resource: ReturnType<typeof openRuntime>) {
 }
 
 describe("CloudJobRuntime external Job recovery", () => {
+  it("persists approval events in sequence before external completion", async () => {
+    const databasePath = await fixture();
+    const opened = openRuntime(databasePath);
+    const job = sideEffectJob();
+    const lease = {
+      job,
+      leaseId: "lease_approval_1",
+      leaseEpoch: 1
+    };
+    try {
+      expect(opened.runtime.beginExternalJob(lease)).toMatchObject({
+        execute: true,
+        events: [
+          { eventType: "job.accepted", seq: 1 },
+          { eventType: "job.started", seq: 2 }
+        ]
+      });
+      opened.runtime.recordExternalApproval({
+        ...lease,
+        eventType: "approval.requested",
+        data: { approvalId: "tool_approval_1", risk: "R1" }
+      });
+      opened.runtime.recordExternalApproval({
+        ...lease,
+        eventType: "approval.resolved",
+        data: { approvalId: "tool_approval_1", decision: "approved" }
+      });
+      const events = opened.runtime.completeExternalJob({
+        ...lease,
+        result: { completed: true }
+      });
+
+      expect(events).toEqual([
+        expect.objectContaining({ eventType: "job.accepted", seq: 1 }),
+        expect.objectContaining({ eventType: "job.started", seq: 2 }),
+        expect.objectContaining({
+          eventType: "approval.requested",
+          seq: 3,
+          data: { approvalId: "tool_approval_1", risk: "R1" }
+        }),
+        expect.objectContaining({
+          eventType: "approval.resolved",
+          seq: 4,
+          data: { approvalId: "tool_approval_1", decision: "approved" }
+        }),
+        expect.objectContaining({ eventType: "job.succeeded", seq: 5 })
+      ]);
+    } finally {
+      closeRuntime(opened);
+    }
+  });
+
   it("fails an interrupted side-effect Job after restart without replaying it", async () => {
     const databasePath = await fixture();
     let opened: ReturnType<typeof openRuntime> | null = openRuntime(databasePath);

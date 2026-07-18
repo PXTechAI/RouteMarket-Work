@@ -94,6 +94,16 @@ type WorkerRequestInput =
       payload: { job: DesktopJob; leaseId: string; leaseEpoch: number };
     }
   | {
+      type: "job.external.approval";
+      payload: {
+        job: DesktopJob;
+        leaseId: string;
+        leaseEpoch: number;
+        eventType: "approval.requested" | "approval.resolved";
+        data: Record<string, unknown>;
+      };
+    }
+  | {
       type: "job.external.complete";
       payload: {
         job: DesktopJob;
@@ -372,6 +382,19 @@ export class WorkerClient {
     return this.request<{ execute: boolean; events: JobEvent[] }>({
       type: "job.external.begin",
       payload: { job, leaseId, leaseEpoch }
+    });
+  }
+
+  recordExternalApproval(
+    job: DesktopJob,
+    leaseId: string,
+    leaseEpoch: number,
+    eventType: "approval.requested" | "approval.resolved",
+    data: Record<string, unknown>
+  ): Promise<JobEvent[]> {
+    return this.request<JobEvent[]>({
+      type: "job.external.approval",
+      payload: { job, leaseId, leaseEpoch, eventType, data }
     });
   }
 

@@ -130,6 +130,17 @@ type WorkerRequest =
     }
   | {
       requestId: string;
+      type: "job.external.approval";
+      payload: {
+        job: DesktopJob;
+        leaseId: string;
+        leaseEpoch: number;
+        eventType: "approval.requested" | "approval.resolved";
+        data: Record<string, unknown>;
+      };
+    }
+  | {
+      requestId: string;
       type: "job.external.complete";
       payload: {
         job: DesktopJob;
@@ -380,6 +391,8 @@ parentPort.on("message", async ({ data: request }) => {
       result = await cloudJobs.executeJob(request.payload);
     } else if (request.type === "job.external.begin") {
       result = cloudJobs.beginExternalJob(request.payload);
+    } else if (request.type === "job.external.approval") {
+      result = cloudJobs.recordExternalApproval(request.payload);
     } else if (request.type === "job.external.complete") {
       result = cloudJobs.completeExternalJob(request.payload);
     } else if (request.type === "job.external.fail") {

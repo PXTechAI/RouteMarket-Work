@@ -276,17 +276,18 @@ async function executeExternalDesktopJob(
   signal: AbortSignal,
   emitEvents: (events: JobEvent[]) => Promise<void>
 ): Promise<JobEvent[]> {
-  if (!workerClient) throw new Error("RouteMarket Worker is offline.");
+  const client = workerClient;
+  if (!client) throw new Error("RouteMarket Worker is offline.");
   if (Date.parse(job.deadlineAt) <= Date.now()) throw new Error("The Desktop Job deadline has expired.");
   if (signal.aborted) throw Object.assign(new Error("Desktop Job was canceled."), { code: "TOOL_CANCELED" });
   if (job.executorKey === "local.fs.read" || job.executorKey === "local.skill.invoke") {
-    return workerClient.executeJob(job, leaseId, leaseEpoch);
+    return client.executeJob(job, leaseId, leaseEpoch);
   }
-  const began = await workerClient.beginExternalJob(job, leaseId, leaseEpoch);
+  const began = await client.beginExternalJob(job, leaseId, leaseEpoch);
   if (!began.execute) return began.events;
   try {
     await emitEvents(began.events);
-    const project = (await workerClient.listProjects()).find(
+    const project = (await client.listProjects()).find(
       (candidate) => projectBindingIdFor(candidate.localProjectId) === job.projectBindingId
     );
     if (!project) throw Object.assign(new Error("Desktop Job project binding is unavailable."), {
@@ -311,12 +312,30 @@ async function executeExternalDesktopJob(
           });
         }
         return invokeExternalDesktopJob(job, project.localProjectId);
+      },
+      async (request, decision) => {
+        const eventType = decision === "requested"
+          ? "approval.requested"
+          : "approval.resolved";
+        const events = await client.recordExternalApproval(
+          job,
+          leaseId,
+          leaseEpoch,
+          eventType,
+          {
+            approvalId: request.invocationId,
+            capability: request.capability,
+            risk: request.risk,
+            ...(decision === "requested" ? {} : { decision })
+          }
+        );
+        await emitEvents(events);
       }
     );
     assertInlineResult(job, result);
-    return workerClient.completeExternalJob(job, leaseId, leaseEpoch, result);
+    return client.completeExternalJob(job, leaseId, leaseEpoch, result);
   } catch (error) {
-    return workerClient.failExternalJob(job, leaseId, leaseEpoch, {
+    return client.failExternalJob(job, leaseId, leaseEpoch, {
       code: typeof error === "object" && error && "code" in error
         ? String(error.code)
         : "TOOL_EXECUTION_FAILED",

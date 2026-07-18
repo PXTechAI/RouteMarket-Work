@@ -36,6 +36,14 @@ type ExternalJobControl = {
   aborted: Deferred;
   release: Deferred;
 };
+type ApprovalDecision = "approved" | "denied";
+type ApprovalJobControl = {
+  requested: Deferred;
+  resolved: Deferred;
+  release: Deferred;
+  decision: Promise<ApprovalDecision>;
+  resolveDecision: (decision: ApprovalDecision) => void;
+};
 type Deferred = {
   promise: Promise<void>;
   resolve: () => void;
@@ -68,6 +76,7 @@ describe.runIf(E2E_ENABLED)("CloudWorkerClient with a real local Core", () => {
   let client: CloudWorkerClient;
   let workerActivities: WorkerActivity[] = [];
   let externalJobControl: ExternalJobControl | null = null;
+  let approvalJobControl: ApprovalJobControl | null = null;
   let runtimeChannelOpened: Deferred;
 
   beforeAll(async () => {
@@ -115,6 +124,7 @@ describe.runIf(E2E_ENABLED)("CloudWorkerClient with a real local Core", () => {
         executeControlledExternalJob(
           worker,
           externalJobControl,
+          approvalJobControl,
           job,
           leaseId,
           leaseEpoch,
@@ -499,6 +509,200 @@ describe.runIf(E2E_ENABLED)("CloudWorkerClient with a real local Core", () => {
     }
   }, 60_000);
 
+  it("waits for local approval before completing a Desktop Job", async () => {
+    const state = client.getState();
+    const bindingId = projectBindingIdFor(project.localProjectId);
+    const fixture = await createApprovalWorkflowFixture({
+      prisma,
+      userId,
+      runtimeId: state.runtimeId!,
+      bindingId,
+      suffix: "approved",
+      url: "https://example.invalid/approved"
+    });
+    const control = createApprovalJobControl();
+    approvalJobControl = control;
+
+    let created: { jobId: string } | null = null;
+    try {
+      created = await workRequest<{ jobId: string }>("/jobs", {
+        method: "POST",
+        body: fixture.jobBody
+      });
+      const jobId = created.jobId;
+      await control.requested.promise;
+      await waitFor(async () => {
+        const [workflowRun, workflowNodeRun] = await Promise.all([
+          prisma.workflowRun.findUnique({ where: { id: fixture.run.id } }),
+          prisma.workflowNodeRun.findUnique({ where: { id: fixture.nodeRun.id } })
+        ]);
+        return (
+          workflowRun?.status === "waiting_approval" &&
+          workflowNodeRun?.status === "waiting_approval"
+        );
+      }, "Workflow did not enter waiting_approval.");
+
+      control.resolveDecision("approved");
+      await control.resolved.promise;
+      await waitFor(async () => {
+        const [workflowRun, workflowNodeRun] = await Promise.all([
+          prisma.workflowRun.findUnique({ where: { id: fixture.run.id } }),
+          prisma.workflowNodeRun.findUnique({ where: { id: fixture.nodeRun.id } })
+        ]);
+        return (
+          workflowRun?.status === "waiting_desktop" &&
+          workflowNodeRun?.status === "waiting_desktop"
+        );
+      }, "Approved Workflow did not return to waiting_desktop.");
+      control.release.resolve();
+
+      await waitFor(async () => {
+        const [job, workflowRun, workflowNodeRun] = await Promise.all([
+          prisma.desktopJob.findUnique({ where: { jobId } }),
+          prisma.workflowRun.findUnique({ where: { id: fixture.run.id } }),
+          prisma.workflowNodeRun.findUnique({ where: { id: fixture.nodeRun.id } })
+        ]);
+        return (
+          job?.status === "succeeded" &&
+          workflowRun?.status === "succeeded" &&
+          workflowNodeRun?.status === "succeeded"
+        );
+      }, "Approved Desktop Job did not complete.", 20_000);
+
+      const persistedJob = await prisma.desktopJob.findUnique({
+        where: { jobId },
+        include: { events: { orderBy: { sequence: "asc" } } }
+      });
+      expect(persistedJob.events.map((event: { type: string }) => event.type)).toEqual([
+        "job.accepted",
+        "job.started",
+        "approval.requested",
+        "approval.resolved",
+        "job.succeeded"
+      ]);
+      expect(persistedJob.events[3].payload).toMatchObject({
+        decision: "approved"
+      });
+    } catch (error) {
+      const diagnostics = await collectDiagnostics({
+        prisma,
+        worker,
+        client,
+        coreProcess,
+        runId: fixture.run.id,
+        nodeRunId: fixture.nodeRun.id,
+        jobId: created?.jobId ?? "not-created"
+      });
+      throw new Error(
+        `${error instanceof Error ? error.message : String(error)}\n${JSON.stringify(diagnostics, null, 2)}`
+      );
+    } finally {
+      control.resolveDecision("denied");
+      control.release.resolve();
+      approvalJobControl = null;
+    }
+  }, 60_000);
+
+  it("fails a Desktop Job when local approval is denied", async () => {
+    const state = client.getState();
+    const bindingId = projectBindingIdFor(project.localProjectId);
+    const fixture = await createApprovalWorkflowFixture({
+      prisma,
+      userId,
+      runtimeId: state.runtimeId!,
+      bindingId,
+      suffix: "denied",
+      url: "https://example.invalid/denied"
+    });
+    const control = createApprovalJobControl();
+    approvalJobControl = control;
+
+    let created: { jobId: string } | null = null;
+    try {
+      created = await workRequest<{ jobId: string }>("/jobs", {
+        method: "POST",
+        body: fixture.jobBody
+      });
+      const jobId = created.jobId;
+      await control.requested.promise;
+      await waitFor(async () => {
+        const [workflowRun, workflowNodeRun] = await Promise.all([
+          prisma.workflowRun.findUnique({ where: { id: fixture.run.id } }),
+          prisma.workflowNodeRun.findUnique({ where: { id: fixture.nodeRun.id } })
+        ]);
+        return (
+          workflowRun?.status === "waiting_approval" &&
+          workflowNodeRun?.status === "waiting_approval"
+        );
+      }, "Denied Workflow did not enter waiting_approval.");
+
+      control.resolveDecision("denied");
+      await control.resolved.promise;
+      await waitFor(async () => {
+        const [workflowRun, workflowNodeRun] = await Promise.all([
+          prisma.workflowRun.findUnique({ where: { id: fixture.run.id } }),
+          prisma.workflowNodeRun.findUnique({ where: { id: fixture.nodeRun.id } })
+        ]);
+        return (
+          workflowRun?.status === "waiting_desktop" &&
+          workflowNodeRun?.status === "waiting_desktop"
+        );
+      }, "Denied Workflow did not return to waiting_desktop after resolution.");
+      control.release.resolve();
+
+      await waitFor(async () => {
+        const [job, workflowRun, workflowNodeRun] = await Promise.all([
+          prisma.desktopJob.findUnique({ where: { jobId } }),
+          prisma.workflowRun.findUnique({ where: { id: fixture.run.id } }),
+          prisma.workflowNodeRun.findUnique({ where: { id: fixture.nodeRun.id } })
+        ]);
+        return (
+          job?.status === "failed" &&
+          workflowRun?.status === "failed" &&
+          workflowNodeRun?.status === "failed"
+        );
+      }, "Denied Desktop Job did not fail.", 20_000);
+
+      const persistedJob = await prisma.desktopJob.findUnique({
+        where: { jobId },
+        include: { events: { orderBy: { sequence: "asc" } } }
+      });
+      const persistedNode = await prisma.workflowNodeRun.findUnique({
+        where: { id: fixture.nodeRun.id }
+      });
+      expect(persistedJob.events.map((event: { type: string }) => event.type)).toEqual([
+        "job.accepted",
+        "job.started",
+        "approval.requested",
+        "approval.resolved",
+        "job.failed"
+      ]);
+      expect(persistedJob.error).toMatchObject({
+        code: "TOOL_APPROVAL_DENIED"
+      });
+      expect(persistedNode.error).toMatchObject({
+        code: "TOOL_APPROVAL_DENIED"
+      });
+    } catch (error) {
+      const diagnostics = await collectDiagnostics({
+        prisma,
+        worker,
+        client,
+        coreProcess,
+        runId: fixture.run.id,
+        nodeRunId: fixture.nodeRun.id,
+        jobId: created?.jobId ?? "not-created"
+      });
+      throw new Error(
+        `${error instanceof Error ? error.message : String(error)}\n${JSON.stringify(diagnostics, null, 2)}`
+      );
+    } finally {
+      control.resolveDecision("denied");
+      control.release.resolve();
+      approvalJobControl = null;
+    }
+  }, 60_000);
+
   it("rejects project escape attempts and stops retrying after device revocation", async () => {
     const state = client.getState();
     const bindingId = projectBindingIdFor(project.localProjectId);
@@ -705,6 +909,7 @@ function createTransport(
 async function executeControlledExternalJob(
   runtime: CloudJobRuntime,
   control: ExternalJobControl | null,
+  approvalControl: ApprovalJobControl | null,
   job: DesktopJob,
   leaseId: string,
   leaseEpoch: number,
@@ -714,6 +919,60 @@ async function executeControlledExternalJob(
   const began = runtime.beginExternalJob({ job, leaseId, leaseEpoch });
   if (!began.execute) return began.events;
   await emitEvents(began.events);
+  if (approvalControl) {
+    const approvalId = `approval_${job.jobId}`;
+    await emitEvents(runtime.recordExternalApproval({
+      job,
+      leaseId,
+      leaseEpoch,
+      eventType: "approval.requested",
+      data: {
+        approvalId,
+        capability: job.executorKey,
+        risk: job.approvalPolicy.risk
+      }
+    }));
+    approvalControl.requested.resolve();
+    const decision = await approvalControl.decision;
+    await emitEvents(runtime.recordExternalApproval({
+      job,
+      leaseId,
+      leaseEpoch,
+      eventType: "approval.resolved",
+      data: {
+        approvalId,
+        capability: job.executorKey,
+        risk: job.approvalPolicy.risk,
+        decision
+      }
+    }));
+    approvalControl.resolved.resolve();
+    await approvalControl.release.promise;
+    if (decision === "denied") {
+      return runtime.failExternalJob({
+        job,
+        leaseId,
+        leaseEpoch,
+        failure: {
+          code: "TOOL_APPROVAL_DENIED",
+          message: "The local tool request was denied."
+        }
+      });
+    }
+    const outputUrl =
+      "url" in job.input && typeof job.input.url === "string"
+        ? job.input.url
+        : "";
+    return runtime.completeExternalJob({
+      job,
+      leaseId,
+      leaseEpoch,
+      result: {
+        text: `Opened ${outputUrl}`,
+        url: outputUrl
+      }
+    });
+  }
   if (!control) {
     return runtime.failExternalJob({
       job,
@@ -775,6 +1034,111 @@ function deferred(): Deferred {
     resolvePromise = resolve;
   });
   return { promise, resolve: resolvePromise };
+}
+
+function createApprovalJobControl(): ApprovalJobControl {
+  let resolveDecision!: (decision: ApprovalDecision) => void;
+  const decision = new Promise<ApprovalDecision>((resolvePromise) => {
+    resolveDecision = resolvePromise;
+  });
+  return {
+    requested: deferred(),
+    resolved: deferred(),
+    release: deferred(),
+    decision,
+    resolveDecision
+  };
+}
+
+async function createApprovalWorkflowFixture(input: {
+  prisma: PrismaClientLike;
+  userId: string;
+  runtimeId: string;
+  bindingId: string;
+  suffix: string;
+  url: string;
+}) {
+  const nodeId = `desktop_browser_${input.suffix}`;
+  const graphSnapshot = {
+    nodes: [
+      {
+        id: nodeId,
+        title: `Open ${input.suffix} fixture`,
+        nodeType: "desktop.local_browser_navigate",
+        kind: "workflow",
+        executionMode: "transform",
+        joinStrategy: "passthrough",
+        prompt: null,
+        model: null,
+        resourceType: null,
+        resourceUrl: null,
+        resourceMimeType: null,
+        resourceFileName: null,
+        storyboardSourceMode: null,
+        generationOutput: null,
+        generationSize: null,
+        generationDurationSeconds: null,
+        generationQuality: null,
+        generationStyle: null,
+        generationCount: null,
+        inputPorts: [],
+        outputPorts: [
+          {
+            id: "text-output",
+            label: "Text",
+            accepts: [],
+            produces: ["text"],
+            required: false
+          }
+        ],
+        runtime: { executorKey: "local.browser.navigate" },
+        channelGroupBindings: {},
+        desktopRuntimeId: input.runtimeId,
+        desktopProjectBindingId: input.bindingId,
+        desktopUrl: input.url
+      }
+    ],
+    edges: []
+  };
+  const run = await input.prisma.workflowRun.create({
+    data: {
+      userId: input.userId,
+      status: "waiting_desktop",
+      graphSnapshot
+    }
+  });
+  const nodeRun = await input.prisma.workflowNodeRun.create({
+    data: {
+      runId: run.id,
+      nodeId,
+      executorKey: "local.browser.navigate",
+      executorFamily: "desktop",
+      stage: 1,
+      status: "waiting_desktop",
+      attempts: 0
+    }
+  });
+  return {
+    run,
+    nodeRun,
+    jobBody: {
+      runtime_id: input.runtimeId,
+      project_binding_id: input.bindingId,
+      workflow_run_id: run.id,
+      workflow_node_run_id: nodeRun.id,
+      executor_key: "local.browser.navigate",
+      executor_version: 1,
+      input: { url: input.url },
+      required_capabilities: ["local.browser.navigate"],
+      execution_class: "external_side_effect",
+      approval_policy: { risk: "R1", mode: "invocation" },
+      idempotency_key: `sha256:${createHash("sha256")
+        .update(`core-e2e-approval-${input.suffix}:${run.id}`)
+        .digest("hex")}`,
+      deadline_at: new Date(Date.now() + 60_000).toISOString(),
+      max_inline_result_bytes: 262_144
+    }
+  };
 }
 
 async function assertPortAvailable(port: number) {
