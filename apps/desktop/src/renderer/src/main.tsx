@@ -5,6 +5,7 @@ import "./styles.css";
 import "./styles/tokens.css";
 import "./app/app-shell.css";
 import "./app/account-menu.css";
+import "./app/activity-menu.css";
 import "./features/projects/project-sidebar.css";
 import "./features/chat/chat.css";
 import "./features/browser/browser.css";

@@ -6,9 +6,7 @@ import {
   Folder,
   FolderOpen,
   GitBranch,
-  Globe2,
   LoaderCircle,
-  MessageSquare,
   Play,
   Plug,
   RefreshCw,
@@ -17,7 +15,6 @@ import {
   Square,
   SquareTerminal,
   Trash2,
-  Workflow,
   X
 } from "lucide-react";
 import {
@@ -2044,11 +2041,7 @@ export function App() {
       />
       <GlobalHeader
         activeView={workspaceView}
-        activityCount={state.activities.length}
-        onSelect={(view) => {
-          if (view === "browser") setBrowserScreenshot(null);
-          setWorkspaceView(view);
-        }}
+        activities={state.activities}
       />
       <ProjectSidebar
         state={state}
@@ -2104,14 +2097,7 @@ export function App() {
           </div>
         </header>
 
-        <div className="workspace-tabs" role="tablist">
-          <button
-            className={`tab ${workspaceView === "chat" ? "active" : ""}`}
-            type="button"
-            onClick={() => setWorkspaceView("chat")}
-          >
-            <MessageSquare size={15} />对话
-          </button>
+        <div className="workspace-tabs" role="navigation" aria-label="项目工具">
           <button
             className={`tab ${workspaceView === "files" ? "active" : ""}`}
             type="button"
@@ -2124,24 +2110,6 @@ export function App() {
             type="button"
             onClick={() => setWorkspaceView("terminal")}
           ><SquareTerminal size={15} />终端</button>
-          <button
-            className={`tab ${workspaceView === "browser" ? "active" : ""}`}
-            type="button"
-            onClick={() => {
-              setBrowserScreenshot(null);
-              setWorkspaceView("browser");
-            }}
-          ><Globe2 size={15} />浏览器</button>
-          <button
-            className={`tab ${workspaceView === "workflow" ? "active" : ""}`}
-            type="button"
-            onClick={() => setWorkspaceView("workflow")}
-          ><Workflow size={15} />工作流</button>
-          <button
-            className={`tab ${workspaceView === "mcp" ? "active" : ""}`}
-            type="button"
-            onClick={() => setWorkspaceView("mcp")}
-          ><Plug size={15} />Local MCP</button>
           <button
             className={`tab ${workspaceView === "changes" ? "active" : ""}`}
             type="button"

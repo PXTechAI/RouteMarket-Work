@@ -1,70 +1,38 @@
-import { Bell, Globe2, MessageSquare, Workflow } from "lucide-react";
-
-type GlobalView = "chat" | "workflow" | "browser";
+import { ChevronRight } from "lucide-react";
+import type { ActivityItem } from "../../../shared/desktop-api";
+import { ActivityMenu } from "./ActivityMenu";
 
 export function GlobalHeader({
   activeView,
-  activityCount,
-  onSelect
+  activities
 }: {
   activeView: string;
-  activityCount: number;
-  onSelect(view: GlobalView): void;
+  activities: ActivityItem[];
 }) {
   return (
     <header className="rm-global-header">
-      <div className="rm-global-brand">
-        <strong>RouteMarket</strong>
-        <span>Work</span>
+      <div className="rm-global-context">
+        <span className="rm-global-app-name">RouteMarket Work</span>
+        <ChevronRight size={13} />
+        <strong>{viewLabel(activeView)}</strong>
       </div>
-      <nav className="rm-global-tabs" aria-label="工作区">
-        <GlobalTab
-          active={activeView === "chat"}
-          icon={<MessageSquare size={15} />}
-          label="对话"
-          onClick={() => onSelect("chat")}
-        />
-        <GlobalTab
-          active={activeView === "workflow"}
-          icon={<Workflow size={15} />}
-          label="工作流"
-          onClick={() => onSelect("workflow")}
-        />
-        <GlobalTab
-          active={activeView === "browser"}
-          icon={<Globe2 size={15} />}
-          label="浏览器"
-          onClick={() => onSelect("browser")}
-        />
-      </nav>
       <div className="rm-global-spacer" />
-      <button className="rm-notification-button" type="button" title="本机活动">
-        <Bell size={16} />
-        <span>活动</span>
-        {activityCount > 0 && <b>{activityCount}</b>}
-      </button>
+      <ActivityMenu activities={activities} />
     </header>
   );
 }
-function GlobalTab({
-  active,
-  icon,
-  label,
-  onClick
-}: {
-  active: boolean;
-  icon: React.ReactNode;
-  label: string;
-  onClick(): void;
-}) {
-  return (
-    <button
-      className={`rm-global-tab ${active ? "active" : ""}`}
-      type="button"
-      onClick={onClick}
-    >
-      {icon}
-      <span>{label}</span>
-    </button>
-  );
+
+function viewLabel(view: string) {
+  const labels: Record<string, string> = {
+    chat: "对话",
+    files: "项目文件",
+    terminal: "本地终端",
+    browser: "浏览器",
+    workflow: "工作流",
+    mcp: "Local MCP",
+    changes: "更改审查",
+    versions: "版本历史",
+    approvals: "审批中心"
+  };
+  return labels[view] ?? "工作区";
 }
