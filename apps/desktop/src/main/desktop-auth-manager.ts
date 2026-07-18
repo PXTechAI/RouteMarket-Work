@@ -49,6 +49,12 @@ type ExchangeResponse = {
     id: string;
     display_name: string;
     email: string | null;
+    membership?: {
+      plan_code: string;
+      plan_name: string;
+      status: string;
+      expires_at: string;
+    } | null;
   };
 };
 
@@ -234,7 +240,19 @@ export class DesktopAuthManager {
         account: {
           id: result.account.id,
           displayName: result.account.display_name,
-          email: result.account.email
+          email: result.account.email,
+          ...(result.account.membership !== undefined
+            ? {
+                membership: result.account.membership
+                  ? {
+                      planCode: result.account.membership.plan_code,
+                      planName: result.account.membership.plan_name,
+                      status: result.account.membership.status,
+                      expiresAt: result.account.membership.expires_at
+                    }
+                  : null
+              }
+            : {})
         }
       };
       const committed = await this.mutateCredentials(async () => {
@@ -370,7 +388,21 @@ function isExchangeResponse(value: unknown): value is ExchangeResponse {
     Array.isArray(response.scopes) &&
     Boolean(response.account) &&
     typeof response.account?.id === "string" &&
-    typeof response.account?.display_name === "string"
+    typeof response.account?.display_name === "string" &&
+    isMembershipResponse(response.account?.membership)
+  );
+}
+
+function isMembershipResponse(
+  membership: ExchangeResponse["account"]["membership"]
+) {
+  if (membership === undefined || membership === null) return true;
+  return (
+    typeof membership === "object" &&
+    typeof membership.plan_code === "string" &&
+    typeof membership.plan_name === "string" &&
+    typeof membership.status === "string" &&
+    typeof membership.expires_at === "string"
   );
 }
 

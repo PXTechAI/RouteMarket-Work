@@ -1,0 +1,127 @@
+.rm-model-picker {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr) 13px;
+  align-items: center;
+  gap: 5px;
+  min-width: 142px;
+  max-width: 210px;
+  height: 28px;
+  padding: 0 7px;
+  color: var(--rm-accent);
+  background: var(--rm-accent-soft);
+  border: 1px solid rgb(65 98 255 / 18%);
+  border-radius: 6px;
+}
+
+.rm-model-picker:focus-within {
+  border-color: var(--rm-accent);
+  box-shadow: var(--rm-focus-ring);
+}
+
+.rm-model-picker select {
+  width: 100%;
+  min-width: 0;
+  height: 26px;
+  padding: 0;
+  color: var(--rm-text);
+  background: transparent;
+  border: 0;
+  outline: none;
+  appearance: none;
+  font: inherit;
+  font-size: 10px;
+}
+
+.rm-model-picker select:disabled {
+  color: var(--rm-text-weak);
+  cursor: not-allowed;
+}
+
+.chat-empty {
+  color: var(--rm-text-muted);
+}
+
+.chat-empty-icon,
+.blank-icon {
+  color: var(--rm-accent);
+  background: var(--rm-accent-soft);
+  border-color: rgb(65 98 255 / 18%);
+}
+
+.chat-empty h2,
+.message-meta strong,
+.message-text {
+  color: var(--rm-text);
+}
+
+.message-list {
+  width: min(100%, 920px);
+  padding: 28px 18px 46px;
+}
+
+.chat-message {
+  border-bottom-color: var(--rm-border);
+}
+
+.message-avatar {
+  color: #fff;
+  background: var(--rm-brand-gradient);
+  border-color: transparent;
+}
+
+.chat-message.user {
+  grid-template-columns: minmax(0, 1fr) 30px;
+  width: min(78%, 720px);
+  margin-left: auto;
+  border-bottom: 0;
+}
+
+.chat-message.user .message-avatar {
+  grid-column: 2;
+  grid-row: 1;
+  color: var(--rm-accent);
+  background: var(--rm-accent-soft);
+  border-color: rgb(65 98 255 / 18%);
+}
+
+.chat-message.user .message-content {
+  grid-column: 1;
+  grid-row: 1;
+  padding: 11px 13px;
+  background: var(--rm-accent-soft);
+  border: 1px solid rgb(65 98 255 / 12%);
+  border-radius: 8px;
+}
+
+.chat-message.user .message-meta {
+  justify-content: flex-end;
+}
+
+.message-meta time {
+  color: var(--rm-text-weak);
+}
+
+.message-context {
+  color: var(--rm-accent);
+  background: var(--rm-accent-soft);
+  border-color: rgb(65 98 255 / 14%);
+}
+
+.context-chip button {
+  color: var(--rm-text-muted);
+}
+
+.context-chip button:hover {
+  color: var(--rm-accent);
+  background: var(--rm-accent-soft-strong);
+}
+
+@media (max-width: 860px) {
+  .chat-message.user {
+    width: 92%;
+  }
+
+  .rm-model-picker {
+    min-width: 126px;
+  }
+}

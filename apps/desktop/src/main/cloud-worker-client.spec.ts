@@ -1,5 +1,7 @@
+import { EventEmitter } from "node:events";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { JobEvent } from "@routemarket/work-protocol";
+import type { DesktopJob, JobEvent } from "@routemarket/work-protocol";
+import WebSocket from "ws";
 import {
   CloudWorkerClient,
   type CloudWorkerTransport
@@ -9,6 +11,30 @@ const runtimeResponse = {
   runtime_id: "runtime_test",
   manifest_revision: 0
 };
+
+class MockRuntimeSocket extends EventEmitter {
+  readyState: number = WebSocket.CONNECTING;
+  readonly sent: string[] = [];
+
+  send(value: string): void {
+    this.sent.push(value);
+  }
+
+  open(): void {
+    this.readyState = WebSocket.OPEN;
+    this.emit("open");
+  }
+
+  receive(value: unknown): void {
+    this.emit("message", Buffer.from(JSON.stringify(value)));
+  }
+
+  close(): void {
+    if (this.readyState === WebSocket.CLOSED) return;
+    this.readyState = WebSocket.CLOSED;
+    this.emit("close");
+  }
+}
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -21,7 +47,11 @@ function createWorker(overrides: Partial<CloudWorkerTransport> = {}): CloudWorke
   return {
     listProjects: vi.fn(async () => []),
     executeJob: vi.fn(async () => []),
+    listMcpServers: vi.fn(async () => []),
+    cancelJob: vi.fn(async () => []),
     pendingEvents: vi.fn(async () => []),
+    eventsFrom: vi.fn(async () => []),
+    recoveryState: vi.fn(async () => []),
     acknowledgeEvent: vi.fn(async () => ({ acknowledged: true as const })),
     ...overrides
   };
@@ -29,7 +59,14 @@ function createWorker(overrides: Partial<CloudWorkerTransport> = {}): CloudWorke
 
 function createClient(
   workerClient: CloudWorkerTransport,
-  onActivity = vi.fn()
+  onActivity = vi.fn(),
+  executeDesktopJob?: (
+    job: DesktopJob,
+    leaseId: string,
+    leaseEpoch: number,
+    signal: AbortSignal,
+    emitEvents: (events: JobEvent[]) => Promise<void>
+  ) => Promise<JobEvent[]>
 ): CloudWorkerClient {
   return new CloudWorkerClient({
     apiBaseUrl: "https://api.example.test",
@@ -40,7 +77,9 @@ function createClient(
     appVersion: "0.1.0",
     workerVersion: "0.1.0",
     workerClient,
-    onActivity
+    onActivity,
+    executeDesktopJob,
+    socketFactory: false
   });
 }
 
@@ -172,14 +211,16 @@ describe("CloudWorkerClient", () => {
       method: "PUT",
       body: {
         revision: 1,
-        capabilities: [
+        capabilities: expect.arrayContaining([
           {
             key: "local.fs.read",
             version: 1,
             risk: "R0",
             operations: ["read_text", "stat", "list"]
-          }
-        ],
+          },
+          expect.objectContaining({ key: "local.browser.navigate", risk: "R1" }),
+          expect.objectContaining({ key: "local.mcp.call", risk: "R2" })
+        ]),
         projects: [
           {
             localProjectId: "project_local_1",
@@ -197,7 +238,11 @@ describe("CloudWorkerClient", () => {
           body: expect.objectContaining({
             runtime_id: "runtime_test",
             local_project_id: "project_local_1",
-            capabilities: ["local.fs.read"]
+            capabilities: expect.arrayContaining([
+              "local.fs.read",
+              "local.browser.navigate",
+              "local.mcp.call"
+            ])
           })
         }),
         expect.objectContaining({
@@ -211,6 +256,332 @@ describe("CloudWorkerClient", () => {
       ])
     );
     expect(acknowledgeEvent).toHaveBeenCalledWith("event_1");
+    client.stop();
+  });
+
+  it("routes non-filesystem Desktop Jobs through the approved main-process executor", async () => {
+    const browserJob: DesktopJob = {
+      jobId: "job_browser_1",
+      workflowRunId: "workflow_run_1",
+      workflowNodeRunId: "workflow_node_1",
+      runtimeId: "runtime_test",
+      projectBindingId: "binding_test_1",
+      executorKey: "local.browser.navigate",
+      executorVersion: 1,
+      input: { url: "https://example.com" },
+      requiredCapabilities: ["local.browser.navigate"],
+      executionClass: "external_side_effect",
+      approvalPolicy: { risk: "R1", mode: "invocation" },
+      idempotencyKey: `sha256:${"a".repeat(64)}`,
+      deadlineAt: "2026-07-19T00:00:00.000Z",
+      maxInlineResultBytes: 65_536
+    };
+    const accepted = { ...browserJob, leaseId: "lease_browser_1", leaseEpoch: 1 };
+    const succeeded: JobEvent = {
+      eventId: "event_browser_1",
+      jobId: browserJob.jobId,
+      runtimeId: browserJob.runtimeId,
+      leaseId: "lease_browser_1",
+      leaseEpoch: 1,
+      seq: 3,
+      eventType: "job.succeeded",
+      occurredAt: "2026-07-18T00:00:00.000Z",
+      data: { url: "https://example.com/" }
+    };
+    const executeDesktopJob = vi.fn(async () => [succeeded]);
+    const worker = createWorker();
+    let offered = false;
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/runtimes/register")) return jsonResponse(runtimeResponse);
+      if (url.endsWith("/capabilities")) return jsonResponse({});
+      if (url.includes("/jobs/offers?")) {
+        if (offered) return jsonResponse({ items: [] });
+        offered = true;
+        return jsonResponse({ items: [accepted] });
+      }
+      if (url.endsWith("/jobs/job_browser_1/accept")) return jsonResponse(accepted);
+      if (url.endsWith("/jobs/job_browser_1/events")) return jsonResponse({ acknowledged: true });
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+    const client = createClient(worker, vi.fn(), executeDesktopJob);
+
+    await signIn(client);
+
+    expect(executeDesktopJob).toHaveBeenCalledWith(
+      browserJob,
+      "lease_browser_1",
+      1,
+      expect.any(AbortSignal),
+      expect.any(Function)
+    );
+    expect(worker.executeJob).not.toHaveBeenCalled();
+    client.stop();
+  });
+
+  it("applies an offline cancellation during reconnect and acknowledges its durable event", async () => {
+    const canceledEvent: JobEvent = {
+      eventId: "event_cancel_1",
+      jobId: "job_cancel_1",
+      runtimeId: "runtime_test",
+      leaseId: "lease_cancel_2",
+      leaseEpoch: 2,
+      seq: 3,
+      eventType: "job.canceled",
+      occurredAt: "2026-07-17T00:00:00.000Z",
+      data: {}
+    };
+    const cancelJob = vi.fn(async () => [canceledEvent]);
+    const acknowledgeEvent = vi.fn(async () => ({ acknowledged: true as const }));
+    const worker = createWorker({
+      recoveryState: vi.fn(async () => [{
+        jobId: "job_cancel_1",
+        leaseId: "lease_cancel_1",
+        leaseEpoch: 1,
+        localStatus: "running" as const,
+        lastProducedSeq: 2,
+        lastAckedSeq: 2
+      }]),
+      cancelJob,
+      acknowledgeEvent
+    });
+    const requests: string[] = [];
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input) => {
+      const url = String(input);
+      requests.push(url);
+      if (url.endsWith("/runtimes/register")) return jsonResponse(runtimeResponse);
+      if (url.endsWith("/capabilities")) return jsonResponse({});
+      if (url.endsWith("/jobs/job_cancel_1/reconcile")) {
+        return jsonResponse({
+          action: "cancel",
+          leaseId: "lease_cancel_2",
+          leaseEpoch: 2
+        });
+      }
+      if (url.endsWith("/jobs/job_cancel_1/events")) return jsonResponse({ acknowledged: true });
+      if (url.endsWith("/jobs/job_cancel_1/cancel-ack")) return jsonResponse({ acknowledged: true });
+      if (url.includes("/jobs/offers?")) return jsonResponse({ items: [] });
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+    const client = createClient(worker);
+
+    await signIn(client);
+
+    expect(cancelJob).toHaveBeenCalledWith("job_cancel_1", "lease_cancel_2", 2);
+    expect(acknowledgeEvent).toHaveBeenCalledWith("event_cancel_1");
+    expect(requests.findIndex((url) => url.endsWith("/reconcile"))).toBeLessThan(
+      requests.findIndex((url) => url.endsWith("/cancel-ack"))
+    );
+    client.stop();
+  });
+
+  it("resends only the requested unacknowledged sequence range during reconciliation", async () => {
+    const events: JobEvent[] = [1, 2, 3].map((seq) => ({
+      eventId: `event_resend_${seq}`,
+      jobId: "job_resend_1",
+      runtimeId: "runtime_test",
+      leaseId: "lease_resend_1",
+      leaseEpoch: 1,
+      seq,
+      eventType: seq === 3 ? "job.succeeded" : seq === 1 ? "job.accepted" : "job.started",
+      occurredAt: "2026-07-17T00:00:00.000Z",
+      data: {}
+    }));
+    const worker = createWorker({
+      recoveryState: vi.fn(async () => [{
+        jobId: "job_resend_1",
+        leaseId: "lease_resend_1",
+        leaseEpoch: 1,
+        localStatus: "succeeded" as const,
+        lastProducedSeq: 3,
+        lastAckedSeq: 1
+      }]),
+      pendingEvents: vi.fn(async () => events),
+      eventsFrom: vi.fn(async (_jobId, sequence) =>
+        events.filter((event) => event.seq >= sequence)
+      )
+    });
+    const sentSequences: number[] = [];
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input, init) => {
+      const url = String(input);
+      if (url.endsWith("/runtimes/register")) return jsonResponse(runtimeResponse);
+      if (url.endsWith("/capabilities")) return jsonResponse({});
+      if (url.endsWith("/jobs/job_resend_1/reconcile")) {
+        return jsonResponse({ action: "resend_from_seq", resendFromSeq: 2 });
+      }
+      if (url.endsWith("/jobs/job_resend_1/events")) {
+        sentSequences.push(JSON.parse(String(init?.body)).sequence);
+        return jsonResponse({ acknowledged: true });
+      }
+      if (url.includes("/jobs/offers?")) return jsonResponse({ items: [] });
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+    const client = createClient(worker);
+
+    await signIn(client);
+
+    expect(sentSequences.slice(0, 2)).toEqual([2, 3]);
+    client.stop();
+  });
+
+  it("authenticates the runtime channel, resumes state, responds to ping and handles cancellation", async () => {
+    const socket = new MockRuntimeSocket();
+    const socketFactory = vi.fn(() => socket as unknown as WebSocket);
+    const canceledEvent: JobEvent = {
+      eventId: "event_socket_cancel",
+      jobId: "job_socket_1",
+      runtimeId: "runtime_test",
+      leaseId: "lease_socket_1",
+      leaseEpoch: 1,
+      seq: 1,
+      eventType: "job.canceled",
+      occurredAt: "2026-07-17T00:00:00.000Z",
+      data: {}
+    };
+    const cancelJob = vi.fn(async () => [canceledEvent]);
+    const worker = createWorker({ cancelJob });
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/runtimes/register")) return jsonResponse(runtimeResponse);
+      if (url.endsWith("/capabilities")) return jsonResponse({});
+      if (url.endsWith("/jobs/job_socket_1/events")) return jsonResponse({ acknowledged: true });
+      if (url.endsWith("/jobs/job_socket_1/cancel-ack")) return jsonResponse({ acknowledged: true });
+      if (url.includes("/jobs/offers?")) return jsonResponse({ items: [] });
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+    const client = new CloudWorkerClient({
+      apiBaseUrl: "https://api.example.test",
+      installationId: "install_test",
+      deviceName: "Test Workstation",
+      platform: "windows",
+      arch: "x64",
+      appVersion: "0.1.0",
+      workerVersion: "0.1.0",
+      workerClient: worker,
+      onActivity: vi.fn(),
+      socketFactory
+    });
+
+    await signIn(client, "socket-token");
+    expect(socketFactory).toHaveBeenCalledWith(
+      "wss://api.example.test/api/app/v1/work/runtime-channel",
+      "socket-token"
+    );
+    socket.open();
+    await vi.waitFor(() => {
+      const types = socket.sent.map((message) => JSON.parse(message).type);
+      expect(types).toEqual(expect.arrayContaining(["runtime.hello", "runtime.resume"]));
+    });
+    socket.receive({
+      protocol: "routemarket-work/1",
+      messageId: "msg_ping_123",
+      type: "runtime.ping",
+      sentAt: "2026-07-17T00:00:00.000Z",
+      payload: {}
+    });
+    socket.receive({
+      protocol: "routemarket-work/1",
+      messageId: "msg_cancel_123",
+      type: "job.cancel",
+      sentAt: "2026-07-17T00:00:00.000Z",
+      payload: { jobId: "job_socket_1", leaseId: "lease_socket_1", leaseEpoch: 1 }
+    });
+    await vi.waitFor(() => expect(cancelJob).toHaveBeenCalledWith(
+      "job_socket_1",
+      "lease_socket_1",
+      1
+    ));
+    await vi.waitFor(() => {
+      const types = socket.sent.map((message) => JSON.parse(message).type);
+      expect(types).toEqual(expect.arrayContaining(["runtime.pong", "job.cancel_ack"]));
+    });
+    client.stop();
+  });
+
+  it("aborts an external Desktop executor when WSS cancellation wins during approval", async () => {
+    const socket = new MockRuntimeSocket();
+    const browserJob: DesktopJob = {
+      jobId: "job_abort_browser",
+      workflowRunId: "workflow_abort_1",
+      workflowNodeRunId: "node_abort_1",
+      runtimeId: "runtime_test",
+      projectBindingId: "binding_abort_1",
+      executorKey: "local.browser.click",
+      executorVersion: 1,
+      input: { selector: "#submit" },
+      requiredCapabilities: ["local.browser.click"],
+      executionClass: "external_side_effect",
+      approvalPolicy: { risk: "R2", mode: "invocation" },
+      idempotencyKey: `sha256:${"c".repeat(64)}`,
+      deadlineAt: "2026-07-19T00:00:00.000Z",
+      maxInlineResultBytes: 65_536
+    };
+    const accepted = { ...browserJob, leaseId: "lease_abort_1", leaseEpoch: 1 };
+    const canceled: JobEvent = {
+      eventId: "event_abort_cancel",
+      jobId: browserJob.jobId,
+      runtimeId: browserJob.runtimeId,
+      leaseId: "lease_abort_1",
+      leaseEpoch: 1,
+      seq: 3,
+      eventType: "job.canceled",
+      occurredAt: "2026-07-18T00:00:00.000Z",
+      data: {}
+    };
+    const worker = createWorker({ cancelJob: vi.fn(async () => [canceled]) });
+    let observedSignal: AbortSignal | null = null;
+    const executeDesktopJob = vi.fn(async (
+      _job: DesktopJob,
+      _leaseId: string,
+      _leaseEpoch: number,
+      signal: AbortSignal,
+      _emitEvents: (events: JobEvent[]) => Promise<void>
+    ) => {
+      observedSignal = signal;
+      await new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve(), { once: true }));
+      return [];
+    });
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/runtimes/register")) return jsonResponse(runtimeResponse);
+      if (url.endsWith("/capabilities")) return jsonResponse({});
+      if (url.includes("/jobs/offers?")) return jsonResponse({ items: [] });
+      if (url.endsWith(`/jobs/${browserJob.jobId}/accept`)) return jsonResponse(accepted);
+      if (url.endsWith(`/jobs/${browserJob.jobId}/events`)) return jsonResponse({ acknowledged: true });
+      if (url.endsWith(`/jobs/${browserJob.jobId}/cancel-ack`)) return jsonResponse({ acknowledged: true });
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+    const client = new CloudWorkerClient({
+      apiBaseUrl: "https://api.example.test",
+      installationId: "install_test",
+      deviceName: "Test Workstation",
+      platform: "windows",
+      arch: "x64",
+      appVersion: "0.1.0",
+      workerVersion: "0.1.0",
+      workerClient: worker,
+      executeDesktopJob,
+      onActivity: vi.fn(),
+      socketFactory: () => socket as unknown as WebSocket
+    });
+    await signIn(client);
+    socket.open();
+    socket.receive({
+      protocol: "routemarket-work/1",
+      messageId: "msg_offer_abort",
+      type: "job.offer",
+      sentAt: "2026-07-18T00:00:00.000Z",
+      payload: accepted
+    });
+    await vi.waitFor(() => expect(executeDesktopJob).toHaveBeenCalledOnce());
+    socket.receive({
+      protocol: "routemarket-work/1",
+      messageId: "msg_cancel_abort",
+      type: "job.cancel",
+      sentAt: "2026-07-18T00:00:01.000Z",
+      payload: { jobId: browserJob.jobId, leaseId: "lease_abort_1", leaseEpoch: 1 }
+    });
+    await vi.waitFor(() => expect(observedSignal?.aborted).toBe(true));
     client.stop();
   });
 

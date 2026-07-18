@@ -62,7 +62,11 @@
     "build": "electron-vite build",
     "build:local": "electron-vite build --mode desktop-local",
     "predev": "corepack pnpm --filter @routemarket/work-protocol build && corepack pnpm --filter @routemarket/work-worker-core build",
+    "predev:web": "corepack pnpm --filter @routemarket/work-protocol build && corepack pnpm --filter @routemarket/work-worker-core build",
+    "pretest": "corepack pnpm --filter @routemarket/work-protocol build && corepack pnpm --filter @routemarket/work-worker-core build",
+    "pretypecheck": "corepack pnpm --filter @routemarket/work-protocol build && corepack pnpm --filter @routemarket/work-worker-core build",
     "dev": "electron-vite dev",
+    "dev:web": "vite --config vite.renderer.config.ts",
     "dist:win": "corepack pnpm run build && electron-builder --win nsis --x64",
     "dist:win:dir": "corepack pnpm run build:local && electron-builder --win dir --x64",
     "dist:mac": "corepack pnpm run build && electron-builder --mac dmg",
@@ -75,12 +79,14 @@
     "@routemarket/work-worker-core": "workspace:*",
     "lucide-react": "^0.468.0",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "ws": "^8.21.1"
   },
   "devDependencies": {
     "@types/node": "^22.15.17",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
+    "@types/ws": "^8.18.1",
     "@vitejs/plugin-react": "^4.6.0",
     "electron": "^37.2.3",
     "electron-builder": "26.15.3",

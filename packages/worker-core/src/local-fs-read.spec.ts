@@ -5,6 +5,7 @@ import { join } from "node:path";
 import type { DesktopJob } from "@routemarket/work-protocol";
 import { afterEach, describe, expect, it } from "vitest";
 import { executeLocalFsRead } from "./local-fs-read";
+import { projectBindingIdFor } from "./project-binding";
 import { ProjectRegistry } from "./project-registry";
 
 const cleanups: Array<() => Promise<void>> = [];
@@ -33,7 +34,7 @@ function makeJob(localProjectId: string, uriPath = "README.md"): DesktopJob {
     workflowRunId: null,
     workflowNodeRunId: null,
     runtimeId: "runtime_phase0_test",
-    projectBindingId: "binding_phase0_test",
+    projectBindingId: projectBindingIdFor(localProjectId),
     executorKey: "local.fs.read",
     executorVersion: 1,
     input: {
@@ -91,6 +92,24 @@ describe("local.fs.read", () => {
       makeJob(fixture.project.localProjectId, "linked-outside/secret.txt")
     )).rejects.toMatchObject({
       code: "PROJECT_PATH_ESCAPE"
+    });
+  });
+
+  it("rejects a Job whose binding does not authorize the URI project", async () => {
+    const fixture = await createFixture();
+    const invalidJob = makeJob(fixture.project.localProjectId);
+    invalidJob.projectBindingId = projectBindingIdFor("project_someone_else");
+    await expect(executeLocalFsRead(fixture.registry, invalidJob)).rejects.toMatchObject({
+      code: "PROJECT_BINDING_INVALID"
+    });
+  });
+
+  it("rejects an expired Job before reading the project", async () => {
+    const fixture = await createFixture();
+    const expiredJob = makeJob(fixture.project.localProjectId);
+    expiredJob.deadlineAt = new Date(Date.now() - 1_000).toISOString();
+    await expect(executeLocalFsRead(fixture.registry, expiredJob)).rejects.toMatchObject({
+      code: "JOB_DEADLINE_EXCEEDED"
     });
   });
 });

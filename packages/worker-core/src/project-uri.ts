@@ -1,5 +1,5 @@
 import { realpath } from "node:fs/promises";
-import { isAbsolute, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { LocalProject } from "./project-registry";
 import { WorkerError } from "./errors";
 
@@ -62,6 +62,28 @@ export async function resolveProjectFile(project: LocalProject, relativePath: st
   });
   assertWithinRoot(project.realRootPath, realCandidate);
   return realCandidate;
+}
+
+export async function resolveNewProjectFile(
+  project: LocalProject,
+  relativePath: string
+): Promise<string> {
+  const candidate = resolve(project.realRootPath, relativePath);
+  assertWithinRoot(project.realRootPath, candidate);
+  const fileName = basename(candidate);
+  if (!fileName || fileName === "." || fileName === "..") {
+    throw new WorkerError("PROJECT_URI_INVALID", "A new project file requires a file name.");
+  }
+  const realParent = await realpath(dirname(candidate)).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT") {
+      throw new WorkerError("PROJECT_PARENT_NOT_FOUND", "The destination directory does not exist.");
+    }
+    throw error;
+  });
+  assertWithinRoot(project.realRootPath, realParent);
+  const target = join(realParent, fileName);
+  assertWithinRoot(project.realRootPath, target);
+  return target;
 }
 
 function assertWithinRoot(rootPath: string, candidatePath: string): void {

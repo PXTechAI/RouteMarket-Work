@@ -9,10 +9,106 @@ const api: RouteMarketWorkApi = {
   signIn: () => ipcRenderer.invoke("work:sign-in"),
   signOut: () => ipcRenderer.invoke("work:sign-out"),
   chooseProject: () => ipcRenderer.invoke("work:choose-project"),
+  getProjectContext: (localProjectId) =>
+    ipcRenderer.invoke("work:get-project-context", localProjectId),
+  getWorkflowNodeRegistry: (localProjectId) =>
+    ipcRenderer.invoke("work:get-workflow-node-registry", localProjectId),
   listProjectFiles: (localProjectId) =>
     ipcRenderer.invoke("work:list-project-files", localProjectId),
+  searchProject: (localProjectId, query) =>
+    ipcRenderer.invoke("work:search-project", localProjectId, query),
   readProjectFile: (localProjectId, relativePath) =>
     ipcRenderer.invoke("work:read-project-file", localProjectId, relativePath),
+  readProjectAsset: (localProjectId, relativePath) =>
+    ipcRenderer.invoke("work:read-project-asset", localProjectId, relativePath),
+  writeProjectFile: (localProjectId, relativePath, text, expectedSha256) =>
+    ipcRenderer.invoke(
+      "work:write-project-file",
+      localProjectId,
+      relativePath,
+      text,
+      expectedSha256
+    ),
+  createProjectFile: (localProjectId, relativePath, text) =>
+    ipcRenderer.invoke("work:create-project-file", localProjectId, relativePath, text),
+  listProjectFileVersions: (localProjectId, relativePath) =>
+    ipcRenderer.invoke("work:file-versions-list", localProjectId, relativePath),
+  readProjectFileVersion: (localProjectId, relativePath, versionId) =>
+    ipcRenderer.invoke("work:file-version-read", localProjectId, relativePath, versionId),
+  restoreProjectFileVersion: (localProjectId, relativePath, versionId) =>
+    ipcRenderer.invoke("work:file-version-restore", localProjectId, relativePath, versionId),
+  exportProjectFile: (localProjectId, relativePath, versionId) =>
+    ipcRenderer.invoke("work:file-export", localProjectId, relativePath, versionId),
+  startProcess: (localProjectId, executable, args) =>
+    ipcRenderer.invoke("work:start-process", localProjectId, executable, args),
+  listProcesses: () => ipcRenderer.invoke("work:list-processes"),
+  stopProcess: (processId) => ipcRenderer.invoke("work:stop-process", processId),
+  getBrowserState: (localProjectId) => ipcRenderer.invoke("work:browser-state", localProjectId),
+  showBrowser: (localProjectId, bounds) =>
+    ipcRenderer.invoke("work:browser-show", localProjectId, bounds),
+  hideBrowser: () => ipcRenderer.invoke("work:browser-hide"),
+  setBrowserBounds: (bounds) => ipcRenderer.invoke("work:browser-bounds", bounds),
+  createBrowserPage: (localProjectId, profileId) =>
+    ipcRenderer.invoke("work:browser-page-create", localProjectId, profileId),
+  selectBrowserPage: (localProjectId, pageId) =>
+    ipcRenderer.invoke("work:browser-page-select", localProjectId, pageId),
+  closeBrowserPage: (localProjectId, pageId) =>
+    ipcRenderer.invoke("work:browser-page-close", localProjectId, pageId),
+  createBrowserProfile: (localProjectId, input) =>
+    ipcRenderer.invoke("work:browser-profile-create", localProjectId, input),
+  updateBrowserProfile: (localProjectId, profileId, input) =>
+    ipcRenderer.invoke("work:browser-profile-update", localProjectId, profileId, input),
+  deleteBrowserProfile: (localProjectId, profileId) =>
+    ipcRenderer.invoke("work:browser-profile-delete", localProjectId, profileId),
+  navigateBrowser: (localProjectId, url, pageId) =>
+    ipcRenderer.invoke("work:browser-navigate", localProjectId, url, pageId),
+  browserBack: (localProjectId, pageId) =>
+    ipcRenderer.invoke("work:browser-back", localProjectId, pageId),
+  browserForward: (localProjectId, pageId) =>
+    ipcRenderer.invoke("work:browser-forward", localProjectId, pageId),
+  reloadBrowser: (localProjectId, pageId) =>
+    ipcRenderer.invoke("work:browser-reload", localProjectId, pageId),
+  setBrowserTakeover: (localProjectId, userTakeover, pageId) =>
+    ipcRenderer.invoke("work:browser-takeover", localProjectId, userTakeover, pageId),
+  clickBrowser: (localProjectId, selector, pageId) =>
+    ipcRenderer.invoke("work:browser-click", localProjectId, selector, pageId),
+  typeBrowser: (localProjectId, selector, text, pageId) =>
+    ipcRenderer.invoke("work:browser-type", localProjectId, selector, text, pageId),
+  extractBrowser: (localProjectId, selector, pageId) =>
+    ipcRenderer.invoke("work:browser-extract", localProjectId, selector, pageId),
+  screenshotBrowser: (localProjectId, pageId) =>
+    ipcRenderer.invoke("work:browser-screenshot", localProjectId, pageId),
+  discoverAttachedBrowser: (endpoint) =>
+    ipcRenderer.invoke("work:attached-browser-discover", endpoint),
+  connectAttachedBrowser: (endpoint, targetId) =>
+    ipcRenderer.invoke("work:attached-browser-connect", endpoint, targetId),
+  disconnectAttachedBrowser: () => ipcRenderer.invoke("work:attached-browser-disconnect"),
+  navigateAttachedBrowser: (url) => ipcRenderer.invoke("work:attached-browser-navigate", url),
+  clickAttachedBrowser: (selector) => ipcRenderer.invoke("work:attached-browser-click", selector),
+  typeAttachedBrowser: (selector, text) =>
+    ipcRenderer.invoke("work:attached-browser-type", selector, text),
+  extractAttachedBrowser: (selector) =>
+    ipcRenderer.invoke("work:attached-browser-extract", selector),
+  screenshotAttachedBrowser: () => ipcRenderer.invoke("work:attached-browser-screenshot"),
+  listLocalTriggers: (localProjectId) => ipcRenderer.invoke("work:local-trigger-list", localProjectId),
+  saveLocalTrigger: (input, triggerId) => ipcRenderer.invoke("work:local-trigger-save", input, triggerId),
+  removeLocalTrigger: (triggerId) => ipcRenderer.invoke("work:local-trigger-remove", triggerId),
+  fireLocalTrigger: (triggerId) => ipcRenderer.invoke("work:local-trigger-fire", triggerId),
+  listNativeAppConnectors: () => ipcRenderer.invoke("work:native-app-list"),
+  openNativeAppConnector: (connectorId, localProjectId, relativePath) =>
+    ipcRenderer.invoke("work:native-app-open", connectorId, localProjectId, relativePath),
+  listDesktopWorkflowDrafts: (localProjectId) => ipcRenderer.invoke("work:workflow-draft-list", localProjectId),
+  getDesktopWorkflowDraft: (localProjectId, workflowId) => ipcRenderer.invoke("work:workflow-draft-get", localProjectId, workflowId),
+  saveDesktopWorkflowDraft: (draft) => ipcRenderer.invoke("work:workflow-draft-save", draft),
+  deleteDesktopWorkflowDraft: (localProjectId, workflowId) => ipcRenderer.invoke("work:workflow-draft-delete", localProjectId, workflowId),
+  installMcpServer: (input) => ipcRenderer.invoke("work:mcp-install", input),
+  listMcpServers: () => ipcRenderer.invoke("work:mcp-list"),
+  startMcpServer: (serverId) => ipcRenderer.invoke("work:mcp-start", serverId),
+  stopMcpServer: (serverId) => ipcRenderer.invoke("work:mcp-stop", serverId),
+  removeMcpServer: (serverId) => ipcRenderer.invoke("work:mcp-remove", serverId),
+  refreshMcpTools: (serverId) => ipcRenderer.invoke("work:mcp-tools-refresh", serverId),
+  callMcpTool: (serverId, name, args) =>
+    ipcRenderer.invoke("work:mcp-tool-call", serverId, name, args),
   listChatModels: () => ipcRenderer.invoke("work:list-chat-models"),
   sendProjectMessage: (input) =>
     ipcRenderer.invoke("work:send-project-message", input),

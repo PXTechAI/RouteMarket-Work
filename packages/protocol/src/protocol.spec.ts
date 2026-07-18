@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   checkCapabilityManifest,
   checkDesktopJob,
+  checkDesktopNodeRegistry,
   checkEnvelope
 } from "./index";
 
@@ -31,5 +32,60 @@ describe("RouteMarket Work protocol fixtures", () => {
     };
     envelope.payload.input.uri = "C:\\Users\\someone\\secret.txt";
     expect(checkDesktopJob(envelope.payload).ok).toBe(false);
+  });
+
+  it("validates versioned Desktop Workflow node registries", () => {
+    expect(checkDesktopNodeRegistry({
+      revisionHash: `sha256:${"a".repeat(64)}`,
+      generatedAt: "2026-07-18T00:00:00.000Z",
+      definitions: [{
+        executorKey: "local.fs.read",
+        definitionVersion: 1,
+        source: "desktop_builtin",
+        executionTarget: "desktop",
+        inputSchema: { type: "object" },
+        outputSchema: { type: "object" },
+        requiredCapabilities: ["local.fs.read"],
+        portability: "portable",
+        definitionHash: `sha256:${"b".repeat(64)}`,
+        title: "Read file",
+        description: "Read a project file",
+        available: true,
+        blockedReason: null
+      }]
+    })).toEqual({ ok: true });
+  });
+
+  it("accepts a browser Desktop Job only with its required risk and capability", async () => {
+    const envelope = await readExample("job-offer.read-readme.json") as {
+      payload: Record<string, unknown>;
+    };
+    const browserJob = {
+      ...envelope.payload,
+      executorKey: "local.browser.navigate",
+      input: { url: "https://example.com" },
+      requiredCapabilities: ["local.browser.navigate"],
+      executionClass: "external_side_effect",
+      approvalPolicy: { risk: "R1", mode: "invocation" }
+    };
+    expect(checkDesktopJob(browserJob)).toEqual({ ok: true });
+    expect(checkDesktopJob({
+      ...browserJob,
+      approvalPolicy: { risk: "R0", mode: "project_grant" }
+    }).ok).toBe(false);
+  });
+
+  it("accepts a native app open job only for a known connector", async () => {
+    const envelope = await readExample("job-offer.read-readme.json") as { payload: Record<string, unknown> };
+    const appJob = {
+      ...envelope.payload,
+      executorKey: "local.app.open",
+      input: { connectorId: "excel", relativePath: "reports/summary.xlsx" },
+      requiredCapabilities: ["local.app.open"],
+      executionClass: "external_side_effect",
+      approvalPolicy: { risk: "R2", mode: "invocation" }
+    };
+    expect(checkDesktopJob(appJob)).toEqual({ ok: true });
+    expect(checkDesktopJob({ ...appJob, input: { connectorId: "unknown" } }).ok).toBe(false);
   });
 });

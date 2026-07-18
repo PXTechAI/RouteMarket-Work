@@ -1,0 +1,210 @@
+.rm-account-menu-root {
+  position: relative;
+  display: grid;
+  place-items: center;
+}
+
+.rm-rail-account {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  color: #fff;
+  background: var(--rm-brand-gradient);
+  border: 1px solid rgb(255 255 255 / 18%);
+  border-radius: 7px;
+  box-shadow: 0 5px 16px rgb(0 0 0 / 18%);
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 750;
+}
+
+.rm-rail-account:hover,
+.rm-rail-account.active {
+  border-color: rgb(255 255 255 / 48%);
+  box-shadow: 0 0 0 2px rgb(65 98 255 / 28%);
+}
+
+.rm-account-presence {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 8px;
+  height: 8px;
+  background: #7c8498;
+  border: 2px solid var(--rm-rail);
+  border-radius: 50%;
+}
+
+.rm-account-presence.online {
+  background: var(--rm-success);
+}
+
+.rm-account-menu {
+  position: fixed;
+  bottom: 12px;
+  left: 66px;
+  z-index: 100;
+  display: grid;
+  width: 286px;
+  overflow: hidden;
+  color: var(--rm-text);
+  background: var(--rm-surface);
+  border: 1px solid var(--rm-border-strong);
+  border-radius: 8px;
+  box-shadow: var(--rm-shadow-menu);
+}
+
+.rm-account-menu-profile {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  padding: 14px;
+  border-bottom: 1px solid var(--rm-border);
+}
+
+.rm-account-menu-avatar {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  color: #fff;
+  background: var(--rm-brand-gradient);
+  border-radius: 7px;
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.rm-account-menu-profile > div:last-child {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.rm-account-menu-profile strong,
+.rm-account-menu-profile span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rm-account-menu-profile strong {
+  font-size: 12px;
+}
+
+.rm-account-menu-profile span {
+  color: var(--rm-text-muted);
+  font-size: 10px;
+}
+
+.rm-membership-summary {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  gap: 8px;
+  margin: 12px 12px 0;
+  padding: 10px;
+  color: var(--rm-accent);
+  background: var(--rm-accent-soft);
+  border: 1px solid var(--rm-accent-soft-strong);
+  border-radius: 7px;
+}
+
+.rm-membership-summary > div {
+  display: grid;
+  gap: 2px;
+}
+
+.rm-membership-summary span,
+.rm-membership-summary small {
+  color: var(--rm-text-muted);
+  font-size: 9px;
+}
+
+.rm-membership-summary strong {
+  color: var(--rm-text);
+  font-size: 11px;
+}
+
+.rm-account-menu-section {
+  display: grid;
+  gap: 7px;
+  padding: 12px;
+}
+
+.rm-account-menu-label {
+  color: var(--rm-text-muted);
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.rm-theme-control {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 2px;
+  padding: 3px;
+  background: var(--rm-surface-muted);
+  border: 1px solid var(--rm-border);
+  border-radius: 7px;
+}
+
+.rm-theme-control button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: 30px;
+  padding: 0 5px;
+  color: var(--rm-text-muted);
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 9px;
+}
+
+.rm-theme-control button:hover {
+  color: var(--rm-text);
+}
+
+.rm-theme-control button.active {
+  color: var(--rm-accent);
+  background: var(--rm-surface);
+  box-shadow: 0 1px 4px rgb(17 24 39 / 10%);
+}
+
+.rm-account-session-action {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 39px;
+  padding: 0 14px;
+  color: var(--rm-text-muted);
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-top: 1px solid var(--rm-border);
+  cursor: pointer;
+  font-size: 10px;
+}
+
+.rm-account-session-action:hover {
+  color: var(--rm-text);
+  background: var(--rm-surface-muted);
+}
+
+.rm-account-session-action:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+@media (max-width: 420px) {
+  .rm-account-menu {
+    right: 10px;
+    left: 60px;
+    width: auto;
+  }
+}

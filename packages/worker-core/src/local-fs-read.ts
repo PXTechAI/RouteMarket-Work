@@ -2,6 +2,7 @@ import { open } from "node:fs/promises";
 import type { DesktopJob } from "@routemarket/work-protocol";
 import { assertDesktopJob } from "@routemarket/work-protocol";
 import { WorkerError } from "./errors";
+import { projectBindingIdFor } from "./project-binding";
 import { ProjectRegistry } from "./project-registry";
 import { parseProjectUri, resolveProjectFile } from "./project-uri";
 
@@ -11,6 +12,7 @@ export type LocalFsReadResult = {
   bytesRead: number;
   truncated: boolean;
   encoding: "utf8";
+  sha256: string;
 };
 
 export async function executeLocalFsRead(
@@ -19,6 +21,9 @@ export async function executeLocalFsRead(
 ): Promise<LocalFsReadResult> {
   assertDesktopJob(jobValue);
   const job: DesktopJob = jobValue;
+  if (Date.parse(job.deadlineAt) <= Date.now()) {
+    throw new WorkerError("JOB_DEADLINE_EXCEEDED", "The Job deadline has expired.");
+  }
   if (job.executorKey !== "local.fs.read") {
     throw new WorkerError("CAPABILITY_UNSUPPORTED", `Unsupported executor: ${job.executorKey}`);
   }
@@ -28,8 +33,11 @@ export async function executeLocalFsRead(
   if (!project) {
     throw new WorkerError("PROJECT_NOT_BOUND", "Project is not bound on this device.");
   }
-  if (job.projectBindingId.length < 8) {
-    throw new WorkerError("PROJECT_BINDING_INVALID", "Project binding is invalid.");
+  if (job.projectBindingId !== projectBindingIdFor(parsed.localProjectId)) {
+    throw new WorkerError(
+      "PROJECT_BINDING_INVALID",
+      "The Job project binding does not authorize the requested project."
+    );
   }
 
   const filePath = await resolveProjectFile(project, parsed.relativePath);
@@ -45,9 +53,11 @@ export async function executeLocalFsRead(
       text: resultBuffer.toString("utf8"),
       bytesRead: resultBuffer.byteLength,
       truncated,
-      encoding: "utf8"
+      encoding: "utf8",
+      sha256: `sha256:${createHash("sha256").update(resultBuffer).digest("hex")}`
     };
   } finally {
     await handle.close();
   }
 }
+import { createHash } from "node:crypto";

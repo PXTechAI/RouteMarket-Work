@@ -105,7 +105,13 @@ describe("DesktopAuthManager", () => {
         account: {
           id: "account_test",
           display_name: "RouteMarket User",
-          email: "user@example.test"
+          email: "user@example.test",
+          membership: {
+            plan_code: "pro",
+            plan_name: "RouteMarket Pro",
+            status: "active",
+            expires_at: "2027-07-18T00:00:00.000Z"
+          }
         }
       })
     );
@@ -128,7 +134,13 @@ describe("DesktopAuthManager", () => {
       account: {
         id: "account_test",
         displayName: "RouteMarket User",
-        email: "user@example.test"
+        email: "user@example.test",
+        membership: {
+          planCode: "pro",
+          planName: "RouteMarket Pro",
+          status: "active",
+          expiresAt: "2027-07-18T00:00:00.000Z"
+        }
       }
     });
     expect(onAccessToken).toHaveBeenCalledWith(`rmw_dt_${"a".repeat(43)}`);

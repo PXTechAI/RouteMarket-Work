@@ -5,18 +5,9 @@
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "jobId",
-    "runtimeId",
-    "projectBindingId",
-    "executorKey",
-    "executorVersion",
-    "input",
-    "requiredCapabilities",
-    "executionClass",
-    "approvalPolicy",
-    "idempotencyKey",
-    "deadlineAt",
-    "maxInlineResultBytes"
+    "jobId", "runtimeId", "projectBindingId", "executorKey", "executorVersion",
+    "input", "requiredCapabilities", "executionClass", "approvalPolicy",
+    "idempotencyKey", "deadlineAt", "maxInlineResultBytes"
   ],
   "properties": {
     "jobId": { "type": "string", "minLength": 8 },
@@ -24,46 +15,143 @@
     "workflowNodeRunId": { "type": ["string", "null"] },
     "runtimeId": { "type": "string", "minLength": 8 },
     "projectBindingId": { "type": "string", "minLength": 8 },
-    "executorKey": { "const": "local.fs.read" },
-    "executorVersion": { "const": 1 },
-    "input": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["uri"],
-      "properties": {
-        "uri": {
-          "type": "string",
-          "pattern": "^project://[A-Za-z0-9_-]{8,}/[^\\u0000]*$",
-          "maxLength": 4096
-        },
-        "maxBytes": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 262144,
-          "default": 65536
-        }
-      }
+    "executorKey": {
+      "enum": [
+        "local.fs.read", "local.browser.navigate", "local.browser.click",
+        "local.browser.type", "local.browser.extract", "local.browser.screenshot",
+        "local.mcp.call", "local.app.open"
+      ]
     },
+    "executorVersion": { "const": 1 },
+    "input": { "type": "object" },
     "requiredCapabilities": {
       "type": "array",
-      "const": ["local.fs.read"]
+      "minItems": 1,
+      "maxItems": 16,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1, "maxLength": 256 }
     },
-    "executionClass": { "const": "pure_read" },
+    "executionClass": { "enum": ["pure_read", "idempotent_write", "external_side_effect"] },
     "approvalPolicy": {
       "type": "object",
       "additionalProperties": false,
       "required": ["risk", "mode"],
       "properties": {
-        "risk": { "const": "R0" },
-        "mode": { "const": "project_grant" }
+        "risk": { "enum": ["R0", "R1", "R2", "R3"] },
+        "mode": { "enum": ["project_grant", "invocation"] }
       }
     },
     "idempotencyKey": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
     "deadlineAt": { "type": "string", "format": "date-time" },
-    "maxInlineResultBytes": {
-      "type": "integer",
-      "minimum": 1024,
-      "maximum": 262144
+    "maxInlineResultBytes": { "type": "integer", "minimum": 1024, "maximum": 262144 }
+  },
+  "oneOf": [
+    {
+      "properties": {
+        "executorKey": { "const": "local.fs.read" },
+        "input": {
+          "type": "object", "additionalProperties": false, "required": ["uri"],
+          "properties": {
+            "uri": { "type": "string", "pattern": "^project://[A-Za-z0-9_-]{8,}/[^\\u0000]*$", "maxLength": 4096 },
+            "maxBytes": { "type": "integer", "minimum": 1, "maximum": 262144, "default": 65536 }
+          }
+        },
+        "requiredCapabilities": { "const": ["local.fs.read"] },
+        "executionClass": { "const": "pure_read" },
+        "approvalPolicy": { "const": { "risk": "R0", "mode": "project_grant" } }
+      }
+    },
+    {
+      "properties": {
+        "executorKey": { "const": "local.browser.navigate" },
+        "input": {
+          "type": "object", "additionalProperties": false, "required": ["url"],
+          "properties": { "url": { "type": "string", "minLength": 1, "maxLength": 4096 } }
+        },
+        "requiredCapabilities": { "const": ["local.browser.navigate"] },
+        "executionClass": { "const": "external_side_effect" },
+        "approvalPolicy": { "const": { "risk": "R1", "mode": "invocation" } }
+      }
+    },
+    {
+      "properties": {
+        "executorKey": { "const": "local.browser.click" },
+        "input": {
+          "type": "object", "additionalProperties": false, "required": ["selector"],
+          "properties": { "selector": { "type": "string", "minLength": 1, "maxLength": 2048 } }
+        },
+        "requiredCapabilities": { "const": ["local.browser.click"] },
+        "executionClass": { "const": "external_side_effect" },
+        "approvalPolicy": { "const": { "risk": "R2", "mode": "invocation" } }
+      }
+    },
+    {
+      "properties": {
+        "executorKey": { "const": "local.browser.type" },
+        "input": {
+          "type": "object", "additionalProperties": false, "required": ["selector", "text"],
+          "properties": {
+            "selector": { "type": "string", "minLength": 1, "maxLength": 2048 },
+            "text": { "type": "string", "maxLength": 65536 }
+          }
+        },
+        "requiredCapabilities": { "const": ["local.browser.type"] },
+        "executionClass": { "const": "external_side_effect" },
+        "approvalPolicy": { "const": { "risk": "R2", "mode": "invocation" } }
+      }
+    },
+    {
+      "properties": {
+        "executorKey": { "const": "local.browser.extract" },
+        "input": {
+          "type": "object", "additionalProperties": false, "required": ["selector"],
+          "properties": { "selector": { "type": "string", "minLength": 1, "maxLength": 2048 } }
+        },
+        "requiredCapabilities": { "const": ["local.browser.extract"] },
+        "executionClass": { "const": "pure_read" },
+        "approvalPolicy": { "const": { "risk": "R0", "mode": "project_grant" } }
+      }
+    },
+    {
+      "properties": {
+        "executorKey": { "const": "local.browser.screenshot" },
+        "input": { "type": "object", "additionalProperties": false, "maxProperties": 0 },
+        "requiredCapabilities": { "const": ["local.browser.screenshot"] },
+        "executionClass": { "const": "pure_read" },
+        "approvalPolicy": { "const": { "risk": "R0", "mode": "project_grant" } }
+      }
+    },
+    {
+      "properties": {
+        "executorKey": { "const": "local.mcp.call" },
+        "input": {
+          "type": "object", "additionalProperties": false,
+          "required": ["serverId", "name", "arguments"],
+          "properties": {
+            "serverId": { "type": "string", "pattern": "^mcp_[A-Za-z0-9_-]+$", "maxLength": 256 },
+            "name": { "type": "string", "minLength": 1, "maxLength": 256 },
+            "arguments": { "type": "object" }
+          }
+        },
+        "requiredCapabilities": { "const": ["local.mcp.call"] },
+        "executionClass": { "const": "external_side_effect" },
+        "approvalPolicy": { "const": { "risk": "R2", "mode": "invocation" } }
+      }
+    },
+    {
+      "properties": {
+        "executorKey": { "const": "local.app.open" },
+        "input": {
+          "type": "object", "additionalProperties": false, "required": ["connectorId"],
+          "properties": {
+            "connectorId": { "enum": ["vscode", "excel", "powerpoint"] },
+            "relativePath": { "type": "string", "minLength": 1, "maxLength": 4096 }
+          }
+        },
+        "requiredCapabilities": { "const": ["local.app.open"] },
+        "executionClass": { "const": "external_side_effect" },
+        "approvalPolicy": { "const": { "risk": "R2", "mode": "invocation" } }
+      }
     }
-  }
+  ]
 }

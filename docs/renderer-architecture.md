@@ -30,10 +30,12 @@ apps/desktop/src/renderer/src/
       components/
       hooks/
       chat.css
-    workflows/
+    workflow/
       components/
       hooks/
-      workflows.css
+      WorkflowPage.tsx
+      types.ts
+      workflow.css
     browser/
       components/
       hooks/
@@ -50,6 +52,15 @@ apps/desktop/src/renderer/src/
 ```
 
 The structure may be introduced incrementally. New work must follow it even while legacy code is being migrated.
+
+Current extracted renderer surfaces:
+
+- `features/projects/` owns the project tree, account panel, and worker status.
+- `features/chat/` owns the project conversation page.
+- `features/browser/` owns Managed Browser and Attached Browser UI.
+- `features/workflow/` owns the canvas, node registry, local triggers, and native connectors.
+
+Feature API calls and effects may remain in the root `App.tsx` during the first extraction pass. Move them into `hooks/use<Feature>Controller.ts` only when the complete lifecycle can move together without duplicating state.
 
 ## File responsibilities
 
@@ -112,11 +123,46 @@ These are review thresholds, not automatic failures:
 - Keep Electron and local capability calls behind `RouteMarketWorkApi`.
 - Core remains the source for cloud account, membership, models, and orchestration contracts. Desktop remains the source for local execution state.
 
+## Feature controller boundary
+
+- Feature pages receive grouped, typed view models and action objects instead of long lists of unrelated props.
+- A feature controller hook owns feature-specific API calls, loading and error state, subscriptions, and effects once that lifecycle can move as one unit.
+- `App.tsx` owns only application-wide session, active project or page selection, and state shared across features.
+- Keep native resource refs and their effects together. For example, BrowserView bounds synchronization remains in the app-level owner until both the DOM ref and Electron lifecycle can move into one browser controller.
+- Migrate controllers incrementally while extracting each page; do not introduce a second global state layer only to complete the file split.
+
 ## Tests
 
 - Put component and helper tests next to the feature they cover.
 - Add focused tests for model selection, disabled states, page switching, and desktop capability boundaries.
 - Run desktop type checking, tests, and a local build before committing renderer architecture changes.
+
+## Development preview modes
+
+Use Web preview for fast renderer work:
+
+```powershell
+corepack pnpm dev:web
+```
+
+This serves the React renderer at `http://127.0.0.1:5175`. When the Electron
+preload bridge is absent in development, the renderer uses `previewApi` mock
+data. Web preview is suitable for layout, navigation, chat UI, model selection,
+workflow editing, and responsive checks.
+
+Use Electron development mode for desktop integration:
+
+```powershell
+corepack pnpm dev
+```
+
+Electron mode is required to verify local file access, native app connectors,
+MCP processes, managed or attached browser automation, operating-system
+dialogs, protocol login callbacks, local triggers, and IPC behavior. Web
+preview must never be treated as verification of those capabilities.
+
+The renderer preview owns port `5175`. Desktop development must not start,
+stop, inspect, or occupy RouteMarket Core port `3001`.
 
 ## Migration rule
 

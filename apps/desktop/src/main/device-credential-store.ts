@@ -6,6 +6,12 @@ export type DeviceAccount = {
   id: string;
   displayName: string;
   email: string | null;
+  membership?: {
+    planCode: string;
+    planName: string;
+    status: string;
+    expiresAt: string;
+  } | null;
 };
 
 export type DeviceCredentials = {

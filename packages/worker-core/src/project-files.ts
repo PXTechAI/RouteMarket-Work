@@ -2,6 +2,8 @@ import { opendir } from "node:fs/promises";
 import { join } from "node:path";
 import { WorkerError } from "./errors";
 import { ProjectRegistry } from "./project-registry";
+import { loadProjectContext } from "./project-context";
+import { createProjectIgnoreMatcher } from "./project-ignore";
 
 export type ProjectFileEntry = {
   name: string;
@@ -46,6 +48,9 @@ export async function listProjectFiles(
 
   const maxDepth = clampInteger(options.maxDepth, 1, 12, 6);
   const maxEntries = clampInteger(options.maxEntries, 1, 10_000, 1_500);
+  const shouldIgnore = createProjectIgnoreMatcher(
+    (await loadProjectContext(registry, localProjectId)).settings.ignore
+  );
   let totalEntries = 0;
   let truncated = false;
 
@@ -78,6 +83,7 @@ export async function listProjectFiles(
       const relativePath = relativeDirectory
         ? `${relativeDirectory}/${dirent.name}`
         : dirent.name;
+      if (shouldIgnore(relativePath)) continue;
       totalEntries += 1;
 
       if (dirent.isDirectory()) {

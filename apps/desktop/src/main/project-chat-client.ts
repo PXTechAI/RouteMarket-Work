@@ -220,12 +220,48 @@ function normalizeModel(value: unknown): ChatModel | null {
 }
 
 function buildSystemPrompt(input: ProjectChatRequest) {
-  return [
+  const lines = [
     "You are RouteMarket Work, an AI collaborator operating inside a local desktop project.",
     `Current project: ${input.project.displayName} (${input.project.localProjectId}).`,
     "Use the supplied local file context when relevant.",
     "Do not claim that you changed files, ran commands, or used local tools unless a later tool result explicitly confirms it."
-  ].join("\n");
+  ];
+  const context = input.projectContext;
+  if (context?.instructions) {
+    lines.push(
+      "The following project-owned AGENTS.md instructions apply subject to platform safety and approval policy:",
+      `<project-instructions path="${escapeMarkupAttribute(context.instructions.relativePath)}">`,
+      context.instructions.text,
+      "</project-instructions>"
+    );
+    if (context.instructions.truncated) lines.push("[Project instructions were truncated locally.]");
+  }
+  if (context?.skills.length) {
+    lines.push(
+      "Project-local Skills available on this device (metadata only; invocation still requires the local Tool Broker):",
+      ...context.skills.map((skill) =>
+        `- ${skill.name} (${skill.id}): ${skill.description || "No description"}`
+      )
+    );
+  }
+  if (input.projectSkill) {
+    lines.push(
+      "The user explicitly selected the following project-owned Skill for this request. Follow it subject to platform safety, project boundaries, and local approval policy:",
+      `<project-skill id="${escapeMarkupAttribute(input.projectSkill.id)}" path="${escapeMarkupAttribute(input.projectSkill.relativePath)}">`,
+      input.projectSkill.text,
+      "</project-skill>"
+    );
+    if (input.projectSkill.truncated) lines.push("[Project Skill instructions were truncated locally.]");
+  }
+  return lines.join("\n");
+}
+
+function escapeMarkupAttribute(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
 }
 
 function buildMessageContent(input: ProjectChatRequest) {

@@ -20,6 +20,33 @@ const request: ProjectChatRequest = {
     uri: "routemarket-work://project/project_1/src/index.ts",
     text: "export const answer = 42;",
     truncated: false
+  },
+  projectContext: {
+    instructions: {
+      relativePath: "AGENTS.md",
+      text: "Always run tests.",
+      truncated: false
+    },
+    readme: null,
+    settings: {
+      defaultAgent: null,
+      defaultModel: null,
+      cloudProjectId: null,
+      ignore: []
+    },
+    skills: [{
+      id: "review",
+      name: "Code review",
+      description: "Review changes safely.",
+      relativePath: ".routemarket/skills/review/SKILL.md"
+    }]
+  },
+  projectSkill: {
+    id: "review",
+    name: "Code review",
+    relativePath: ".routemarket/skills/review/SKILL.md",
+    text: "Inspect the diff and report findings by severity.",
+    truncated: false
   }
 };
 
@@ -152,6 +179,10 @@ describe("ProjectChatClient", () => {
       title: "Example Project",
       model_code: "model_chat"
     });
+    expect(prepareBody.system_prompt).toContain("Always run tests.");
+    expect(prepareBody.system_prompt).toContain("Code review (review)");
+    expect(prepareBody.system_prompt).toContain("<project-skill id=\"review\"");
+    expect(prepareBody.system_prompt).toContain("Inspect the diff and report findings by severity.");
     const body = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body));
     expect(body).toMatchObject({
       session_id: "session_1",

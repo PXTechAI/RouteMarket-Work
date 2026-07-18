@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.routemarket.ai/work/v1/desktop-node-registry.schema.json",
+  "title": "RouteMarket Work Desktop Workflow Node Registry",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["revisionHash", "generatedAt", "definitions"],
+  "properties": {
+    "revisionHash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "definitions": {
+      "type": "array",
+      "maxItems": 5000,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "executorKey", "definitionVersion", "source", "executionTarget",
+          "inputSchema", "outputSchema", "requiredCapabilities", "portability",
+          "definitionHash", "title", "description", "available", "blockedReason"
+        ],
+        "properties": {
+          "executorKey": { "type": "string", "minLength": 3, "maxLength": 256 },
+          "definitionVersion": { "type": "integer", "minimum": 1 },
+          "source": { "enum": ["cloud", "desktop_builtin", "local_extension"] },
+          "executionTarget": { "enum": ["cloud", "desktop", "auto"] },
+          "inputSchema": { "type": "object" },
+          "outputSchema": { "type": "object" },
+          "requiredCapabilities": {
+            "type": "array",
+            "maxItems": 64,
+            "items": { "type": "string", "minLength": 1, "maxLength": 256 },
+            "uniqueItems": true
+          },
+          "portability": { "enum": ["portable", "requires_connector", "device_bound"] },
+          "definitionHash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+          "title": { "type": "string", "minLength": 1, "maxLength": 256 },
+          "description": { "type": "string", "maxLength": 2048 },
+          "available": { "type": "boolean" },
+          "blockedReason": { "type": ["string", "null"], "maxLength": 256 }
+        }
+      }
+    }
+  }
+}

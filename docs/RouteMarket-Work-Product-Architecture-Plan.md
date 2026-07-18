@@ -108,14 +108,37 @@ MVP 中，包含云端和本地节点的工作流仍由 RouteLab Orchestrator �
 
 纯本地、离线 Workflow 可以在后续版本提供 Local Run，联网后只同步摘要和产物。
 
-### 3.4 Workflow、Agent、Tool、Approval 必须分层
+### 3.4 Workflow、Agent、Skill、MCP/Tool、Approval 必须分层
+
+RouteMarket Work 提供的是本地能力底座、管理能力和安全执行环境。AI/Agent 负责理解目标和决定下一步，再调用 Workflow、Skill、MCP/Tool；RouteMarket Work 负责在本机执行、隔离、授权、审计并返回结构化结果。
+
+```text
+用户请求
+  -> 模型 / Agent 理解与规划
+  -> 调用 Workflow、Skill、MCP/Tool
+  -> RouteMarket Work 在本机受控执行
+  -> 返回结果给 Agent
+  -> Agent 判断并执行下一步
+```
 
 - **Workflow**：确定性的步骤、顺序、分支、循环、重试和触发。
-- **Agent**：在限定目标、模型、工具和预算内自主决策。
-- **Tool**：一次具体能力调用，例如读文件、点击浏览器或调用 Excel MCP。
+- **Agent**：在限定目标、模型、工具、权限和预算内自主决策。
+- **Skill**：描述某类任务应该如何完成，封装操作方法、专业规范、上下文和工具组合。
+- **MCP/Tool**：真正执行一次具体能力调用，例如读文件、点击浏览器、调用 Excel MCP 或发送邮件 API。
 - **Approval**：对高风险 Tool Call 的显式授权，不是普通节点错误。
 
-不能把所有能力都塞进聊天，也不能把 Agent 的每个思考步骤都强行画成节点。
+对用户而言，一个完整能力可以统一表现为“调用 Skill”；系统内部仍需保留 Skill 与执行工具的分层。例如“发送邮件”可以作为一个 Skill，负责生成主题和正文、检查收件人和附件、遵循公司规范，并在发送前请求确认；真正的发送动作由 Gmail、Outlook MCP/API 或本地邮件软件 Tool 完成。
+
+```text
+发邮件 Skill
+  -> 组织邮件内容
+  -> 检查收件人和附件
+  -> 调用 Gmail / Outlook MCP/Tool
+  -> RouteMarket Work 按策略请求 Approval
+  -> 执行发送并记录审计结果
+```
+
+因此，Skill 是“怎么做”，MCP/Tool 是“实际执行什么”。不能把所有能力都塞进聊天，也不能把 Agent 的每个思考步骤都强行画成节点。
 
 ## 4. 核心使用场景
 
