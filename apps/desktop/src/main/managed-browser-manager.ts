@@ -2,16 +2,25 @@ import { randomUUID } from "node:crypto";
 import {
   WebContentsView,
   type BrowserWindow,
+  type DownloadItem,
   type Event,
   type Rectangle,
-  type Session
+  type Session,
+  type WebContents
 } from "electron";
 import type {
+  ManagedBrowserDownload,
   ManagedBrowserPageSummary,
   ManagedBrowserProfile,
   ManagedBrowserProfileInput,
-  ManagedBrowserState
+  ManagedBrowserState,
+  ManagedBrowserUploadResult
 } from "../shared/desktop-api";
+import {
+  allocateDownloadPath,
+  prepareProjectDownloadDirectory,
+  resolveProjectUploadFiles
+} from "./managed-browser-files";
 import {
   DEFAULT_BROWSER_PROFILE_INPUT,
   browserPartition,
@@ -31,18 +40,33 @@ type BrowserPageRecord = {
   loading: boolean;
   crashed: boolean;
   userTakeover: boolean;
+  downloadDirectory: string | null;
+};
+
+type SessionDownloadListener = (
+  event: Event,
+  item: DownloadItem,
+  webContents: WebContents
+) => void;
+
+type ManagedBrowserManagerOptions = {
+  resolveProjectRoot?(localProjectId: string): Promise<string>;
 };
 
 export class ManagedBrowserManager {
   private readonly profiles = new Map<string, ManagedBrowserProfile>();
   private readonly pages = new Map<string, BrowserPageRecord>();
+  private readonly downloads = new Map<string, ManagedBrowserDownload>();
   private readonly activePageByProject = new Map<string, string>();
-  private readonly configuredSessions = new Map<Session, (event: Event) => void>();
+  private readonly configuredSessions = new Map<Session, SessionDownloadListener>();
   private activeProjectId: string | null = null;
   private visible = false;
   private bounds: Rectangle = { x: 0, y: 0, width: 1, height: 1 };
 
-  constructor(private readonly window: BrowserWindow) {}
+  constructor(
+    private readonly window: BrowserWindow,
+    private readonly options: ManagedBrowserManagerOptions = {}
+  ) {}
 
   async getState(localProjectId: string): Promise<ManagedBrowserState> {
     const page = await this.ensureActivePage(localProjectId);
@@ -230,6 +254,54 @@ export class ManagedBrowserManager {
     })()`);
   }
 
+  async upload(
+    localProjectId: string,
+    selectorValue: string,
+    relativePaths: string[],
+    pageId?: string
+  ): Promise<ManagedBrowserUploadResult> {
+    const page = await this.resolvePage(localProjectId, pageId);
+    const selector = assertSafeSelector(selectorValue);
+    const projectRoot = await this.resolveProjectRoot(localProjectId);
+    const files = await resolveProjectUploadFiles(projectRoot, relativePaths);
+    const isFileInput = await page.view.webContents.executeJavaScript(`(() => {
+      const element = document.querySelector(${JSON.stringify(selector)});
+      return element instanceof HTMLInputElement &&
+        element.type.toLowerCase() === "file" &&
+        !element.disabled;
+    })()`);
+    if (!isFileInput) throw new Error("Browser upload target is not an enabled file input.");
+
+    const browserDebugger = page.view.webContents.debugger;
+    const attachedHere = !browserDebugger.isAttached();
+    if (attachedHere) browserDebugger.attach("1.3");
+    try {
+      const document = await browserDebugger.sendCommand("DOM.getDocument", {
+        depth: 0,
+        pierce: true
+      }) as { root?: { nodeId?: number } };
+      const rootNodeId = document.root?.nodeId;
+      if (!rootNodeId) throw new Error("Browser document is unavailable.");
+      const target = await browserDebugger.sendCommand("DOM.querySelector", {
+        nodeId: rootNodeId,
+        selector
+      }) as { nodeId?: number };
+      if (!target.nodeId) throw new Error("Browser upload input was not found.");
+      await browserDebugger.sendCommand("DOM.setFileInputFiles", {
+        files: files.absolutePaths,
+        nodeId: target.nodeId
+      });
+    } finally {
+      if (attachedHere && browserDebugger.isAttached()) browserDebugger.detach();
+    }
+    return {
+      completed: true,
+      pageId: page.pageId,
+      url: page.view.webContents.getURL() || "about:blank",
+      relativePaths: files.relativePaths
+    };
+  }
+
   async extract(localProjectId: string, selectorValue: string, pageId?: string): Promise<string> {
     const page = await this.resolvePage(localProjectId, pageId);
     const selector = assertSafeSelector(selectorValue);
@@ -306,7 +378,8 @@ export class ManagedBrowserManager {
       view,
       loading: false,
       crashed: false,
-      userTakeover: true
+      userTakeover: true,
+      downloadDirectory: await this.prepareDownloadDirectory(profile.localProjectId)
     };
     this.pages.set(pageId, page);
     this.window.contentView.addChildView(view);
@@ -339,10 +412,58 @@ export class ManagedBrowserManager {
 
   private configureSession(session: Session): void {
     if (this.configuredSessions.has(session)) return;
-    const preventDownload = (event: Event) => event.preventDefault();
+    const handleDownload: SessionDownloadListener = (event, item, webContents) => {
+      const page = [...this.pages.values()].find(
+        (candidate) => candidate.view.webContents.id === webContents.id
+      );
+      if (!page?.downloadDirectory) {
+        event.preventDefault();
+        return;
+      }
+      const downloadId = `download_${randomUUID().replaceAll("-", "")}`;
+      const allocated = allocateDownloadPath(
+        page.downloadDirectory,
+        item.getFilename(),
+        new Set(
+          [...this.downloads.values()]
+            .filter((download) => download.localProjectId === page.localProjectId)
+            .map((download) => download.fileName)
+        )
+      );
+      const download: ManagedBrowserDownload = {
+        downloadId,
+        pageId: page.pageId,
+        localProjectId: page.localProjectId,
+        url: item.getURL(),
+        fileName: allocated.fileName,
+        relativePath: `.routemarket/downloads/${allocated.fileName}`,
+        status: "progressing",
+        receivedBytes: 0,
+        totalBytes: item.getTotalBytes(),
+        startedAt: new Date().toISOString(),
+        finishedAt: null
+      };
+      this.downloads.set(downloadId, download);
+      item.setSavePath(allocated.absolutePath);
+      item.on("updated", (_downloadEvent, state) => {
+        download.status = item.isPaused()
+          ? "paused"
+          : state === "interrupted"
+            ? "interrupted"
+            : "progressing";
+        download.receivedBytes = item.getReceivedBytes();
+        download.totalBytes = item.getTotalBytes();
+      });
+      item.once("done", (_downloadEvent, state) => {
+        download.status = state;
+        download.receivedBytes = item.getReceivedBytes();
+        download.totalBytes = item.getTotalBytes();
+        download.finishedAt = new Date().toISOString();
+      });
+    };
     session.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
-    session.on("will-download", preventDownload);
-    this.configuredSessions.set(session, preventDownload);
+    session.on("will-download", handleDownload);
+    this.configuredSessions.set(session, handleDownload);
   }
 
   private syncVisibility(activePageId: string): void {
@@ -375,7 +496,10 @@ export class ManagedBrowserManager {
       userTakeover: page.userTakeover,
       crashed: page.crashed,
       profiles: this.projectProfiles(page.localProjectId),
-      pages: this.projectPages(page.localProjectId).map(browserPageSummary)
+      pages: this.projectPages(page.localProjectId).map(browserPageSummary),
+      downloads: [...this.downloads.values()]
+        .filter((download) => download.localProjectId === page.localProjectId)
+        .sort((left, right) => right.startedAt.localeCompare(left.startedAt))
     };
   }
 
@@ -415,6 +539,20 @@ export class ManagedBrowserManager {
     await page.view.webContents.executeJavaScript(
       `document.documentElement.style.pointerEvents = ${JSON.stringify(page.userTakeover ? "auto" : "none")}`
     ).catch(() => undefined);
+  }
+
+  private async resolveProjectRoot(localProjectId: string): Promise<string> {
+    if (!this.options.resolveProjectRoot) {
+      throw new Error("Managed Browser project file access is unavailable.");
+    }
+    return this.options.resolveProjectRoot(localProjectId);
+  }
+
+  private async prepareDownloadDirectory(localProjectId: string): Promise<string | null> {
+    if (!this.options.resolveProjectRoot) return null;
+    return prepareProjectDownloadDirectory(
+      await this.options.resolveProjectRoot(localProjectId)
+    );
   }
 }
 

@@ -77,6 +77,14 @@ const api: RouteMarketWorkApi = {
     ipcRenderer.invoke("work:browser-click", localProjectId, selector, pageId),
   typeBrowser: (localProjectId, selector, text, pageId) =>
     ipcRenderer.invoke("work:browser-type", localProjectId, selector, text, pageId),
+  uploadBrowser: (localProjectId, selector, relativePaths, pageId) =>
+    ipcRenderer.invoke(
+      "work:browser-upload",
+      localProjectId,
+      selector,
+      relativePaths,
+      pageId
+    ),
   extractBrowser: (localProjectId, selector, pageId) =>
     ipcRenderer.invoke("work:browser-extract", localProjectId, selector, pageId),
   screenshotBrowser: (localProjectId, pageId) =>

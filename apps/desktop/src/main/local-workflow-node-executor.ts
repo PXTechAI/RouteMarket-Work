@@ -245,7 +245,11 @@ async function executeBrowser(
   const browser = options.getBrowser();
   const pageId = optionalString(input, "pageId", 256);
   const operation = executorKey.slice("local.browser.".length);
-  const risk: ToolRisk = operation === "click" || operation === "type" ? "R2" : "R1";
+  const risk: ToolRisk = operation === "upload"
+    ? "R3"
+    : operation === "click" || operation === "type"
+      ? "R2"
+      : "R1";
   const detail =
     operation === "navigate"
       ? requiredString(input, "url", 8_192)
@@ -273,6 +277,13 @@ async function executeBrowser(
         const text = requiredString(input, "text", 100_000, true);
         await browser.type(localProjectId, detail, text, pageId);
         return { completed: true, characters: text.length };
+      }
+      if (operation === "upload") {
+        const relativePaths = stringArray(input.relativePaths, "relativePaths");
+        if (!relativePaths.length || relativePaths.length > 20) {
+          throw new Error("relativePaths must contain between 1 and 20 project files.");
+        }
+        return browser.upload(localProjectId, detail, relativePaths, pageId);
       }
       if (operation === "extract") {
         return { text: await browser.extract(localProjectId, detail, pageId) };

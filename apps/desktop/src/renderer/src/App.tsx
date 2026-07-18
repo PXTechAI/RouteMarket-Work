@@ -187,6 +187,7 @@ let previewBrowserState: ManagedBrowserState = {
   canGoForward: false,
   userTakeover: true,
   crashed: false,
+  downloads: [],
   profiles: [{
     profileId: "profile_default",
     localProjectId: "project_preview",
@@ -525,6 +526,14 @@ const previewApi: RouteMarketWorkApi = {
   },
   async clickBrowser() {},
   async typeBrowser() {},
+  async uploadBrowser(_localProjectId, _selector, relativePaths) {
+    return {
+      completed: true as const,
+      pageId: previewBrowserState.activePageId,
+      url: previewBrowserState.url,
+      relativePaths
+    };
+  },
   async extractBrowser() { return "Preview extracted text"; },
   async screenshotBrowser() { return "data:image/png;base64,"; },
   async discoverAttachedBrowser(endpoint) {
@@ -829,6 +838,7 @@ const unavailableApi: RouteMarketWorkApi = {
   setBrowserTakeover: async () => desktopBridgeUnavailable(),
   clickBrowser: async () => desktopBridgeUnavailable(),
   typeBrowser: async () => desktopBridgeUnavailable(),
+  uploadBrowser: async () => desktopBridgeUnavailable(),
   extractBrowser: async () => desktopBridgeUnavailable(),
   screenshotBrowser: async () => desktopBridgeUnavailable(),
   discoverAttachedBrowser: async () => desktopBridgeUnavailable(),

@@ -285,6 +285,7 @@ describe("CloudWorkerClient", () => {
           },
           expect.objectContaining({ key: "local.skill.invoke", risk: "R0" }),
           expect.objectContaining({ key: "local.browser.navigate", risk: "R1" }),
+          expect.objectContaining({ key: "local.browser.upload", risk: "R3" }),
           expect.objectContaining({ key: "local.mcp.call", risk: "R2" })
         ]),
         projects: [
@@ -308,6 +309,7 @@ describe("CloudWorkerClient", () => {
               "local.fs.read",
               "local.skill.invoke",
               "local.browser.navigate",
+              "local.browser.upload",
               "local.mcp.call"
             ])
           })

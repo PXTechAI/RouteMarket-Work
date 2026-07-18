@@ -43,6 +43,7 @@ type ProjectChatBrowser = Pick<
   | "navigate"
   | "click"
   | "type"
+  | "upload"
   | "extract"
 >;
 
@@ -535,6 +536,47 @@ export class ProjectChatToolRunner {
         );
       }
 
+      if (call.name === "browser_upload") {
+        assertNoUnexpectedKeys(args, ["selector", "relative_paths", "page_id"]);
+        const selector = requiredString(args, "selector", MAX_BROWSER_SELECTOR_LENGTH);
+        const relativePaths = requiredStringArray(args, "relative_paths", 20, MAX_PATH_LENGTH);
+        const pageId = optionalString(args, "page_id", MAX_BROWSER_ID_LENGTH);
+        const browser = this.requireBrowser();
+        await this.assertAgentBrowserControl(browser, localProjectId, pageId);
+        return await this.runAuthorized(
+          localProjectId,
+          {
+            capability: "local.browser.upload",
+            risk: "R3",
+            title: "允许 AI 向网页上传项目文件？",
+            detail: `${clipDetail(selector)} · ${relativePaths.length} 个文件`,
+            auditDetail: relativePaths.join(", "),
+            approvalKey: `${pageId ?? "active"}:${selector}:${sha256(JSON.stringify(relativePaths))}`
+          },
+          "上传项目文件",
+          relativePaths.join(", "),
+          async () => {
+            throwIfAborted(signal);
+            await this.activateAgentBrowserPage(browser, localProjectId, pageId);
+            const result = await browser.upload(
+              localProjectId,
+              selector,
+              relativePaths,
+              pageId
+            );
+            return {
+              content: stringifyToolResult({
+                completed: true,
+                page_id: result.pageId,
+                url: result.url,
+                relative_paths: result.relativePaths
+              }),
+              summary: `已选择 ${result.relativePaths.length} 个项目文件`
+            };
+          }
+        );
+      }
+
       if (call.name === "browser_extract") {
         assertNoUnexpectedKeys(args, ["selector", "page_id"]);
         const selector = requiredString(args, "selector", MAX_BROWSER_SELECTOR_LENGTH);
@@ -921,6 +963,17 @@ function sanitizeBrowserState(state: ManagedBrowserState) {
     loading: state.loading,
     user_takeover: state.userTakeover,
     crashed: state.crashed,
+    downloads: state.downloads.map((download) => ({
+      download_id: download.downloadId,
+      page_id: download.pageId,
+      file_name: download.fileName,
+      relative_path: download.relativePath,
+      status: download.status,
+      received_bytes: download.receivedBytes,
+      total_bytes: download.totalBytes,
+      started_at: download.startedAt,
+      finished_at: download.finishedAt
+    })),
     pages: state.pages.map((page) => ({
       page_id: page.pageId,
       profile_id: page.profileId,

@@ -90,6 +90,13 @@ export type DesktopJob = DesktopJobBase & (
       approvalPolicy: { risk: "R0"; mode: "project_grant" };
     }
   | {
+      executorKey: "local.browser.upload";
+      input: { selector: string; relativePaths: string[]; pageId?: string };
+      requiredCapabilities: ["local.browser.upload"];
+      executionClass: "external_side_effect";
+      approvalPolicy: { risk: "R3"; mode: "invocation" };
+    }
+  | {
       executorKey: "local.mcp.call";
       input: { serverId: string; name: string; arguments: Record<string, unknown> };
       requiredCapabilities: ["local.mcp.call"];

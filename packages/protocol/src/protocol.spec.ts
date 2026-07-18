@@ -75,6 +75,34 @@ describe("RouteMarket Work protocol fixtures", () => {
     }).ok).toBe(false);
   });
 
+  it("accepts project-relative browser uploads only as R3 invocation jobs", async () => {
+    const envelope = await readExample("job-offer.read-readme.json") as {
+      payload: Record<string, unknown>;
+    };
+    const uploadJob = {
+      ...envelope.payload,
+      executorKey: "local.browser.upload",
+      input: {
+        selector: "input[type=file]",
+        relativePaths: ["assets/report.pdf", "exports/data.csv"],
+        pageId: "page_1"
+      },
+      requiredCapabilities: ["local.browser.upload"],
+      executionClass: "external_side_effect",
+      approvalPolicy: { risk: "R3", mode: "invocation" }
+    };
+
+    expect(checkDesktopJob(uploadJob)).toEqual({ ok: true });
+    expect(checkDesktopJob({
+      ...uploadJob,
+      input: { selector: "input[type=file]", relativePaths: ["../secret.txt"] }
+    }).ok).toBe(false);
+    expect(checkDesktopJob({
+      ...uploadJob,
+      approvalPolicy: { risk: "R2", mode: "invocation" }
+    }).ok).toBe(false);
+  });
+
   it("accepts a native app open job only for a known connector", async () => {
     const envelope = await readExample("job-offer.read-readme.json") as { payload: Record<string, unknown> };
     const appJob = {

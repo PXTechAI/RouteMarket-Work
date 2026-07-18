@@ -296,6 +296,38 @@ export const PROJECT_CHAT_TOOLS: ProjectChatToolDefinition[] = [
   {
     type: "function",
     function: {
+      name: "browser_upload",
+      description:
+        "Upload one or more files from the current project into a file input on an Agent-controlled Managed Browser page. Requires explicit local approval.",
+      parameters: {
+        type: "object",
+        properties: {
+          selector: {
+            type: "string",
+            description: "CSS selector for an enabled input element whose type is file."
+          },
+          relative_paths: {
+            type: "array",
+            minItems: 1,
+            maxItems: 20,
+            items: {
+              type: "string",
+              description: "Project-relative file path."
+            }
+          },
+          page_id: {
+            type: "string",
+            description: "Optional page identifier. Uses the active project page when omitted."
+          }
+        },
+        required: ["selector", "relative_paths"],
+        additionalProperties: false
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
       name: "browser_extract",
       description:
         "Extract visible text from an element selected by a CSS selector in an Agent-controlled Managed Browser page.",
@@ -334,6 +366,7 @@ export function projectChatToolTitle(name: string): string {
   if (name === "browser_navigate") return "打开网页";
   if (name === "browser_click") return "点击网页元素";
   if (name === "browser_type") return "填写网页内容";
+  if (name === "browser_upload") return "上传项目文件";
   if (name === "browser_extract") return "读取网页内容";
   return name;
 }

@@ -19,7 +19,7 @@
       "enum": [
         "local.fs.read", "local.browser.navigate", "local.browser.click",
         "local.browser.type", "local.browser.extract", "local.browser.screenshot",
-        "local.mcp.call", "local.skill.invoke", "local.app.open"
+        "local.browser.upload", "local.mcp.call", "local.skill.invoke", "local.app.open"
       ]
     },
     "executorVersion": { "const": 1 },
@@ -119,6 +119,31 @@
         "requiredCapabilities": { "const": ["local.browser.screenshot"] },
         "executionClass": { "const": "pure_read" },
         "approvalPolicy": { "const": { "risk": "R0", "mode": "project_grant" } }
+      }
+    },
+    {
+      "properties": {
+        "executorKey": { "const": "local.browser.upload" },
+        "input": {
+          "type": "object", "additionalProperties": false,
+          "required": ["selector", "relativePaths"],
+          "properties": {
+            "selector": { "type": "string", "minLength": 1, "maxLength": 2048 },
+            "relativePaths": {
+              "type": "array", "minItems": 1, "maxItems": 20, "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4096,
+                "pattern": "^(?![A-Za-z]:)(?![\\\\/])(?!.*(?:^|[\\\\/])\\.\\.(?:[\\\\/]|$))[^\\u0000]+$"
+              }
+            },
+            "pageId": { "type": "string", "minLength": 1, "maxLength": 256 }
+          }
+        },
+        "requiredCapabilities": { "const": ["local.browser.upload"] },
+        "executionClass": { "const": "external_side_effect" },
+        "approvalPolicy": { "const": { "risk": "R3", "mode": "invocation" } }
       }
     },
     {

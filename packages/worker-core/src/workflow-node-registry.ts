@@ -38,6 +38,7 @@ const BUILTIN_DEFINITIONS: DefinitionInput[] = [
   builtin("local.browser.navigate", "浏览器导航", "在可见托管浏览器中打开网页。", "device_bound"),
   builtin("local.browser.click", "点击网页", "点击托管浏览器中的元素。", "device_bound"),
   builtin("local.browser.type", "网页输入", "向托管浏览器元素输入文本。", "device_bound"),
+  builtin("local.browser.upload", "上传文件", "把项目内文件上传到托管浏览器页面。", "device_bound"),
   builtin("local.browser.extract", "提取网页", "提取托管浏览器中的文本。", "device_bound"),
   builtin("local.browser.screenshot", "网页截图", "截取托管浏览器当前页面。", "device_bound"),
   builtin("desktop.trigger.file_changed", "文件变更触发", "项目内文件发生变化时启动工作流。", "device_bound"),

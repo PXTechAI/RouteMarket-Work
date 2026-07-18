@@ -3,6 +3,7 @@ import {
   ArrowRight,
   Camera,
   CircleAlert,
+  Download,
   Globe2,
   LoaderCircle,
   LogOut,
@@ -14,11 +15,13 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { BrowserProfilePanel } from "./BrowserProfilePanel";
+import { BrowserDownloadPanel } from "./BrowserDownloadPanel";
 import { BrowserTabStrip } from "./BrowserTabStrip";
 import type { BrowserPageProps } from "./types";
 
 export function BrowserPage({ model, actions, viewportRef, addressRef }: BrowserPageProps) {
   const [profilesOpen, setProfilesOpen] = useState(false);
+  const [downloadsOpen, setDownloadsOpen] = useState(false);
   const activeProfile = model.state?.profiles.find(
     (profile) => profile.profileId === model.state?.activeProfileId
   );
@@ -66,7 +69,10 @@ export function BrowserPage({ model, actions, viewportRef, addressRef }: Browser
         </div>
         {model.mode === "managed" && (
           <>
-            <button className={`browser-profile-button ${profilesOpen ? "active" : ""}`} type="button" title="浏览器 Profile 设置" onClick={() => setProfilesOpen((open) => !open)}>
+            <button className={`browser-profile-button ${profilesOpen ? "active" : ""}`} type="button" title="浏览器 Profile 设置" onClick={() => {
+              setDownloadsOpen(false);
+              setProfilesOpen((open) => !open);
+            }}>
               <Settings2 size={14} />
               <span>{activeProfile?.name ?? "Profile"}</span>
             </button>
@@ -78,6 +84,23 @@ export function BrowserPage({ model, actions, viewportRef, addressRef }: Browser
         <button className="browser-icon-button" type="button" title="截图" disabled={model.busy || !model.localProjectId} onClick={actions.onCaptureScreenshot}>
           <Camera size={15} />
         </button>
+        {model.mode === "managed" && (
+          <button
+            className={`browser-icon-button browser-download-button ${downloadsOpen ? "active" : ""}`}
+            type="button"
+            title="下载"
+            disabled={!model.localProjectId}
+            onClick={() => {
+              setProfilesOpen(false);
+              setDownloadsOpen((open) => !open);
+            }}
+          >
+            <Download size={15} />
+            {model.state && model.state.downloads.length > 0 && (
+              <span>{Math.min(model.state.downloads.length, 99)}</span>
+            )}
+          </button>
+        )}
       </div>
 
       <div className="browser-content">
@@ -136,6 +159,12 @@ export function BrowserPage({ model, actions, viewportRef, addressRef }: Browser
             onCreate={actions.onCreateProfile}
             onUpdate={actions.onUpdateProfile}
             onDelete={actions.onDeleteProfile}
+          />
+        )}
+        {downloadsOpen && model.mode === "managed" && model.state && (
+          <BrowserDownloadPanel
+            downloads={model.state.downloads}
+            onClose={() => setDownloadsOpen(false)}
           />
         )}
       </div>

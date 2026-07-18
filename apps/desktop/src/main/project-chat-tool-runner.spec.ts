@@ -36,6 +36,7 @@ const browserState: ManagedBrowserState = {
   canGoForward: false,
   userTakeover: false,
   crashed: false,
+  downloads: [],
   profiles: [{
     profileId: "profile_default",
     localProjectId: "project_1",
@@ -141,6 +142,16 @@ function createBrowser() {
     })),
     click: vi.fn(async () => undefined),
     type: vi.fn(async () => undefined),
+    upload: vi.fn(async (
+      _projectId: string,
+      _selector: string,
+      relativePaths: string[]
+    ) => ({
+      completed: true as const,
+      pageId: "page_1",
+      url: "https://example.com/",
+      relativePaths
+    })),
     extract: vi.fn(async () => "Extracted page text")
   };
 }
@@ -515,6 +526,45 @@ describe("ProjectChatToolRunner", () => {
     expect(confirm).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({ capability: "local.browser.type", risk: "R2" })
+    );
+  });
+
+  it("uploads project files through R3 project approval", async () => {
+    const confirm = vi.fn(async () => true);
+    const browser = createBrowser();
+    const runner = new ProjectChatToolRunner({
+      workerClient: createWorker(),
+      toolBroker: new LocalToolBroker(confirm),
+      getBrowser: () => browser
+    });
+
+    const result = await runner.execute("project_1", {
+      id: "call_browser_upload",
+      name: "browser_upload",
+      arguments: JSON.stringify({
+        selector: "input[type=file]",
+        relative_paths: ["assets/report.pdf", "exports/data.csv"],
+        page_id: "page_1"
+      })
+    });
+
+    expect(result.isError).toBe(false);
+    expect(JSON.parse(result.content)).toEqual({
+      completed: true,
+      page_id: "page_1",
+      url: "https://example.com/",
+      relative_paths: ["assets/report.pdf", "exports/data.csv"]
+    });
+    expect(confirm).toHaveBeenCalledWith(expect.objectContaining({
+      capability: "local.browser.upload",
+      risk: "R3",
+      projectId: "project_1"
+    }));
+    expect(browser.upload).toHaveBeenCalledWith(
+      "project_1",
+      "input[type=file]",
+      ["assets/report.pdf", "exports/data.csv"],
+      "page_1"
     );
   });
 

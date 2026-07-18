@@ -136,7 +136,12 @@ function createWindow(): void {
       sandbox: true
     }
   });
-  managedBrowser = new ManagedBrowserManager(mainWindow);
+  managedBrowser = new ManagedBrowserManager(mainWindow, {
+    resolveProjectRoot: (localProjectId) => {
+      if (!workerClient) throw new Error("RouteMarket Worker is offline.");
+      return workerClient.projectRoot(localProjectId);
+    }
+  });
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith("https://")) {
@@ -317,6 +322,20 @@ async function invokeExternalDesktopJob(
         : await requireBrowser().screenshot(localProjectId)
     };
   }
+  if (job.executorKey === "local.browser.upload") {
+    const result = await requireBrowser().upload(
+      localProjectId,
+      job.input.selector,
+      job.input.relativePaths,
+      job.input.pageId
+    );
+    return {
+      completed: result.completed,
+      pageId: result.pageId,
+      url: result.url,
+      relativePaths: result.relativePaths
+    };
+  }
   if (job.executorKey === "local.app.open") {
     const result = await nativeAppConnectors.open(
       job.input.connectorId,
@@ -355,6 +374,9 @@ function externalJobTitle(job: ExternalDesktopJob): string {
 function externalJobDetail(job: ExternalDesktopJob): string {
   if (job.executorKey === "local.browser.navigate") return job.input.url;
   if (job.executorKey === "local.browser.screenshot") return "当前托管浏览器页面";
+  if (job.executorKey === "local.browser.upload") {
+    return `${job.input.selector} / ${job.input.relativePaths.length} files`;
+  }
   if (job.executorKey === "local.mcp.call") return `${job.input.serverId} · ${job.input.name}`;
   if (job.executorKey === "local.app.open") return `${job.input.connectorId} · ${job.input.relativePath ?? "."}`;
   return job.input.selector;
@@ -362,6 +384,7 @@ function externalJobDetail(job: ExternalDesktopJob): string {
 
 function externalJobAuditTarget(job: ExternalDesktopJob): string {
   if (job.executorKey === "local.browser.navigate") return new URL(job.input.url).origin;
+  if (job.executorKey === "local.browser.upload") return job.input.relativePaths.join(", ");
   if (job.executorKey === "local.mcp.call") return `${job.input.serverId}/${job.input.name}`;
   if (job.executorKey === "local.app.open") return `${job.input.connectorId}/${job.input.relativePath ?? "."}`;
   if (job.executorKey === "local.browser.screenshot") return "managed-browser";
@@ -968,6 +991,26 @@ function registerIpc(): void {
         projectId: localProjectId
       },
       () => requireBrowser().type(localProjectId, selector, text, pageId)
+    )
+  );
+  ipcMain.handle("work:browser-upload", (
+    _event,
+    localProjectId: string,
+    selector: string,
+    relativePaths: string[],
+    pageId?: string
+  ) =>
+    toolBroker.run(
+      {
+        capability: "local.browser.upload",
+        risk: "R3",
+        title: "允许向当前网页上传项目文件？",
+        detail: `${selector} · ${relativePaths.length} 个文件`,
+        auditDetail: relativePaths.join(", "),
+        approvalKey: `${localProjectId}:${pageId ?? "active"}:${selector}:${createHash("sha256").update(JSON.stringify(relativePaths)).digest("hex")}`,
+        projectId: localProjectId
+      },
+      () => requireBrowser().upload(localProjectId, selector, relativePaths, pageId)
     )
   );
   ipcMain.handle("work:browser-extract", (

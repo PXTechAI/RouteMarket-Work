@@ -136,16 +136,63 @@ describe("createLocalWorkflowNodeExecutor", () => {
       { range: "A1", value: "Ready" }
     );
   });
+
+  it("uploads project files through R3 project approval", async () => {
+    const confirm = vi.fn(async () => true);
+    const upload = vi.fn(async (
+      _localProjectId: string,
+      _selector: string,
+      relativePaths: string[],
+      _pageId?: string
+    ) => ({
+      completed: true as const,
+      pageId: "page_1",
+      url: "https://example.com/upload",
+      relativePaths
+    }));
+    const browser = { upload } as unknown as ManagedBrowserManager;
+    const executor = createExecutor(createWorkerClient(), confirm, browser);
+
+    const result = await executor(
+      node("local.browser.upload"),
+      {
+        $localProjectId: projectId,
+        selector: "input[type=file]",
+        relativePaths: ["assets/report.pdf", "exports/data.csv"],
+        pageId: "page_1"
+      },
+      new AbortController().signal
+    );
+
+    expect(result).toEqual({
+      completed: true,
+      pageId: "page_1",
+      url: "https://example.com/upload",
+      relativePaths: ["assets/report.pdf", "exports/data.csv"]
+    });
+    expect(confirm).toHaveBeenCalledWith(expect.objectContaining({
+      capability: "local.browser.upload",
+      risk: "R3",
+      projectId
+    }));
+    expect(upload).toHaveBeenCalledWith(
+      projectId,
+      "input[type=file]",
+      ["assets/report.pdf", "exports/data.csv"],
+      "page_1"
+    );
+  });
 });
 
 function createExecutor(
   workerClient: ReturnType<typeof createWorkerClient>,
-  confirm = vi.fn(async () => true)
+  confirm = vi.fn(async () => true),
+  browser = {} as ManagedBrowserManager
 ) {
   return createLocalWorkflowNodeExecutor({
     workerClient: workerClient as unknown as WorkerClient,
     toolBroker: new LocalToolBroker(confirm),
-    getBrowser: () => ({}) as ManagedBrowserManager,
+    getBrowser: () => browser,
     nativeAppConnectors: {} as NativeAppConnectorManager
   });
 }

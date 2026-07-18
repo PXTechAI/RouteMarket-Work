@@ -109,6 +109,28 @@ export type ManagedBrowserState = {
   crashed: boolean;
   profiles: ManagedBrowserProfile[];
   pages: ManagedBrowserPageSummary[];
+  downloads: ManagedBrowserDownload[];
+};
+
+export type ManagedBrowserDownload = {
+  downloadId: string;
+  pageId: string;
+  localProjectId: string;
+  url: string;
+  fileName: string;
+  relativePath: string;
+  status: "progressing" | "paused" | "completed" | "cancelled" | "interrupted";
+  receivedBytes: number;
+  totalBytes: number;
+  startedAt: string;
+  finishedAt: string | null;
+};
+
+export type ManagedBrowserUploadResult = {
+  completed: true;
+  pageId: string;
+  url: string;
+  relativePaths: string[];
 };
 
 export type ManagedBrowserProfile = {
@@ -596,6 +618,12 @@ export type RouteMarketWorkApi = {
   ): Promise<ManagedBrowserState>;
   clickBrowser(localProjectId: string, selector: string, pageId?: string): Promise<void>;
   typeBrowser(localProjectId: string, selector: string, text: string, pageId?: string): Promise<void>;
+  uploadBrowser(
+    localProjectId: string,
+    selector: string,
+    relativePaths: string[],
+    pageId?: string
+  ): Promise<ManagedBrowserUploadResult>;
   extractBrowser(localProjectId: string, selector: string, pageId?: string): Promise<string>;
   screenshotBrowser(localProjectId: string, pageId?: string): Promise<string>;
   discoverAttachedBrowser(endpoint: string): Promise<AttachedBrowserTarget[]>;
