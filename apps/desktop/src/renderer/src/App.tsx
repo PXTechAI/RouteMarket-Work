@@ -1,5 +1,4 @@
 import {
-  Check,
   ChevronDown,
   CircleAlert,
   FileText,
@@ -58,6 +57,7 @@ import { AppRail } from "./app/AppRail";
 import { GlobalHeader } from "./app/GlobalHeader";
 import { AgentPage } from "./features/agent/AgentPage";
 import { useAgentWorkspace } from "./features/agent/useAgentWorkspace";
+import { ApprovalPage } from "./features/approvals/ApprovalPage";
 import { BrowserPage } from "./features/browser/BrowserPage";
 import { ChatPage } from "./features/chat/ChatPage";
 import type { ChatMessage } from "./features/chat/types";
@@ -96,7 +96,25 @@ const previewState: WorkState = {
     }
   ],
   activities: [],
-  approvals: []
+  approvals: [],
+  approvalPolicies: [
+    {
+      policyId: "policy_preview_allow",
+      capability: "local.fs.write",
+      projectId: "project_preview",
+      effect: "allow",
+      createdAt: "2026-07-18T08:00:00.000Z",
+      updatedAt: "2026-07-18T08:00:00.000Z"
+    },
+    {
+      policyId: "policy_preview_deny",
+      capability: "local.process.start",
+      projectId: "project_preview",
+      effect: "deny",
+      createdAt: "2026-07-18T08:05:00.000Z",
+      updatedAt: "2026-07-18T08:05:00.000Z"
+    }
+  ]
 };
 
 const previewModels: ChatModel[] = [
@@ -216,6 +234,16 @@ const previewApi: RouteMarketWorkApi = {
       account: undefined
     };
     return previewCurrentState;
+  },
+  async removeApprovalPolicy(policyId) {
+    const before = previewCurrentState.approvalPolicies.length;
+    previewCurrentState = {
+      ...previewCurrentState,
+      approvalPolicies: previewCurrentState.approvalPolicies.filter(
+        (policy) => policy.policyId !== policyId
+      )
+    };
+    return previewCurrentState.approvalPolicies.length !== before;
   },
   async chooseProject() {
     return null;
@@ -767,6 +795,7 @@ const unavailableApi: RouteMarketWorkApi = {
   getState: async () => desktopBridgeUnavailable(),
   signIn: async () => desktopBridgeUnavailable(),
   signOut: async () => desktopBridgeUnavailable(),
+  removeApprovalPolicy: async () => desktopBridgeUnavailable(),
   chooseProject: async () => desktopBridgeUnavailable(),
   getProjectContext: async () => desktopBridgeUnavailable(),
   getWorkflowNodeRegistry: async () => desktopBridgeUnavailable(),
@@ -853,7 +882,8 @@ export function App() {
     authError: null,
     projects: [],
     activities: [],
-    approvals: []
+    approvals: [],
+    approvalPolicies: []
   });
   const [workspaceView, setWorkspaceView] = useState<WorkspaceView>("chat");
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
@@ -922,6 +952,7 @@ export function App() {
   const [loading, setLoading] = useState(false);
   const [treeLoading, setTreeLoading] = useState(false);
   const [authAction, setAuthAction] = useState<"sign-in" | "sign-out" | null>(null);
+  const [busyApprovalPolicyId, setBusyApprovalPolicyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [models, setModels] = useState<ChatModel[]>([]);
   const [selectedModelCode, setSelectedModelCode] = useState("");
@@ -964,6 +995,9 @@ export function App() {
     processes[0] ?? null;
   const visibleApprovals = state.approvals.filter(
     (approval) => !approval.projectId || approval.projectId === selectedProjectId
+  );
+  const visibleApprovalPolicies = state.approvalPolicies.filter(
+    (policy) => policy.projectId === selectedProjectId
   );
   const selectedMcpServer = mcpServers.find((server) => server.serverId === selectedMcpServerId) ??
     mcpServers[0] ?? null;
@@ -1388,6 +1422,19 @@ export function App() {
       setError(nextError instanceof Error ? nextError.message : "退出登录失败");
     } finally {
       setAuthAction(null);
+    }
+  }
+
+  async function revokeApprovalPolicy(policyId: string) {
+    setBusyApprovalPolicyId(policyId);
+    setError(null);
+    try {
+      await api.removeApprovalPolicy(policyId);
+      await refreshState();
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "无法撤销项目审批策略");
+    } finally {
+      setBusyApprovalPolicyId(null);
     }
   }
 
@@ -2707,48 +2754,13 @@ export function App() {
               onDismissError={() => setError(null)}
             />
           ) : workspaceView === "approvals" ? (
-            <section className="approval-pane">
-              <div className="approval-heading">
-                <div>
-                  <span className="eyebrow">Approval Center</span>
-                  <h2>本机审批记录</h2>
-                  <p>仅保存能力、风险、目标摘要和参数哈希，不保存文件内容或命令参数。</p>
-                </div>
-                <span>{visibleApprovals.length} 条</span>
-              </div>
-              <div className="approval-list">
-                {visibleApprovals.map((approval) => (
-                  <article key={approval.invocationId} className="approval-card">
-                    <div className={`approval-mark ${approval.status}`}>
-                      {approval.status === "approved"
-                        ? <Check size={16} />
-                        : approval.status === "denied"
-                          ? <X size={16} />
-                          : <LoaderCircle className="spin" size={16} />}
-                    </div>
-                    <div className="approval-copy">
-                      <div>
-                        <strong>{approval.title}</strong>
-                        <span className={`risk-badge ${approval.risk.toLowerCase()}`}>{approval.risk}</span>
-                      </div>
-                      <p>{approval.capability} · {approval.detail}</p>
-                      <code>{approval.parametersHash}</code>
-                    </div>
-                    <div className="approval-meta">
-                      <strong>{approvalStatusLabel(approval.status)}</strong>
-                      <time>{new Date(approval.resolvedAt ?? approval.requestedAt).toLocaleString("zh-CN")}</time>
-                    </div>
-                  </article>
-                ))}
-                {visibleApprovals.length === 0 && (
-                  <div className="approval-empty">
-                    <ShieldCheck size={28} />
-                    <h2>暂无审批记录</h2>
-                    <p>文件写入、创建和本地进程操作会显示在这里。</p>
-                  </div>
-                )}
-              </div>
-            </section>
+            <ApprovalPage
+              approvals={visibleApprovals}
+              policies={visibleApprovalPolicies}
+              projectName={selectedProject?.displayName ?? null}
+              busyPolicyId={busyApprovalPolicyId}
+              onRevokePolicy={(policyId) => void revokeApprovalPolicy(policyId)}
+            />
           ) : workspaceView === "terminal" ? (
             <section className="terminal-pane">
               <div className="terminal-toolbar">
@@ -2999,12 +3011,6 @@ function fileVersionSourceLabel(source: ProjectFileVersionSummary["source"]): st
   if (source === "restored") return "恢复版本";
   if (source === "baseline") return "保存前版本";
   return "已保存版本";
-}
-
-function approvalStatusLabel(status: "requested" | "approved" | "denied") {
-  if (status === "approved") return "已允许";
-  if (status === "denied") return "已拒绝";
-  return "等待确认";
 }
 
 function isPreviewableAsset(relativePath: string): boolean {

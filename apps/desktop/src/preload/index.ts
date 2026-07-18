@@ -9,6 +9,8 @@ const api: RouteMarketWorkApi = {
   getState: () => ipcRenderer.invoke("work:get-state"),
   signIn: () => ipcRenderer.invoke("work:sign-in"),
   signOut: () => ipcRenderer.invoke("work:sign-out"),
+  removeApprovalPolicy: (policyId) =>
+    ipcRenderer.invoke("work:approval-policy-remove", policyId),
   chooseProject: () => ipcRenderer.invoke("work:choose-project"),
   getProjectContext: (localProjectId) =>
     ipcRenderer.invoke("work:get-project-context", localProjectId),

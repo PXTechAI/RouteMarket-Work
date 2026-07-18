@@ -18,6 +18,11 @@ import type {
   WorkState
 } from "../shared/desktop-api";
 import { CloudWorkerClient } from "./cloud-worker-client";
+import {
+  approvalDialogChoices,
+  approvalDialogLabel,
+  resolveStoredApprovalPolicy
+} from "./approval-policy";
 import { ApprovalStore } from "./approval-store";
 import { ActivityStore } from "./activity-store";
 import { DesktopAuthManager } from "./desktop-auth-manager";
@@ -61,18 +66,42 @@ let pendingDeepLink: string | null = null;
 const transientActivities: ActivityItem[] = [];
 const toolBroker = new LocalToolBroker(
   async (request) => {
+    const policy = approvalStore?.matchPolicy(request);
+    const storedDecision = resolveStoredApprovalPolicy(request, policy ?? null);
+    if (storedDecision) return storedDecision === "allow";
     if (!mainWindow) return false;
+    const choices = approvalDialogChoices(request);
+    const buttons = choices.map(approvalDialogLabel);
     const result = await dialog.showMessageBox(mainWindow, {
       type: request.risk === "R1" ? "question" : "warning",
       title: "RouteMarket Work 本机审批",
       message: request.title,
-      detail: `${request.detail}\n\n能力：${request.capability} · 风险：${request.risk}`,
-      buttons: ["取消", "允许一次"],
+      detail: `${request.detail}\n\n能力：${request.capability} · 风险：${request.risk}${
+        request.projectId ? "\n策略范围：当前项目" : ""
+      }`,
+      buttons,
       defaultId: 1,
       cancelId: 0,
       noLink: true
     });
-    return result.response === 1;
+    const decision = choices[result.response];
+    if (decision === "allow_project" && request.projectId) {
+      approvalStore?.setPolicy({
+        capability: request.capability,
+        projectId: request.projectId,
+        effect: "allow"
+      });
+      return true;
+    }
+    if (decision === "deny_project" && request.projectId) {
+      approvalStore?.setPolicy({
+        capability: request.capability,
+        projectId: request.projectId,
+        effect: "deny"
+      });
+      return false;
+    }
+    return decision === "allow_once";
   },
   (request, decision) => {
     if (decision === "requested") approvalStore?.request(request);
@@ -437,7 +466,8 @@ async function getWorkState(): Promise<WorkState> {
     authError: authState.authError,
     projects,
     activities: activityStore?.list() ?? transientActivities.slice(0, 200),
-    approvals: approvalStore?.list() ?? []
+    approvals: approvalStore?.list() ?? [],
+    approvalPolicies: approvalStore?.listPolicies() ?? []
   };
 }
 
@@ -452,6 +482,19 @@ function registerIpc(): void {
   ipcMain.handle("work:sign-out", async (): Promise<WorkState> => {
     await desktopAuthManager?.signOut();
     return getWorkState();
+  });
+
+  ipcMain.handle("work:approval-policy-remove", (_event, policyId: string): boolean => {
+    const policy = approvalStore?.listPolicies().find((item) => item.policyId === policyId);
+    const removed = approvalStore?.removePolicy(policyId) ?? false;
+    if (removed) {
+      addActivity(
+        "approval.policy_removed",
+        "项目审批策略已撤销",
+        policy ? `${policy.capability} · ${policy.projectId}` : policyId
+      );
+    }
+    return removed;
   });
 
   ipcMain.handle("work:choose-project", async (): Promise<ProjectSummary | null> => {

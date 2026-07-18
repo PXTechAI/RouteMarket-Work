@@ -60,4 +60,58 @@ describe("ApprovalStore", () => {
     expect(store.get("tool_approval_2")?.status).toBe("denied");
     store.close();
   });
+
+  it("persists and matches project-scoped policies without crossing projects", async () => {
+    const value = await fixture();
+    let store = value.store;
+    const policy = store.setPolicy({
+      capability: "local.fs.write",
+      projectId: "project_1",
+      effect: "allow"
+    });
+
+    expect(store.matchPolicy({
+      capability: "local.fs.write",
+      projectId: "project_1"
+    })).toEqual(policy);
+    expect(store.matchPolicy({
+      capability: "local.fs.write",
+      projectId: "project_2"
+    })).toBeNull();
+    expect(store.matchPolicy({
+      capability: "local.fs.write"
+    })).toBeNull();
+
+    store.close();
+    store = new ApprovalStore(value.databasePath);
+    expect(store.listPolicies("project_1")).toEqual([policy]);
+    store.close();
+  });
+
+  it("replaces a policy decision while preserving its identity and supports revocation", async () => {
+    const { store } = await fixture();
+    const allowed = store.setPolicy({
+      capability: "local.process.start",
+      projectId: "project_1",
+      effect: "allow"
+    });
+    const denied = store.setPolicy({
+      capability: "local.process.start",
+      projectId: "project_1",
+      effect: "deny"
+    });
+
+    expect(denied).toMatchObject({
+      policyId: allowed.policyId,
+      capability: "local.process.start",
+      projectId: "project_1",
+      effect: "deny",
+      createdAt: allowed.createdAt
+    });
+    expect(store.listPolicies()).toHaveLength(1);
+    expect(store.removePolicy(denied.policyId)).toBe(true);
+    expect(store.removePolicy(denied.policyId)).toBe(false);
+    expect(store.listPolicies()).toEqual([]);
+    store.close();
+  });
 });

@@ -86,6 +86,15 @@ export type ApprovalRecord = {
   resolvedAt: string | null;
 };
 
+export type ApprovalPolicy = {
+  policyId: string;
+  capability: string;
+  projectId: string;
+  effect: "allow" | "deny";
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type ManagedBrowserState = {
   localProjectId: string;
   visible: boolean;
@@ -341,6 +350,7 @@ export type ActivityItem = {
     | "approval.requested"
     | "approval.approved"
     | "approval.denied"
+    | "approval.policy_removed"
     | "job.succeeded"
     | "job.failed"
     | "job.canceled"
@@ -373,6 +383,7 @@ export type WorkState = {
   projects: ProjectSummary[];
   activities: ActivityItem[];
   approvals: ApprovalRecord[];
+  approvalPolicies: ApprovalPolicy[];
 };
 
 export type ChatModel = {
@@ -525,6 +536,7 @@ export type RouteMarketWorkApi = {
   getState(): Promise<WorkState>;
   signIn(): Promise<WorkState>;
   signOut(): Promise<WorkState>;
+  removeApprovalPolicy(policyId: string): Promise<boolean>;
   chooseProject(): Promise<ProjectSummary | null>;
   getProjectContext(localProjectId: string): Promise<ProjectContext>;
   getWorkflowNodeRegistry(localProjectId: string): Promise<DesktopWorkflowNodeRegistry>;

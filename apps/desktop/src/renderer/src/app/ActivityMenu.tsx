@@ -96,6 +96,7 @@ function ActivityIcon({ kind }: { kind: ActivityItem["kind"] }) {
   if (kind === "cloud.connected") return <Cloud size={15} />;
   if (kind === "cloud.error" || kind === "job.failed") return <XCircle size={15} />;
   if (kind === "approval.requested") return <ShieldCheck size={15} />;
+  if (kind === "approval.policy_removed") return <ShieldCheck size={15} />;
   if (kind === "approval.approved" || kind === "job.succeeded") {
     return <CheckCircle2 size={15} />;
   }

@@ -782,14 +782,6 @@ kbd {
   background: #252a27;
 }
 
-.approval-pane {
-  min-width: 0;
-  min-height: 0;
-  padding: 26px 30px 60px;
-  overflow: auto;
-  background: #f4f3ef;
-}
-
 .mcp-pane {
   position: relative;
   display: grid;
@@ -1002,112 +994,6 @@ kbd {
 }
 
 .mcp-empty.compact { min-height: 80px; }
-
-.approval-heading {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 20px;
-  max-width: 920px;
-  margin: 0 auto 20px;
-  padding-bottom: 16px;
-  border-bottom: 1px solid #d9d7d0;
-}
-
-.approval-heading h2 {
-  margin: 4px 0;
-  color: #303633;
-  font-size: 18px;
-}
-
-.approval-heading p {
-  margin: 0;
-  color: #747a76;
-  font-size: 10px;
-}
-
-.approval-heading > span {
-  color: #747a76;
-  font-size: 10px;
-}
-
-.approval-list {
-  display: grid;
-  gap: 9px;
-  max-width: 920px;
-  margin: 0 auto;
-}
-
-.approval-card {
-  display: grid;
-  grid-template-columns: 34px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 12px;
-  padding: 13px 14px;
-  background: #fbfaf6;
-  border: 1px solid #d9d7d0;
-  border-radius: 7px;
-}
-
-.approval-mark {
-  display: grid;
-  place-items: center;
-  width: 32px;
-  height: 32px;
-  color: #8d7a49;
-  background: #eee9d9;
-  border-radius: 50%;
-}
-
-.approval-mark.approved { color: #3f7853; background: #e0ede4; }
-.approval-mark.denied { color: #a15140; background: #f2e2dd; }
-
-.approval-copy { min-width: 0; }
-.approval-copy > div { display: flex; align-items: center; gap: 8px; }
-.approval-copy strong { color: #363c38; font-size: 11px; }
-.approval-copy p { margin: 4px 0; color: #707672; font-size: 10px; }
-.approval-copy code {
-  display: block;
-  overflow: hidden;
-  color: #9a9e9b;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-family: "SFMono-Regular", Consolas, monospace;
-  font-size: 8px;
-}
-
-.risk-badge {
-  padding: 2px 5px;
-  color: #6b725f;
-  background: #e8e8dc;
-  border-radius: 3px;
-  font-size: 8px;
-  font-weight: 750;
-}
-
-.risk-badge.r2,
-.risk-badge.r3 { color: #914c3c; background: #f1dfda; }
-
-.approval-meta {
-  display: grid;
-  gap: 4px;
-  justify-items: end;
-  color: #858a87;
-}
-
-.approval-meta strong { color: #626965; font-size: 9px; }
-.approval-meta time { font-size: 8px; }
-
-.approval-empty {
-  display: grid;
-  place-items: center;
-  min-height: 260px;
-  color: #8b908d;
-  text-align: center;
-}
-
-.approval-empty h2 { margin: 10px 0 2px; color: #555c58; font-size: 14px; }
-.approval-empty p { margin: 0; font-size: 10px; }
 
 .terminal-toolbar {
   display: flex;
