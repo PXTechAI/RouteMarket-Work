@@ -24,6 +24,11 @@ const INSTALLATION_ID = `work-e2e-${randomUUID()}`;
 const ACCESS_TOKEN = `rmw_dt_${randomUUID().replaceAll("-", "")}${randomUUID().replaceAll("-", "")}`;
 type CoreProcess = ReturnType<typeof startCore>;
 const coreOutput = new WeakMap<CoreProcess, string>();
+type WorkerActivity = {
+  kind: string;
+  title: string;
+  detail: string;
+};
 
 type PrismaClientLike = {
   $disconnect(): Promise<void>;
@@ -50,6 +55,7 @@ describe.runIf(E2E_ENABLED)("CloudWorkerClient with a real local Core", () => {
   let project: Awaited<ReturnType<ProjectRegistry["bindFolder"]>>;
   let worker: CloudJobRuntime;
   let client: CloudWorkerClient;
+  let workerActivities: WorkerActivity[] = [];
 
   beforeAll(async () => {
     if (CORE_PORT === 3001) {
@@ -78,6 +84,7 @@ describe.runIf(E2E_ENABLED)("CloudWorkerClient with a real local Core", () => {
     coreProcess = startedCore;
     await waitForCore(startedCore);
 
+    workerActivities = [];
     client = new CloudWorkerClient({
       apiBaseUrl: API_BASE_URL,
       installationId: INSTALLATION_ID,
@@ -87,12 +94,31 @@ describe.runIf(E2E_ENABLED)("CloudWorkerClient with a real local Core", () => {
       appVersion: "0.1.0-e2e",
       workerVersion: "0.1.0-e2e",
       workerClient: createTransport(project, worker),
-      onActivity: () => undefined,
+      onActivity: (kind, title, detail) => {
+        workerActivities.push({ kind, title, detail });
+      },
       socketFactory: false
     });
     client.setAccessToken(ACCESS_TOKEN);
     await client.start();
-    await waitFor(() => client.getState().status === "online", "Cloud Worker did not connect.");
+    try {
+      await waitFor(() => client.getState().status === "online", "Cloud Worker did not connect.");
+    } catch (error) {
+      throw new Error(
+        [
+          error instanceof Error ? error.message : String(error),
+          JSON.stringify(
+            {
+              client: client.getState(),
+              activities: workerActivities,
+              coreOutput: coreOutput.get(startedCore) ?? ""
+            },
+            null,
+            2
+          )
+        ].join("\n")
+      );
+    }
   }, 120_000);
 
   afterAll(async () => {
