@@ -1,13 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
 import { join } from "node:path";
-import { assertDesktopJob, type DesktopJob } from "@routemarket/work-protocol";
-import type { JobEvent } from "@routemarket/work-protocol";
+import type { DesktopJob } from "@routemarket/work-protocol";
 import {
   createLocalProjectFile,
   buildDesktopWorkflowNodeRegistry,
   ControlledProcessManager,
   executeLocalFsRead,
-  executeLocalSkillInvoke,
   FileVersionStore,
   JobStore,
   listProjectFiles,
@@ -23,6 +21,7 @@ import {
   WorkerError
 } from "@routemarket/work-worker-core";
 import type { ProjectSummary } from "../shared/desktop-api";
+import { CloudJobRuntime } from "./cloud-job-runtime";
 
 type WorkerRequest =
   | { requestId: string; type: "projects.list" }
@@ -181,11 +180,11 @@ if (!dataPath) {
 }
 const registry = new ProjectRegistry(join(dataPath, "work.db"));
 const jobStore = new JobStore(join(dataPath, "work.db"));
+const cloudJobs = new CloudJobRuntime(registry, jobStore);
 const processManager = new ControlledProcessManager(registry);
 const mcpRegistry = new McpRegistry(join(dataPath, "work.db"));
 const fileVersions = new FileVersionStore(join(dataPath, "work.db"));
 const mcpHost = new StdioMcpHost(mcpRegistry, registry, dataPath);
-const activeJobs = new Set<string>();
 
 function summarizeProject(project: {
   localProjectId: string;
@@ -231,214 +230,6 @@ function createReadJob(localProjectId: string, relativePath: string): DesktopJob
     deadlineAt: new Date(Date.now() + 10 * 60_000).toISOString(),
     maxInlineResultBytes: 262_144
   };
-}
-
-function createJobEvent(
-  job: DesktopJob,
-  leaseId: string,
-  leaseEpoch: number,
-  seq: number,
-  eventType: JobEvent["eventType"],
-  data: Record<string, unknown>
-): JobEvent {
-  return {
-    eventId: `event_${randomUUID().replaceAll("-", "")}`,
-    jobId: job.jobId,
-    runtimeId: job.runtimeId,
-    leaseId,
-    leaseEpoch,
-    seq,
-    eventType,
-    occurredAt: new Date().toISOString(),
-    data
-  };
-}
-
-async function executeCloudJob(input: {
-  job: DesktopJob;
-  leaseId: string;
-  leaseEpoch: number;
-}): Promise<JobEvent[]> {
-  const received = jobStore.receive(input.job);
-  if (activeJobs.has(input.job.jobId)) {
-    return jobStore.pendingEvents(input.job.jobId);
-  }
-  const execution = jobStore.beginExecution(
-    input.job.jobId,
-    input.leaseId,
-    input.leaseEpoch
-  );
-  if (!execution.execute) return jobStore.pendingEvents(input.job.jobId);
-
-  activeJobs.add(input.job.jobId);
-  let nextSeq = execution.nextSeq;
-  try {
-    if (received.status === "received") {
-      const accepted = createJobEvent(
-        input.job,
-        input.leaseId,
-        input.leaseEpoch,
-        nextSeq++,
-        "job.accepted",
-        {}
-      );
-      jobStore.commitEvent(accepted, "leased");
-    }
-    if (received.status === "received" || received.status === "leased") {
-      const started = createJobEvent(
-        input.job,
-        input.leaseId,
-        input.leaseEpoch,
-        nextSeq++,
-        "job.started",
-        {}
-      );
-      jobStore.commitEvent(started, "running");
-    }
-    let result: Record<string, unknown>;
-    if (input.job.executorKey === "local.fs.read") {
-      result = await executeLocalFsRead(registry, input.job);
-    } else if (input.job.executorKey === "local.skill.invoke") {
-      result = await executeLocalSkillInvoke(registry, input.job);
-    } else {
-      throw new WorkerError(
-        "CAPABILITY_UNSUPPORTED",
-        `Worker executor is unavailable: ${input.job.executorKey}`
-      );
-    }
-    if (jobStore.getStatus(input.job.jobId) === "canceled") {
-      return jobStore.pendingEvents(input.job.jobId);
-    }
-    const succeeded = createJobEvent(
-      input.job,
-      input.leaseId,
-      input.leaseEpoch,
-      nextSeq,
-      "job.succeeded",
-      result
-    );
-    jobStore.commitEvent(succeeded, "succeeded", result);
-  } catch (error) {
-    if (jobStore.getStatus(input.job.jobId) === "canceled") {
-      return jobStore.pendingEvents(input.job.jobId);
-    }
-    const failure = {
-      code: error instanceof WorkerError ? error.code : "WORKER_ERROR",
-      message: error instanceof Error ? error.message : "Unknown worker error"
-    };
-    const failed = createJobEvent(
-      input.job,
-      input.leaseId,
-      input.leaseEpoch,
-      nextSeq,
-      "job.failed",
-      failure
-    );
-    jobStore.commitEvent(failed, "failed", failure);
-  } finally {
-    activeJobs.delete(input.job.jobId);
-  }
-  return jobStore.pendingEvents(input.job.jobId);
-}
-
-function beginExternalCloudJob(input: {
-  job: DesktopJob;
-  leaseId: string;
-  leaseEpoch: number;
-}): { execute: boolean; events: JobEvent[] } {
-  assertDesktopJob(input.job);
-  const received = jobStore.receive(input.job);
-  if (activeJobs.has(input.job.jobId)) {
-    return { execute: false, events: jobStore.pendingEvents(input.job.jobId) };
-  }
-  if (
-    received.duplicate &&
-    input.job.executionClass === "external_side_effect" &&
-    (received.status === "leased" || received.status === "running")
-  ) {
-    return { execute: false, events: jobStore.pendingEvents(input.job.jobId) };
-  }
-  const execution = jobStore.beginExecution(input.job.jobId, input.leaseId, input.leaseEpoch);
-  if (!execution.execute) {
-    return { execute: false, events: jobStore.pendingEvents(input.job.jobId) };
-  }
-  let nextSeq = execution.nextSeq;
-  if (execution.status === "received") {
-    jobStore.commitEvent(createJobEvent(
-      input.job,
-      input.leaseId,
-      input.leaseEpoch,
-      nextSeq++,
-      "job.accepted",
-      {}
-    ), "leased");
-  }
-  if (execution.status === "received" || execution.status === "leased") {
-    jobStore.commitEvent(createJobEvent(
-      input.job,
-      input.leaseId,
-      input.leaseEpoch,
-      nextSeq,
-      "job.started",
-      {}
-    ), "running");
-  }
-  activeJobs.add(input.job.jobId);
-  return { execute: true, events: jobStore.pendingEvents(input.job.jobId) };
-}
-
-function completeExternalCloudJob(input: {
-  job: DesktopJob;
-  leaseId: string;
-  leaseEpoch: number;
-  result: Record<string, unknown>;
-}): JobEvent[] {
-  try {
-    if (jobStore.getStatus(input.job.jobId) === "canceled") {
-      return jobStore.pendingEvents(input.job.jobId);
-    }
-    const state = jobStore.recoveryState().find((job) => job.jobId === input.job.jobId);
-    if (!state) return jobStore.pendingEvents(input.job.jobId);
-    const event = createJobEvent(
-      input.job,
-      input.leaseId,
-      input.leaseEpoch,
-      state.lastProducedSeq + 1,
-      "job.succeeded",
-      input.result
-    );
-    jobStore.commitEvent(event, "succeeded", input.result);
-    return jobStore.pendingEvents(input.job.jobId);
-  } finally {
-    activeJobs.delete(input.job.jobId);
-  }
-}
-
-function failExternalCloudJob(input: {
-  job: DesktopJob;
-  leaseId: string;
-  leaseEpoch: number;
-  failure: { code: string; message: string };
-}): JobEvent[] {
-  try {
-    if (jobStore.getStatus(input.job.jobId) === "canceled") {
-      return jobStore.pendingEvents(input.job.jobId);
-    }
-    const state = jobStore.recoveryState().find((job) => job.jobId === input.job.jobId);
-    if (!state) return jobStore.pendingEvents(input.job.jobId);
-    const event = createJobEvent(
-      input.job,
-      input.leaseId,
-      input.leaseEpoch,
-      state.lastProducedSeq + 1,
-      "job.failed",
-      input.failure
-    );
-    jobStore.commitEvent(event, "failed", input.failure);
-    return jobStore.pendingEvents(input.job.jobId);
-  } finally {
-    activeJobs.delete(input.job.jobId);
-  }
 }
 
 parentPort.on("message", async ({ data: request }) => {
@@ -586,29 +377,27 @@ parentPort.on("message", async ({ data: request }) => {
         request.payload.args
       );
     } else if (request.type === "job.execute") {
-      result = await executeCloudJob(request.payload);
+      result = await cloudJobs.executeJob(request.payload);
     } else if (request.type === "job.external.begin") {
-      result = beginExternalCloudJob(request.payload);
+      result = cloudJobs.beginExternalJob(request.payload);
     } else if (request.type === "job.external.complete") {
-      result = completeExternalCloudJob(request.payload);
+      result = cloudJobs.completeExternalJob(request.payload);
     } else if (request.type === "job.external.fail") {
-      result = failExternalCloudJob(request.payload);
+      result = cloudJobs.failExternalJob(request.payload);
     } else if (request.type === "job.cancel") {
-      jobStore.cancel(
+      result = cloudJobs.cancelJob(
         request.payload.jobId,
         request.payload.leaseId,
         request.payload.leaseEpoch
       );
-      result = jobStore.pendingEvents(request.payload.jobId);
     } else if (request.type === "job.events.pending") {
-      result = jobStore.pendingEvents();
+      result = cloudJobs.pendingEvents();
     } else if (request.type === "job.events-from") {
-      result = jobStore.eventsFrom(request.payload.jobId, request.payload.sequence);
+      result = cloudJobs.eventsFrom(request.payload.jobId, request.payload.sequence);
     } else if (request.type === "job.recovery-state") {
-      result = jobStore.recoveryState();
+      result = cloudJobs.recoveryState();
     } else {
-      jobStore.acknowledge(request.payload.eventId);
-      result = { acknowledged: true };
+      result = cloudJobs.acknowledgeEvent(request.payload.eventId);
     }
     parentPort.postMessage({
       requestId: request.requestId,
