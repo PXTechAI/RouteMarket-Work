@@ -1,30 +1,70 @@
 .rm-account-menu-root {
   position: relative;
-  display: grid;
-  place-items: center;
+  width: 100%;
 }
 
 .rm-rail-account {
   position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-width: 34px;
+  height: 40px;
+  gap: 10px;
+  padding: 0;
+  color: #fff;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+.rm-rail-account:hover,
+.rm-rail-account.active {
+  background: rgb(255 255 255 / 7%);
+}
+
+.rm-rail-account-avatar {
+  position: relative;
   display: grid;
+  flex: 0 0 auto;
   place-items: center;
   width: 34px;
   height: 34px;
-  padding: 0;
   color: #fff;
   background: var(--rm-brand-gradient);
   border: 1px solid rgb(255 255 255 / 18%);
   border-radius: 7px;
   box-shadow: 0 5px 16px rgb(0 0 0 / 18%);
-  cursor: pointer;
   font-size: 10px;
   font-weight: 750;
 }
 
-.rm-rail-account:hover,
-.rm-rail-account.active {
-  border-color: rgb(255 255 255 / 48%);
-  box-shadow: 0 0 0 2px rgb(65 98 255 / 28%);
+.rm-rail:not(.expanded) .rm-rail-account {
+  justify-content: center;
+}
+
+.rm-rail-account-copy {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.rm-rail-account-copy strong,
+.rm-rail-account-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rm-rail-account-copy strong {
+  font-size: 10px;
+}
+
+.rm-rail-account-copy small {
+  color: #9299ad;
+  font-size: 8px;
 }
 
 .rm-account-presence {
@@ -55,6 +95,10 @@
   border: 1px solid var(--rm-border-strong);
   border-radius: 8px;
   box-shadow: var(--rm-shadow-menu);
+}
+
+.rm-rail.expanded .rm-account-menu {
+  left: 198px;
 }
 
 .rm-account-menu-profile {
@@ -202,6 +246,7 @@
 }
 
 @media (max-width: 420px) {
+  .rm-rail.expanded .rm-account-menu,
   .rm-account-menu {
     right: 10px;
     left: 60px;

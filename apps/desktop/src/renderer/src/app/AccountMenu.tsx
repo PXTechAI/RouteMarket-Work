@@ -21,11 +21,13 @@ import {
 export function AccountMenu({
   state,
   busy,
+  expanded,
   onSignIn,
   onSignOut
 }: {
   state: WorkState;
   busy: boolean;
+  expanded: boolean;
   onSignIn(): void;
   onSignOut(): void;
 }) {
@@ -160,8 +162,16 @@ export function AccountMenu({
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
       >
-        {account ? getInitials(account.displayName) : <UserRound size={17} />}
-        <span className={`rm-account-presence ${account ? "online" : ""}`} />
+        <span className="rm-rail-account-avatar">
+          {account ? getInitials(account.displayName) : <UserRound size={17} />}
+          <span className={`rm-account-presence ${account ? "online" : ""}`} />
+        </span>
+        {expanded && (
+          <span className="rm-rail-account-copy">
+            <strong>{account?.displayName ?? "RouteMarket 账户"}</strong>
+            <small>{account ? "已登录" : "点击登录"}</small>
+          </span>
+        )}
       </button>
     </div>
   );
