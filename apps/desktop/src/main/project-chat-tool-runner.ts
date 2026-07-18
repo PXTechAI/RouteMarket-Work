@@ -123,7 +123,8 @@ export class ProjectChatToolRunner {
   async execute(
     localProjectId: string,
     call: ProjectChatToolCall,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    context: { source: "chat" | "agent" } = { source: "chat" }
   ): Promise<ProjectChatToolExecution> {
     if (this.mcpRuntime?.isDynamicToolName(call.name)) {
       return this.mcpRuntime.execute(localProjectId, call, signal);
@@ -418,7 +419,8 @@ export class ProjectChatToolRunner {
             const state = await browser.setUserTakeover(
               localProjectId,
               false,
-              created.activePageId
+              created.activePageId,
+              context
             );
             return {
               content: stringifyToolResult(sanitizeBrowserState(state)),
@@ -449,7 +451,7 @@ export class ProjectChatToolRunner {
           async () => {
             throwIfAborted(signal);
             await this.activateAgentBrowserPage(browser, localProjectId, pageId);
-            const state = await browser.navigate(localProjectId, url, pageId);
+            const state = await browser.navigate(localProjectId, url, pageId, context);
             return {
               content: stringifyToolResult(sanitizeBrowserState(state)),
               summary: browserPageSummary(state)
@@ -483,7 +485,7 @@ export class ProjectChatToolRunner {
               localProjectId,
               pageId
             );
-            await browser.click(localProjectId, selector, pageId);
+            await browser.click(localProjectId, selector, pageId, context);
             return {
               content: stringifyToolResult({
                 completed: true,
@@ -522,7 +524,7 @@ export class ProjectChatToolRunner {
               localProjectId,
               pageId
             );
-            await browser.type(localProjectId, selector, text, pageId);
+            await browser.type(localProjectId, selector, text, pageId, context);
             return {
               content: stringifyToolResult({
                 completed: true,
@@ -562,7 +564,8 @@ export class ProjectChatToolRunner {
               localProjectId,
               selector,
               relativePaths,
-              pageId
+              pageId,
+              context
             );
             return {
               content: stringifyToolResult({
@@ -603,7 +606,7 @@ export class ProjectChatToolRunner {
               pageId
             );
             const extracted = clipText(
-              await browser.extract(localProjectId, selector, pageId)
+              await browser.extract(localProjectId, selector, pageId, context)
             );
             return {
               content: stringifyToolResult({

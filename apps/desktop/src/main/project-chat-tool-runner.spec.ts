@@ -37,6 +37,7 @@ const browserState: ManagedBrowserState = {
   userTakeover: false,
   crashed: false,
   downloads: [],
+  operations: [],
   profiles: [{
     profileId: "profile_default",
     localProjectId: "project_1",
@@ -459,7 +460,8 @@ describe("ProjectChatToolRunner", () => {
     expect(browser.navigate).toHaveBeenCalledWith(
       "project_1",
       "https://routemarket.ai/docs",
-      "page_1"
+      "page_1",
+      { source: "chat" }
     );
     expect(browser.selectPage).toHaveBeenCalledWith("project_1", "page_1");
   });
@@ -487,7 +489,8 @@ describe("ProjectChatToolRunner", () => {
     expect(browser.setUserTakeover).toHaveBeenCalledWith(
       "project_1",
       false,
-      "page_1"
+      "page_1",
+      { source: "chat" }
     );
   });
 
@@ -564,7 +567,8 @@ describe("ProjectChatToolRunner", () => {
       "project_1",
       "input[type=file]",
       ["assets/report.pdf", "exports/data.csv"],
-      "page_1"
+      "page_1",
+      { source: "chat" }
     );
   });
 

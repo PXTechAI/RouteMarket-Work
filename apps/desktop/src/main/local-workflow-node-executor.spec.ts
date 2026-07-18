@@ -179,7 +179,8 @@ describe("createLocalWorkflowNodeExecutor", () => {
       projectId,
       "input[type=file]",
       ["assets/report.pdf", "exports/data.csv"],
-      "page_1"
+      "page_1",
+      { source: "workflow" }
     );
   });
 });

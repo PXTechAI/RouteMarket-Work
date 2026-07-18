@@ -5,6 +5,7 @@ import {
   CircleAlert,
   Download,
   Globe2,
+  History,
   LoaderCircle,
   LogOut,
   Plug,
@@ -16,12 +17,14 @@ import {
 import { useState } from "react";
 import { BrowserProfilePanel } from "./BrowserProfilePanel";
 import { BrowserDownloadPanel } from "./BrowserDownloadPanel";
+import { BrowserOperationPanel } from "./BrowserOperationPanel";
 import { BrowserTabStrip } from "./BrowserTabStrip";
 import type { BrowserPageProps } from "./types";
 
 export function BrowserPage({ model, actions, viewportRef, addressRef }: BrowserPageProps) {
   const [profilesOpen, setProfilesOpen] = useState(false);
   const [downloadsOpen, setDownloadsOpen] = useState(false);
+  const [operationsOpen, setOperationsOpen] = useState(false);
   const activeProfile = model.state?.profiles.find(
     (profile) => profile.profileId === model.state?.activeProfileId
   );
@@ -71,6 +74,7 @@ export function BrowserPage({ model, actions, viewportRef, addressRef }: Browser
           <>
             <button className={`browser-profile-button ${profilesOpen ? "active" : ""}`} type="button" title="浏览器 Profile 设置" onClick={() => {
               setDownloadsOpen(false);
+              setOperationsOpen(false);
               setProfilesOpen((open) => !open);
             }}>
               <Settings2 size={14} />
@@ -92,12 +96,38 @@ export function BrowserPage({ model, actions, viewportRef, addressRef }: Browser
             disabled={!model.localProjectId}
             onClick={() => {
               setProfilesOpen(false);
+              setOperationsOpen(false);
               setDownloadsOpen((open) => !open);
             }}
           >
             <Download size={15} />
             {model.state && model.state.downloads.length > 0 && (
               <span>{Math.min(model.state.downloads.length, 99)}</span>
+            )}
+          </button>
+        )}
+        {model.mode === "managed" && (
+          <button
+            className={`browser-icon-button browser-operation-button ${operationsOpen ? "active" : ""}`}
+            type="button"
+            title="操作记录"
+            aria-label="操作记录"
+            disabled={!model.localProjectId}
+            onClick={() => {
+              setProfilesOpen(false);
+              setDownloadsOpen(false);
+              setOperationsOpen((open) => !open);
+            }}
+          >
+            <History size={15} />
+            {model.state && model.state.operations.some(
+              (operation) => operation.status === "failed" || operation.status === "running"
+            ) && (
+              <span>
+                {Math.min(model.state.operations.filter(
+                  (operation) => operation.status === "failed" || operation.status === "running"
+                ).length, 99)}
+              </span>
             )}
           </button>
         )}
@@ -165,6 +195,14 @@ export function BrowserPage({ model, actions, viewportRef, addressRef }: Browser
           <BrowserDownloadPanel
             downloads={model.state.downloads}
             onClose={() => setDownloadsOpen(false)}
+          />
+        )}
+        {operationsOpen && model.mode === "managed" && model.state && (
+          <BrowserOperationPanel
+            operations={model.state.operations}
+            busy={model.busy}
+            onRetry={actions.onRetryOperation}
+            onClose={() => setOperationsOpen(false)}
           />
         )}
       </div>

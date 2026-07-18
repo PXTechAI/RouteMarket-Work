@@ -144,7 +144,8 @@ export class ProjectChatClient {
           const execution = await this.options.toolRunner.execute(
             input.project.localProjectId,
             call,
-            controller.signal
+            controller.signal,
+            { source: input.agent ? "agent" : "chat" }
           );
           if (execution.isError) {
             this.options.onEvent({

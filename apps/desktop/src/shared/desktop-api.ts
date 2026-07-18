@@ -110,6 +110,43 @@ export type ManagedBrowserState = {
   profiles: ManagedBrowserProfile[];
   pages: ManagedBrowserPageSummary[];
   downloads: ManagedBrowserDownload[];
+  operations: ManagedBrowserOperation[];
+};
+
+export type ManagedBrowserOperationSource =
+  | "user"
+  | "chat"
+  | "agent"
+  | "workflow"
+  | "cloud_job";
+
+export type ManagedBrowserOperationKind =
+  | "navigate"
+  | "back"
+  | "forward"
+  | "reload"
+  | "takeover"
+  | "click"
+  | "type"
+  | "upload"
+  | "extract"
+  | "screenshot";
+
+export type ManagedBrowserOperation = {
+  operationId: string;
+  localProjectId: string;
+  pageId: string;
+  source: ManagedBrowserOperationSource;
+  kind: ManagedBrowserOperationKind;
+  status: "running" | "succeeded" | "failed";
+  title: string;
+  detail: string;
+  url: string;
+  startedAt: string;
+  finishedAt: string | null;
+  error: string | null;
+  retryable: boolean;
+  retryOfOperationId: string | null;
 };
 
 export type ManagedBrowserDownload = {
@@ -626,6 +663,10 @@ export type RouteMarketWorkApi = {
   ): Promise<ManagedBrowserUploadResult>;
   extractBrowser(localProjectId: string, selector: string, pageId?: string): Promise<string>;
   screenshotBrowser(localProjectId: string, pageId?: string): Promise<string>;
+  retryBrowserOperation(
+    localProjectId: string,
+    operationId: string
+  ): Promise<ManagedBrowserState>;
   discoverAttachedBrowser(endpoint: string): Promise<AttachedBrowserTarget[]>;
   connectAttachedBrowser(endpoint: string, targetId?: string): Promise<AttachedBrowserState>;
   disconnectAttachedBrowser(): Promise<AttachedBrowserState>;

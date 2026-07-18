@@ -188,6 +188,52 @@ let previewBrowserState: ManagedBrowserState = {
   userTakeover: true,
   crashed: false,
   downloads: [],
+  operations: [{
+    operationId: "browser_op_failed",
+    localProjectId: "project_preview",
+    pageId: "page_preview",
+    source: "workflow",
+    kind: "click",
+    status: "failed",
+    title: "点击网页元素",
+    detail: "button[data-action=publish]",
+    url: "https://example.com/editor",
+    startedAt: "2026-07-18T08:12:30.000Z",
+    finishedAt: "2026-07-18T08:12:31.000Z",
+    error: "Browser element not found",
+    retryable: true,
+    retryOfOperationId: null
+  }, {
+    operationId: "browser_op_agent",
+    localProjectId: "project_preview",
+    pageId: "page_preview",
+    source: "agent",
+    kind: "navigate",
+    status: "succeeded",
+    title: "打开网页",
+    detail: "https://example.com/editor",
+    url: "https://example.com/editor",
+    startedAt: "2026-07-18T08:12:20.000Z",
+    finishedAt: "2026-07-18T08:12:22.000Z",
+    error: null,
+    retryable: true,
+    retryOfOperationId: null
+  }, {
+    operationId: "browser_op_user",
+    localProjectId: "project_preview",
+    pageId: "page_preview",
+    source: "user",
+    kind: "screenshot",
+    status: "succeeded",
+    title: "截取网页画面",
+    detail: "当前页面",
+    url: "https://example.com/editor",
+    startedAt: "2026-07-18T08:10:00.000Z",
+    finishedAt: "2026-07-18T08:10:01.000Z",
+    error: null,
+    retryable: true,
+    retryOfOperationId: null
+  }],
   profiles: [{
     profileId: "profile_default",
     localProjectId: "project_preview",
@@ -536,6 +582,31 @@ const previewApi: RouteMarketWorkApi = {
   },
   async extractBrowser() { return "Preview extracted text"; },
   async screenshotBrowser() { return "data:image/png;base64,"; },
+  async retryBrowserOperation(localProjectId, operationId) {
+    const previous = previewBrowserState.operations.find(
+      (operation) => operation.operationId === operationId
+    );
+    if (!previous || previous.status !== "failed") {
+      throw new Error("Managed Browser operation is not available for retry.");
+    }
+    const now = new Date().toISOString();
+    previewBrowserState = {
+      ...previewBrowserState,
+      operations: [{
+        ...previous,
+        operationId: `browser_op_${crypto.randomUUID().replaceAll("-", "")}`,
+        localProjectId,
+        source: "user",
+        status: "succeeded",
+        title: `重试：${previous.title}`,
+        startedAt: now,
+        finishedAt: now,
+        error: null,
+        retryOfOperationId: previous.operationId
+      }, ...previewBrowserState.operations]
+    };
+    return previewBrowserState;
+  },
   async discoverAttachedBrowser(endpoint) {
     return [{ targetId: "preview-page", title: "Preview page", url: "https://example.com", type: "page" }];
   },
@@ -841,6 +912,7 @@ const unavailableApi: RouteMarketWorkApi = {
   uploadBrowser: async () => desktopBridgeUnavailable(),
   extractBrowser: async () => desktopBridgeUnavailable(),
   screenshotBrowser: async () => desktopBridgeUnavailable(),
+  retryBrowserOperation: async () => desktopBridgeUnavailable(),
   discoverAttachedBrowser: async () => desktopBridgeUnavailable(),
   connectAttachedBrowser: async () => desktopBridgeUnavailable(),
   disconnectAttachedBrowser: async () => desktopBridgeUnavailable(),
@@ -1773,6 +1845,25 @@ export function App() {
       setBrowserScreenshot(screenshot);
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "网页截图失败");
+    } finally {
+      setBrowserBusy(false);
+    }
+  }
+
+  async function retryManagedBrowserOperation(operationId: string) {
+    if (!selectedProjectId || browserBusy) return;
+    setBrowserBusy(true);
+    setError(null);
+    try {
+      setBrowserState(
+        await api.retryBrowserOperation(selectedProjectId, operationId)
+      );
+    } catch (nextError) {
+      setError(
+        nextError instanceof Error
+          ? nextError.message
+          : "浏览器操作重试失败"
+      );
     } finally {
       setBrowserBusy(false);
     }
@@ -2728,6 +2819,8 @@ export function App() {
                   void updateManagedBrowserProfile(profileId, input),
                 onDeleteProfile: (profileId) => void deleteManagedBrowserProfile(profileId),
                 onCaptureScreenshot: () => void captureBrowserScreenshot(),
+                onRetryOperation: (operationId) =>
+                  void retryManagedBrowserOperation(operationId),
                 onCloseScreenshot: () => setBrowserScreenshot(null),
                 onAttachedEndpointChange: setAttachedEndpoint,
                 onDiscoverAttachedTargets: () => void discoverAttachedTargets(),

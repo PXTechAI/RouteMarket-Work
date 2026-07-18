@@ -36,6 +36,7 @@ export type BrowserPageActions = {
   onUpdateProfile(profileId: string, input: ManagedBrowserProfileInput): void;
   onDeleteProfile(profileId: string): void;
   onCaptureScreenshot(): void;
+  onRetryOperation(operationId: string): void;
   onCloseScreenshot(): void;
   onAttachedEndpointChange(value: string): void;
   onDiscoverAttachedTargets(): void;

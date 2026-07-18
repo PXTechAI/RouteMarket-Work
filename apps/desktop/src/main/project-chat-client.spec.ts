@@ -372,6 +372,53 @@ describe("ProjectChatClient", () => {
     });
   });
 
+  it("marks local Tool calls from an Agent session with the Agent source", async () => {
+    const toolRunner = {
+      listTools: vi.fn(async () => PROJECT_CHAT_TOOLS),
+      execute: vi.fn(async () => ({
+        content: JSON.stringify({ path: "src/index.ts", text: "export {};" }),
+        summary: "src/index.ts",
+        isError: false
+      }))
+    };
+    let modelRound = 0;
+    const fetchMock = vi.fn<typeof fetch>(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/agents/agent_builder")) return jsonResponse(agentProfilePayload);
+      if (url.endsWith("/sessions")) {
+        return jsonResponse({ session: { id: agentRequest.sessionId } });
+      }
+      if (url.endsWith("/turns")) {
+        return jsonResponse({ session_id: agentRequest.sessionId });
+      }
+      modelRound += 1;
+      if (modelRound === 1) {
+        return sseResponse(
+          'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_agent_read","type":"function","function":{"name":"project_read_file","arguments":"{\\"path\\":\\"src/index.ts\\"}"}}]},"finish_reason":"tool_calls"}]}\n\n',
+          "data: [DONE]\n\n"
+        );
+      }
+      return sseResponse(
+        'data: {"choices":[{"delta":{"content":"Inspected."}}]}\n\n',
+        "data: [DONE]\n\n"
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createClient([], toolRunner).send(agentRequest);
+
+    expect(toolRunner.execute).toHaveBeenCalledWith(
+      "project_1",
+      {
+        id: "call_agent_read",
+        name: "project_read_file",
+        arguments: '{"path":"src/index.ts"}'
+      },
+      expect.any(AbortSignal),
+      { source: "agent" }
+    );
+  });
+
   it("rejects an Agent Tool call outside the desktop permission policy", async () => {
     const events: ProjectChatEvent[] = [];
     const toolRunner = {
@@ -513,7 +560,8 @@ describe("ProjectChatClient", () => {
         name: "project_read_file",
         arguments: '{"path":"src/index.ts"}'
       },
-      expect.any(AbortSignal)
+      expect.any(AbortSignal),
+      { source: "chat" }
     );
     expect(events).toContainEqual({
       requestId: "request_1",
@@ -639,7 +687,8 @@ describe("ProjectChatClient", () => {
         name: "skill_local_review_123456789abc",
         arguments: '{"task":"Review the current changes."}'
       },
-      expect.any(AbortSignal)
+      expect.any(AbortSignal),
+      { source: "chat" }
     );
     expect(events).toContainEqual({
       requestId: "request_1",

@@ -267,15 +267,15 @@ async function executeBrowser(
     async () => {
       throwIfAborted(signal);
       if (operation === "navigate") {
-        return browser.navigate(localProjectId, detail, pageId);
+        return browser.navigate(localProjectId, detail, pageId, { source: "workflow" });
       }
       if (operation === "click") {
-        await browser.click(localProjectId, detail, pageId);
+        await browser.click(localProjectId, detail, pageId, { source: "workflow" });
         return { completed: true };
       }
       if (operation === "type") {
         const text = requiredString(input, "text", 100_000, true);
-        await browser.type(localProjectId, detail, text, pageId);
+        await browser.type(localProjectId, detail, text, pageId, { source: "workflow" });
         return { completed: true, characters: text.length };
       }
       if (operation === "upload") {
@@ -283,13 +283,32 @@ async function executeBrowser(
         if (!relativePaths.length || relativePaths.length > 20) {
           throw new Error("relativePaths must contain between 1 and 20 project files.");
         }
-        return browser.upload(localProjectId, detail, relativePaths, pageId);
+        return browser.upload(
+          localProjectId,
+          detail,
+          relativePaths,
+          pageId,
+          { source: "workflow" }
+        );
       }
       if (operation === "extract") {
-        return { text: await browser.extract(localProjectId, detail, pageId) };
+        return {
+          text: await browser.extract(
+            localProjectId,
+            detail,
+            pageId,
+            { source: "workflow" }
+          )
+        };
       }
       if (operation === "screenshot") {
-        return { dataUrl: await browser.screenshot(localProjectId, pageId) };
+        return {
+          dataUrl: await browser.screenshot(
+            localProjectId,
+            pageId,
+            { source: "workflow" }
+          )
+        };
       }
       throw new Error(`Unsupported Managed Browser operation: ${operation}`);
     }

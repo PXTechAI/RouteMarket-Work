@@ -10,6 +10,8 @@ import {
 } from "electron";
 import type {
   ManagedBrowserDownload,
+  ManagedBrowserOperationKind,
+  ManagedBrowserOperationSource,
   ManagedBrowserPageSummary,
   ManagedBrowserProfile,
   ManagedBrowserProfileInput,
@@ -21,6 +23,7 @@ import {
   prepareProjectDownloadDirectory,
   resolveProjectUploadFiles
 } from "./managed-browser-files";
+import { ManagedBrowserOperationStore } from "./managed-browser-operation-store";
 import {
   DEFAULT_BROWSER_PROFILE_INPUT,
   browserPartition,
@@ -53,10 +56,30 @@ type ManagedBrowserManagerOptions = {
   resolveProjectRoot?(localProjectId: string): Promise<string>;
 };
 
+export type ManagedBrowserOperationContext = {
+  source?: ManagedBrowserOperationSource;
+  title?: string;
+  retryOfOperationId?: string;
+};
+
+export type ManagedBrowserRetryDescriptor =
+  | { kind: "navigate"; pageId?: string; value: string }
+  | { kind: "back"; pageId?: string }
+  | { kind: "forward"; pageId?: string }
+  | { kind: "reload"; pageId?: string }
+  | { kind: "takeover"; pageId?: string; value: boolean }
+  | { kind: "click"; pageId?: string; selector: string }
+  | { kind: "type"; pageId?: string; selector: string; text: string }
+  | { kind: "upload"; pageId?: string; selector: string; relativePaths: string[] }
+  | { kind: "extract"; pageId?: string; selector: string }
+  | { kind: "screenshot"; pageId?: string };
+
 export class ManagedBrowserManager {
   private readonly profiles = new Map<string, ManagedBrowserProfile>();
   private readonly pages = new Map<string, BrowserPageRecord>();
   private readonly downloads = new Map<string, ManagedBrowserDownload>();
+  private readonly operations = new ManagedBrowserOperationStore();
+  private readonly operationRetries = new Map<string, ManagedBrowserRetryDescriptor>();
   private readonly activePageByProject = new Map<string, string>();
   private readonly configuredSessions = new Map<Session, SessionDownloadListener>();
   private activeProjectId: string | null = null;
@@ -184,137 +207,288 @@ export class ManagedBrowserManager {
     return state;
   }
 
-  async navigate(localProjectId: string, value: string, pageId?: string): Promise<ManagedBrowserState> {
-    const page = await this.resolvePage(localProjectId, pageId);
-    page.crashed = false;
-    await page.view.webContents.loadURL(normalizeBrowserUrl(value));
-    return this.stateFor(page);
+  async navigate(
+    localProjectId: string,
+    value: string,
+    pageId?: string,
+    context?: ManagedBrowserOperationContext
+  ): Promise<ManagedBrowserState> {
+    return this.runOperation(
+      localProjectId,
+      { kind: "navigate", pageId, value },
+      context,
+      async (page) => {
+        page.crashed = false;
+        await page.view.webContents.loadURL(normalizeBrowserUrl(value));
+        return this.stateFor(page);
+      }
+    );
   }
 
-  async back(localProjectId: string, pageId?: string): Promise<ManagedBrowserState> {
-    const page = await this.resolvePage(localProjectId, pageId);
-    if (page.view.webContents.canGoBack()) page.view.webContents.goBack();
-    return this.stateFor(page);
+  async back(
+    localProjectId: string,
+    pageId?: string,
+    context?: ManagedBrowserOperationContext
+  ): Promise<ManagedBrowserState> {
+    return this.runOperation(localProjectId, { kind: "back", pageId }, context, async (page) => {
+      if (page.view.webContents.canGoBack()) page.view.webContents.goBack();
+      return this.stateFor(page);
+    });
   }
 
-  async forward(localProjectId: string, pageId?: string): Promise<ManagedBrowserState> {
-    const page = await this.resolvePage(localProjectId, pageId);
-    if (page.view.webContents.canGoForward()) page.view.webContents.goForward();
-    return this.stateFor(page);
+  async forward(
+    localProjectId: string,
+    pageId?: string,
+    context?: ManagedBrowserOperationContext
+  ): Promise<ManagedBrowserState> {
+    return this.runOperation(
+      localProjectId,
+      { kind: "forward", pageId },
+      context,
+      async (page) => {
+        if (page.view.webContents.canGoForward()) page.view.webContents.goForward();
+        return this.stateFor(page);
+      }
+    );
   }
 
-  async reload(localProjectId: string, pageId?: string): Promise<ManagedBrowserState> {
-    const page = await this.resolvePage(localProjectId, pageId);
-    page.view.webContents.reload();
-    return this.stateFor(page);
+  async reload(
+    localProjectId: string,
+    pageId?: string,
+    context?: ManagedBrowserOperationContext
+  ): Promise<ManagedBrowserState> {
+    return this.runOperation(
+      localProjectId,
+      { kind: "reload", pageId },
+      context,
+      async (page) => {
+        page.view.webContents.reload();
+        return this.stateFor(page);
+      }
+    );
   }
 
   async setUserTakeover(
     localProjectId: string,
     value: boolean,
-    pageId?: string
+    pageId?: string,
+    context?: ManagedBrowserOperationContext
   ): Promise<ManagedBrowserState> {
-    const page = await this.resolvePage(localProjectId, pageId);
-    page.userTakeover = value;
-    await this.applyInteractionMode(page);
-    return this.stateFor(page);
+    return this.runOperation(
+      localProjectId,
+      { kind: "takeover", pageId, value },
+      context,
+      async (page) => {
+        page.userTakeover = value;
+        await this.applyInteractionMode(page);
+        return this.stateFor(page);
+      }
+    );
   }
 
-  async click(localProjectId: string, selectorValue: string, pageId?: string): Promise<void> {
-    const page = await this.resolvePage(localProjectId, pageId);
-    const selector = assertSafeSelector(selectorValue);
-    await page.view.webContents.executeJavaScript(`(() => {
-      const element = document.querySelector(${JSON.stringify(selector)});
-      if (!(element instanceof HTMLElement)) throw new Error("Browser element not found");
-      element.scrollIntoView({ block: "center", inline: "center" });
-      element.click();
-    })()`);
+  async click(
+    localProjectId: string,
+    selectorValue: string,
+    pageId?: string,
+    context?: ManagedBrowserOperationContext
+  ): Promise<void> {
+    return this.runOperation(
+      localProjectId,
+      { kind: "click", pageId, selector: selectorValue },
+      context,
+      async (page) => {
+        const selector = assertSafeSelector(selectorValue);
+        await page.view.webContents.executeJavaScript(`(() => {
+          const element = document.querySelector(${JSON.stringify(selector)});
+          if (!(element instanceof HTMLElement)) throw new Error("Browser element not found");
+          element.scrollIntoView({ block: "center", inline: "center" });
+          element.click();
+        })()`);
+      }
+    );
   }
 
   async type(
     localProjectId: string,
     selectorValue: string,
     textValue: string,
-    pageId?: string
+    pageId?: string,
+    context?: ManagedBrowserOperationContext
   ): Promise<void> {
-    const page = await this.resolvePage(localProjectId, pageId);
-    const selector = assertSafeSelector(selectorValue);
-    const text = assertSafeBrowserText(textValue);
-    await page.view.webContents.executeJavaScript(`(() => {
-      const element = document.querySelector(${JSON.stringify(selector)});
-      if (!(element instanceof HTMLInputElement) && !(element instanceof HTMLTextAreaElement)) {
-        throw new Error("Browser input not found");
+    return this.runOperation(
+      localProjectId,
+      { kind: "type", pageId, selector: selectorValue, text: textValue },
+      context,
+      async (page) => {
+        const selector = assertSafeSelector(selectorValue);
+        const text = assertSafeBrowserText(textValue);
+        await page.view.webContents.executeJavaScript(`(() => {
+          const element = document.querySelector(${JSON.stringify(selector)});
+          if (!(element instanceof HTMLInputElement) && !(element instanceof HTMLTextAreaElement)) {
+            throw new Error("Browser input not found");
+          }
+          element.focus();
+          const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(element), "value")?.set;
+          if (setter) setter.call(element, ${JSON.stringify(text)});
+          else element.value = ${JSON.stringify(text)};
+          element.dispatchEvent(new Event("input", { bubbles: true }));
+          element.dispatchEvent(new Event("change", { bubbles: true }));
+        })()`);
       }
-      element.focus();
-      const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(element), "value")?.set;
-      if (setter) setter.call(element, ${JSON.stringify(text)});
-      else element.value = ${JSON.stringify(text)};
-      element.dispatchEvent(new Event("input", { bubbles: true }));
-      element.dispatchEvent(new Event("change", { bubbles: true }));
-    })()`);
+    );
   }
 
   async upload(
     localProjectId: string,
     selectorValue: string,
     relativePaths: string[],
-    pageId?: string
+    pageId?: string,
+    context?: ManagedBrowserOperationContext
   ): Promise<ManagedBrowserUploadResult> {
-    const page = await this.resolvePage(localProjectId, pageId);
-    const selector = assertSafeSelector(selectorValue);
-    const projectRoot = await this.resolveProjectRoot(localProjectId);
-    const files = await resolveProjectUploadFiles(projectRoot, relativePaths);
-    const isFileInput = await page.view.webContents.executeJavaScript(`(() => {
-      const element = document.querySelector(${JSON.stringify(selector)});
-      return element instanceof HTMLInputElement &&
-        element.type.toLowerCase() === "file" &&
-        !element.disabled;
-    })()`);
-    if (!isFileInput) throw new Error("Browser upload target is not an enabled file input.");
+    return this.runOperation(
+      localProjectId,
+      { kind: "upload", pageId, selector: selectorValue, relativePaths: [...relativePaths] },
+      context,
+      async (page) => {
+        const selector = assertSafeSelector(selectorValue);
+        const projectRoot = await this.resolveProjectRoot(localProjectId);
+        const files = await resolveProjectUploadFiles(projectRoot, relativePaths);
+        const isFileInput = await page.view.webContents.executeJavaScript(`(() => {
+          const element = document.querySelector(${JSON.stringify(selector)});
+          return element instanceof HTMLInputElement &&
+            element.type.toLowerCase() === "file" &&
+            !element.disabled;
+        })()`);
+        if (!isFileInput) throw new Error("Browser upload target is not an enabled file input.");
 
-    const browserDebugger = page.view.webContents.debugger;
-    const attachedHere = !browserDebugger.isAttached();
-    if (attachedHere) browserDebugger.attach("1.3");
-    try {
-      const document = await browserDebugger.sendCommand("DOM.getDocument", {
-        depth: 0,
-        pierce: true
-      }) as { root?: { nodeId?: number } };
-      const rootNodeId = document.root?.nodeId;
-      if (!rootNodeId) throw new Error("Browser document is unavailable.");
-      const target = await browserDebugger.sendCommand("DOM.querySelector", {
-        nodeId: rootNodeId,
-        selector
-      }) as { nodeId?: number };
-      if (!target.nodeId) throw new Error("Browser upload input was not found.");
-      await browserDebugger.sendCommand("DOM.setFileInputFiles", {
-        files: files.absolutePaths,
-        nodeId: target.nodeId
-      });
-    } finally {
-      if (attachedHere && browserDebugger.isAttached()) browserDebugger.detach();
+        const browserDebugger = page.view.webContents.debugger;
+        const attachedHere = !browserDebugger.isAttached();
+        if (attachedHere) browserDebugger.attach("1.3");
+        try {
+          const document = await browserDebugger.sendCommand("DOM.getDocument", {
+            depth: 0,
+            pierce: true
+          }) as { root?: { nodeId?: number } };
+          const rootNodeId = document.root?.nodeId;
+          if (!rootNodeId) throw new Error("Browser document is unavailable.");
+          const target = await browserDebugger.sendCommand("DOM.querySelector", {
+            nodeId: rootNodeId,
+            selector
+          }) as { nodeId?: number };
+          if (!target.nodeId) throw new Error("Browser upload input was not found.");
+          await browserDebugger.sendCommand("DOM.setFileInputFiles", {
+            files: files.absolutePaths,
+            nodeId: target.nodeId
+          });
+        } finally {
+          if (attachedHere && browserDebugger.isAttached()) browserDebugger.detach();
+        }
+        return {
+          completed: true,
+          pageId: page.pageId,
+          url: page.view.webContents.getURL() || "about:blank",
+          relativePaths: files.relativePaths
+        };
+      }
+    );
+  }
+
+  async extract(
+    localProjectId: string,
+    selectorValue: string,
+    pageId?: string,
+    context?: ManagedBrowserOperationContext
+  ): Promise<string> {
+    return this.runOperation(
+      localProjectId,
+      { kind: "extract", pageId, selector: selectorValue },
+      context,
+      async (page) => {
+        const selector = assertSafeSelector(selectorValue);
+        return page.view.webContents.executeJavaScript(`(() => {
+          const element = document.querySelector(${JSON.stringify(selector)});
+          if (!element) throw new Error("Browser element not found");
+          return (element.textContent || "").slice(0, 1000000);
+        })()`);
+      }
+    );
+  }
+
+  async screenshot(
+    localProjectId: string,
+    pageId?: string,
+    context?: ManagedBrowserOperationContext
+  ): Promise<string> {
+    return this.runOperation(
+      localProjectId,
+      { kind: "screenshot", pageId },
+      context,
+      async (page) => (await page.view.webContents.capturePage()).toDataURL()
+    );
+  }
+
+  getRetryDescriptor(
+    localProjectId: string,
+    operationId: string
+  ): ManagedBrowserRetryDescriptor {
+    const operation = this.operations.get(localProjectId, operationId);
+    const descriptor = this.operationRetries.get(operationId);
+    if (!operation || operation.status !== "failed" || !operation.retryable || !descriptor) {
+      throw new Error("Managed Browser operation is not available for retry.");
     }
-    return {
-      completed: true,
-      pageId: page.pageId,
-      url: page.view.webContents.getURL() || "about:blank",
-      relativePaths: files.relativePaths
+    return cloneRetryDescriptor(descriptor);
+  }
+
+  async retryOperation(
+    localProjectId: string,
+    operationId: string
+  ): Promise<ManagedBrowserState> {
+    const operation = this.operations.get(localProjectId, operationId);
+    const descriptor = this.getRetryDescriptor(localProjectId, operationId);
+    const context: ManagedBrowserOperationContext = {
+      source: "user",
+      title: `重试：${operation?.title ?? operationTitle(descriptor.kind)}`,
+      retryOfOperationId: operationId
     };
-  }
-
-  async extract(localProjectId: string, selectorValue: string, pageId?: string): Promise<string> {
-    const page = await this.resolvePage(localProjectId, pageId);
-    const selector = assertSafeSelector(selectorValue);
-    return page.view.webContents.executeJavaScript(`(() => {
-      const element = document.querySelector(${JSON.stringify(selector)});
-      if (!element) throw new Error("Browser element not found");
-      return (element.textContent || "").slice(0, 1000000);
-    })()`);
-  }
-
-  async screenshot(localProjectId: string, pageId?: string): Promise<string> {
-    const page = await this.resolvePage(localProjectId, pageId);
-    return (await page.view.webContents.capturePage()).toDataURL();
+    if (descriptor.kind === "navigate") {
+      return this.navigate(localProjectId, descriptor.value, descriptor.pageId, context);
+    }
+    if (descriptor.kind === "back") {
+      return this.back(localProjectId, descriptor.pageId, context);
+    }
+    if (descriptor.kind === "forward") {
+      return this.forward(localProjectId, descriptor.pageId, context);
+    }
+    if (descriptor.kind === "reload") {
+      return this.reload(localProjectId, descriptor.pageId, context);
+    }
+    if (descriptor.kind === "takeover") {
+      return this.setUserTakeover(localProjectId, descriptor.value, descriptor.pageId, context);
+    }
+    if (descriptor.kind === "click") {
+      await this.click(localProjectId, descriptor.selector, descriptor.pageId, context);
+    } else if (descriptor.kind === "type") {
+      await this.type(
+        localProjectId,
+        descriptor.selector,
+        descriptor.text,
+        descriptor.pageId,
+        context
+      );
+    } else if (descriptor.kind === "upload") {
+      await this.upload(
+        localProjectId,
+        descriptor.selector,
+        descriptor.relativePaths,
+        descriptor.pageId,
+        context
+      );
+    } else if (descriptor.kind === "extract") {
+      await this.extract(localProjectId, descriptor.selector, descriptor.pageId, context);
+    } else {
+      await this.screenshot(localProjectId, descriptor.pageId, context);
+    }
+    return this.getPageState(localProjectId, descriptor.pageId);
   }
 
   destroy(): void {
@@ -499,8 +673,59 @@ export class ManagedBrowserManager {
       pages: this.projectPages(page.localProjectId).map(browserPageSummary),
       downloads: [...this.downloads.values()]
         .filter((download) => download.localProjectId === page.localProjectId)
-        .sort((left, right) => right.startedAt.localeCompare(left.startedAt))
+        .sort((left, right) => right.startedAt.localeCompare(left.startedAt)),
+      operations: this.operations.list(page.localProjectId)
     };
+  }
+
+  private async runOperation<TResult>(
+    localProjectId: string,
+    descriptor: ManagedBrowserRetryDescriptor,
+    context: ManagedBrowserOperationContext | undefined,
+    task: (page: BrowserPageRecord) => Promise<TResult>
+  ): Promise<TResult> {
+    const requestedPage = descriptor.pageId
+      ? this.pages.get(descriptor.pageId)
+      : this.activePageByProject.get(localProjectId)
+        ? this.pages.get(this.activePageByProject.get(localProjectId)!)
+        : undefined;
+    const operation = this.operations.begin({
+      localProjectId,
+      pageId: descriptor.pageId ?? requestedPage?.pageId ?? "active",
+      source: context?.source ?? "user",
+      kind: descriptor.kind,
+      title: context?.title ?? operationTitle(descriptor.kind),
+      detail: operationDetail(descriptor),
+      url: requestedPage?.view.webContents.getURL() || "about:blank",
+      retryable: true,
+      retryOfOperationId: context?.retryOfOperationId ?? null
+    });
+    this.operationRetries.set(operation.operationId, cloneRetryDescriptor(descriptor));
+    this.pruneOperationRetries();
+    try {
+      const page = await this.resolvePage(localProjectId, descriptor.pageId);
+      this.operations.attachPage(
+        operation.operationId,
+        page.pageId,
+        page.view.webContents.getURL() || "about:blank"
+      );
+      const result = await task(page);
+      this.operations.succeed(
+        operation.operationId,
+        page.view.webContents.getURL() || "about:blank"
+      );
+      this.operationRetries.delete(operation.operationId);
+      return result;
+    } catch (error) {
+      this.operations.fail(operation.operationId, error);
+      throw error;
+    }
+  }
+
+  private pruneOperationRetries(): void {
+    for (const operationId of this.operationRetries.keys()) {
+      if (!this.operations.has(operationId)) this.operationRetries.delete(operationId);
+    }
   }
 
   private projectProfiles(localProjectId: string): ManagedBrowserProfile[] {
@@ -603,4 +828,49 @@ function sanitizeBounds(value: Rectangle): Rectangle {
     width: Math.max(1, Math.floor(value.width)),
     height: Math.max(1, Math.floor(value.height))
   };
+}
+
+function operationTitle(kind: ManagedBrowserOperationKind): string {
+  const titles: Record<ManagedBrowserOperationKind, string> = {
+    navigate: "打开网页",
+    back: "后退",
+    forward: "前进",
+    reload: "刷新网页",
+    takeover: "切换浏览器控制模式",
+    click: "点击网页元素",
+    type: "填写网页内容",
+    upload: "上传项目文件",
+    extract: "读取网页内容",
+    screenshot: "截取网页画面"
+  };
+  return titles[kind];
+}
+
+function operationDetail(descriptor: ManagedBrowserRetryDescriptor): string {
+  if (descriptor.kind === "navigate") return descriptor.value;
+  if (descriptor.kind === "takeover") {
+    return descriptor.value ? "用户接管" : "Agent 控制";
+  }
+  if (
+    descriptor.kind === "click" ||
+    descriptor.kind === "type" ||
+    descriptor.kind === "extract"
+  ) {
+    return descriptor.selector;
+  }
+  if (descriptor.kind === "upload") {
+    return `${descriptor.selector} · ${descriptor.relativePaths.length} 个项目文件`;
+  }
+  if (descriptor.kind === "back") return "返回上一页";
+  if (descriptor.kind === "forward") return "前往下一页";
+  if (descriptor.kind === "reload") return "重新加载当前页面";
+  return "当前页面";
+}
+
+function cloneRetryDescriptor(
+  descriptor: ManagedBrowserRetryDescriptor
+): ManagedBrowserRetryDescriptor {
+  return descriptor.kind === "upload"
+    ? { ...descriptor, relativePaths: [...descriptor.relativePaths] }
+    : { ...descriptor };
 }

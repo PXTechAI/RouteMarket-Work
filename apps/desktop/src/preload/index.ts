@@ -89,6 +89,8 @@ const api: RouteMarketWorkApi = {
     ipcRenderer.invoke("work:browser-extract", localProjectId, selector, pageId),
   screenshotBrowser: (localProjectId, pageId) =>
     ipcRenderer.invoke("work:browser-screenshot", localProjectId, pageId),
+  retryBrowserOperation: (localProjectId, operationId) =>
+    ipcRenderer.invoke("work:browser-operation-retry", localProjectId, operationId),
   discoverAttachedBrowser: (endpoint) =>
     ipcRenderer.invoke("work:attached-browser-discover", endpoint),
   connectAttachedBrowser: (endpoint, targetId) =>

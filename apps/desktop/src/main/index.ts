@@ -29,8 +29,15 @@ import { DesktopAuthManager } from "./desktop-auth-manager";
 import { DeviceCredentialStore } from "./device-credential-store";
 import { ProjectChatClient } from "./project-chat-client";
 import { ProjectChatToolRunner } from "./project-chat-tool-runner";
-import { LocalToolBroker } from "./tool-broker";
-import { ManagedBrowserManager } from "./managed-browser-manager";
+import {
+  LocalToolBroker,
+  type ToolAuthorizationRequest,
+  type ToolRisk
+} from "./tool-broker";
+import {
+  ManagedBrowserManager,
+  type ManagedBrowserRetryDescriptor
+} from "./managed-browser-manager";
 import { AttachedBrowserManager } from "./attached-browser-manager";
 import { LocalTriggerManager } from "./local-trigger-manager";
 import { NativeAppConnectorManager } from "./native-app-connector-manager";
@@ -171,6 +178,38 @@ function createWindow(): void {
   mainWindow.once("ready-to-show", () => mainWindow?.show());
 }
 
+function browserRetryApproval(
+  localProjectId: string,
+  operationId: string,
+  descriptor: ManagedBrowserRetryDescriptor
+): Omit<ToolAuthorizationRequest, "invocationId"> {
+  const risk: ToolRisk = descriptor.kind === "upload"
+    ? "R3"
+    : descriptor.kind === "click" || descriptor.kind === "type"
+      ? "R2"
+      : "R1";
+  const capability = `local.browser.${descriptor.kind === "takeover" ? "control" : descriptor.kind}`;
+  const detail = descriptor.kind === "navigate"
+    ? descriptor.value
+    : descriptor.kind === "click" ||
+        descriptor.kind === "type" ||
+        descriptor.kind === "extract" ||
+        descriptor.kind === "upload"
+      ? descriptor.selector
+      : descriptor.pageId ?? "active page";
+  return {
+    capability,
+    risk,
+    title: "重新执行失败的浏览器操作？",
+    detail,
+    auditDetail: `${descriptor.kind} · ${operationId}`,
+    approvalKey: `${operationId}:${createHash("sha256")
+      .update(JSON.stringify(descriptor))
+      .digest("hex")}`,
+    projectId: localProjectId
+  };
+}
+
 function focusMainWindow(): void {
   if (!mainWindow) {
     if (app.isReady()) createWindow();
@@ -295,31 +334,60 @@ async function invokeExternalDesktopJob(
       const state = await attachedBrowser.navigate(job.input.url);
       return { url: state.target?.url ?? job.input.url, title: state.target?.title ?? "" };
     }
-    const state = await requireBrowser().navigate(localProjectId, job.input.url);
+    const state = await requireBrowser().navigate(
+      localProjectId,
+      job.input.url,
+      undefined,
+      { source: "cloud_job" }
+    );
     return { url: state.url, title: state.title };
   }
   if (job.executorKey === "local.browser.click") {
     if (attachedBrowser.state().connected) await attachedBrowser.click(job.input.selector);
-    else await requireBrowser().click(localProjectId, job.input.selector);
+    else {
+      await requireBrowser().click(
+        localProjectId,
+        job.input.selector,
+        undefined,
+        { source: "cloud_job" }
+      );
+    }
     return { completed: true };
   }
   if (job.executorKey === "local.browser.type") {
     if (attachedBrowser.state().connected) await attachedBrowser.type(job.input.selector, job.input.text);
-    else await requireBrowser().type(localProjectId, job.input.selector, job.input.text);
+    else {
+      await requireBrowser().type(
+        localProjectId,
+        job.input.selector,
+        job.input.text,
+        undefined,
+        { source: "cloud_job" }
+      );
+    }
     return { completed: true };
   }
   if (job.executorKey === "local.browser.extract") {
     return {
       text: attachedBrowser.state().connected
         ? await attachedBrowser.extract(job.input.selector)
-        : await requireBrowser().extract(localProjectId, job.input.selector)
+        : await requireBrowser().extract(
+            localProjectId,
+            job.input.selector,
+            undefined,
+            { source: "cloud_job" }
+          )
     };
   }
   if (job.executorKey === "local.browser.screenshot") {
     return {
       dataUrl: attachedBrowser.state().connected
         ? await attachedBrowser.screenshot()
-        : await requireBrowser().screenshot(localProjectId)
+        : await requireBrowser().screenshot(
+            localProjectId,
+            undefined,
+            { source: "cloud_job" }
+          )
     };
   }
   if (job.executorKey === "local.browser.upload") {
@@ -327,7 +395,8 @@ async function invokeExternalDesktopJob(
       localProjectId,
       job.input.selector,
       job.input.relativePaths,
-      job.input.pageId
+      job.input.pageId,
+      { source: "cloud_job" }
     );
     return {
       completed: result.completed,
@@ -940,16 +1009,16 @@ function registerIpc(): void {
       requireBrowser().deleteProfile(localProjectId, profileId)
   );
   ipcMain.handle("work:browser-navigate", (_event, localProjectId: string, url: string, pageId?: string) =>
-    requireBrowser().navigate(localProjectId, url, pageId)
+    requireBrowser().navigate(localProjectId, url, pageId, { source: "user" })
   );
   ipcMain.handle("work:browser-back", (_event, localProjectId: string, pageId?: string) =>
-    requireBrowser().back(localProjectId, pageId)
+    requireBrowser().back(localProjectId, pageId, { source: "user" })
   );
   ipcMain.handle("work:browser-forward", (_event, localProjectId: string, pageId?: string) =>
-    requireBrowser().forward(localProjectId, pageId)
+    requireBrowser().forward(localProjectId, pageId, { source: "user" })
   );
   ipcMain.handle("work:browser-reload", (_event, localProjectId: string, pageId?: string) =>
-    requireBrowser().reload(localProjectId, pageId)
+    requireBrowser().reload(localProjectId, pageId, { source: "user" })
   );
   ipcMain.handle("work:browser-takeover", (
     _event,
@@ -957,7 +1026,12 @@ function registerIpc(): void {
     userTakeover: boolean,
     pageId?: string
   ) =>
-    requireBrowser().setUserTakeover(localProjectId, Boolean(userTakeover), pageId)
+    requireBrowser().setUserTakeover(
+      localProjectId,
+      Boolean(userTakeover),
+      pageId,
+      { source: "user" }
+    )
   );
   ipcMain.handle("work:browser-click", (_event, localProjectId: string, selector: string, pageId?: string) =>
     toolBroker.run(
@@ -970,7 +1044,12 @@ function registerIpc(): void {
         approvalKey: `${localProjectId}:${pageId ?? "active"}:${selector}`,
         projectId: localProjectId
       },
-      () => requireBrowser().click(localProjectId, selector, pageId)
+      () => requireBrowser().click(
+        localProjectId,
+        selector,
+        pageId,
+        { source: "user" }
+      )
     )
   );
   ipcMain.handle("work:browser-type", (
@@ -990,7 +1069,13 @@ function registerIpc(): void {
         approvalKey: `${localProjectId}:${pageId ?? "active"}:${selector}:${createHash("sha256").update(text).digest("hex")}`,
         projectId: localProjectId
       },
-      () => requireBrowser().type(localProjectId, selector, text, pageId)
+      () => requireBrowser().type(
+        localProjectId,
+        selector,
+        text,
+        pageId,
+        { source: "user" }
+      )
     )
   );
   ipcMain.handle("work:browser-upload", (
@@ -1010,7 +1095,13 @@ function registerIpc(): void {
         approvalKey: `${localProjectId}:${pageId ?? "active"}:${selector}:${createHash("sha256").update(JSON.stringify(relativePaths)).digest("hex")}`,
         projectId: localProjectId
       },
-      () => requireBrowser().upload(localProjectId, selector, relativePaths, pageId)
+      () => requireBrowser().upload(
+        localProjectId,
+        selector,
+        relativePaths,
+        pageId,
+        { source: "user" }
+      )
     )
   );
   ipcMain.handle("work:browser-extract", (
@@ -1029,7 +1120,12 @@ function registerIpc(): void {
         approvalKey: `${localProjectId}:${pageId ?? "active"}:${selector}`,
         projectId: localProjectId
       },
-      () => requireBrowser().extract(localProjectId, selector, pageId)
+      () => requireBrowser().extract(
+        localProjectId,
+        selector,
+        pageId,
+        { source: "user" }
+      )
     )
   );
   ipcMain.handle("work:browser-screenshot", (_event, localProjectId: string, pageId?: string) =>
@@ -1042,8 +1138,24 @@ function registerIpc(): void {
         auditDetail: "Managed Browser",
         projectId: localProjectId
       },
-      () => requireBrowser().screenshot(localProjectId, pageId)
+      () => requireBrowser().screenshot(
+        localProjectId,
+        pageId,
+        { source: "user" }
+      )
     )
+  );
+  ipcMain.handle(
+    "work:browser-operation-retry",
+    (_event, localProjectId: string, operationId: string) => {
+      const browser = requireBrowser();
+      const descriptor = browser.getRetryDescriptor(localProjectId, operationId);
+      const approval = browserRetryApproval(localProjectId, operationId, descriptor);
+      return toolBroker.run(
+        approval,
+        () => browser.retryOperation(localProjectId, operationId)
+      );
+    }
   );
 
   ipcMain.handle("work:attached-browser-discover", (_event, endpoint: string) =>
