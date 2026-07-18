@@ -5,6 +5,7 @@ import type {
 } from "../shared/desktop-api";
 import { ProjectChatClient } from "./project-chat-client";
 import type { ProjectChatToolRunner } from "./project-chat-tool-runner";
+import { PROJECT_CHAT_TOOLS } from "./project-chat-tools";
 
 const request: ProjectChatRequest = {
   requestId: "request_1",
@@ -76,7 +77,9 @@ function sseResponse(...events: string[]) {
 
 function createClient(
   events: ProjectChatEvent[] = [],
-  toolRunner?: Pick<ProjectChatToolRunner, "execute">
+  toolRunner?: Pick<ProjectChatToolRunner, "execute"> & {
+    listTools?: ProjectChatToolRunner["listTools"];
+  }
 ) {
   return new ProjectChatClient({
     apiBaseUrl: "https://api.example.test",
@@ -236,7 +239,23 @@ describe("ProjectChatClient", () => {
 
   it("executes streamed local Tool calls and continues the model with Tool results", async () => {
     const events: ProjectChatEvent[] = [];
+    const dynamicMcpTool = {
+      type: "function" as const,
+      function: {
+        name: "mcp_local_excel_read_sheet_123456789abc",
+        description: "Read a local Excel worksheet.",
+        parameters: {
+          type: "object",
+          properties: {
+            sheet: { type: "string" }
+          },
+          required: ["sheet"],
+          additionalProperties: false
+        }
+      }
+    };
     const toolRunner = {
+      listTools: vi.fn(async () => [...PROJECT_CHAT_TOOLS, dynamicMcpTool]),
       execute: vi.fn(async () => ({
         content: JSON.stringify({
           path: "src/index.ts",
@@ -273,6 +292,8 @@ describe("ProjectChatClient", () => {
 
     await createClient(events, toolRunner).send(request);
 
+    expect(toolRunner.listTools).toHaveBeenCalledOnce();
+    expect(toolRunner.listTools).toHaveBeenCalledWith("project_1");
     expect(toolRunner.execute).toHaveBeenCalledWith(
       "project_1",
       {
@@ -311,10 +332,16 @@ describe("ProjectChatClient", () => {
         }),
         expect.objectContaining({
           function: expect.objectContaining({ name: "project_start_process" })
+        }),
+        expect.objectContaining({
+          function: expect.objectContaining({
+            name: "mcp_local_excel_read_sheet_123456789abc"
+          })
         })
       ])
     );
     const secondRound = JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body));
+    expect(secondRound.tools).toEqual(firstRound.tools);
     expect(secondRound.extra_messages).toEqual([
       {
         role: "assistant",

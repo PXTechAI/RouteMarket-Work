@@ -15,7 +15,9 @@ type ProjectChatClientOptions = {
   apiBaseUrl: string;
   getAccessToken(): string | undefined;
   onEvent(event: ProjectChatEvent): void;
-  toolRunner?: Pick<ProjectChatToolRunner, "execute">;
+  toolRunner?: Pick<ProjectChatToolRunner, "execute"> & {
+    listTools?: ProjectChatToolRunner["listTools"];
+  };
 };
 
 type ModelsResponse = {
@@ -52,6 +54,9 @@ export class ProjectChatClient {
 
     try {
       await this.prepareSession(input, controller.signal);
+      const tools = this.options.toolRunner?.listTools
+        ? await this.options.toolRunner.listTools(input.project.localProjectId)
+        : PROJECT_CHAT_TOOLS;
       const extraMessages: Record<string, unknown>[] = [];
       let toolCallCount = 0;
       let completed = false;
@@ -61,6 +66,7 @@ export class ProjectChatClient {
         const result = await this.requestModelRound(
           input,
           extraMessages,
+          tools,
           round,
           controller.signal,
           (roundText) => {
@@ -177,6 +183,7 @@ export class ProjectChatClient {
   private async requestModelRound(
     input: ProjectChatRequest,
     extraMessages: Record<string, unknown>[],
+    tools: typeof PROJECT_CHAT_TOOLS,
     round: number,
     signal: AbortSignal,
     onText: (text: string) => void
@@ -197,7 +204,7 @@ export class ProjectChatClient {
           role: "user",
           content: buildMessageContent(input)
         },
-        tools: PROJECT_CHAT_TOOLS,
+        tools,
         tool_choice: "auto",
         parallel_tool_calls: false,
         ...(extraMessages.length ? { extra_messages: extraMessages } : {}),

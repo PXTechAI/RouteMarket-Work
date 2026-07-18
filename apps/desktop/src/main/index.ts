@@ -1332,6 +1332,7 @@ if (!hasSingleInstanceLock) {
         workerClient,
         toolBroker,
         getBrowser: () => requireBrowser(),
+        mcpClient: workerClient,
         onActivity: addActivity
       })
     });

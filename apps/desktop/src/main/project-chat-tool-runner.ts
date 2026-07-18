@@ -7,12 +7,15 @@ import type {
   ReadResult
 } from "../shared/desktop-api";
 import type { ManagedBrowserManager } from "./managed-browser-manager";
+import { ProjectChatMcpToolRuntime } from "./project-chat-mcp-tools";
 import type { LocalToolBroker } from "./tool-broker";
 import type { WorkerClient } from "./worker-client";
 import type {
   ProjectChatToolCall,
+  ProjectChatToolDefinition,
   ProjectChatToolExecution
 } from "./project-chat-tools";
+import { PROJECT_CHAT_TOOLS } from "./project-chat-tools";
 
 const MAX_PATH_LENGTH = 1_024;
 const MAX_WRITE_CHARACTERS = 1_000_000;
@@ -56,6 +59,10 @@ type ProjectChatToolRunnerOptions = {
   >;
   toolBroker: LocalToolBroker;
   getBrowser?: () => ProjectChatBrowser;
+  mcpClient?: Pick<
+    WorkerClient,
+    "listMcpServers" | "startMcpServer" | "callMcpTool"
+  >;
   onActivity?: (
     type: "job.started" | "job.succeeded" | "job.failed",
     title: string,
@@ -64,13 +71,43 @@ type ProjectChatToolRunnerOptions = {
 };
 
 export class ProjectChatToolRunner {
-  constructor(private readonly options: ProjectChatToolRunnerOptions) {}
+  private readonly mcpRuntime: ProjectChatMcpToolRuntime | null;
+
+  constructor(private readonly options: ProjectChatToolRunnerOptions) {
+    this.mcpRuntime = options.mcpClient
+      ? new ProjectChatMcpToolRuntime({
+          client: options.mcpClient,
+          toolBroker: options.toolBroker,
+          onActivity: options.onActivity
+        })
+      : null;
+  }
+
+  async listTools(localProjectId: string): Promise<ProjectChatToolDefinition[]> {
+    if (!this.mcpRuntime) return PROJECT_CHAT_TOOLS;
+    try {
+      return [
+        ...PROJECT_CHAT_TOOLS,
+        ...await this.mcpRuntime.listDefinitions(localProjectId)
+      ];
+    } catch (error) {
+      this.options.onActivity?.(
+        "job.failed",
+        "Local MCP Tools 暂不可用",
+        error instanceof Error ? error.message : "无法读取 Local MCP Tool 列表"
+      );
+      return PROJECT_CHAT_TOOLS;
+    }
+  }
 
   async execute(
     localProjectId: string,
     call: ProjectChatToolCall,
     signal?: AbortSignal
   ): Promise<ProjectChatToolExecution> {
+    if (this.mcpRuntime?.isDynamicToolName(call.name)) {
+      return this.mcpRuntime.execute(localProjectId, call, signal);
+    }
     try {
       throwIfAborted(signal);
       const args = parseArguments(call.arguments);

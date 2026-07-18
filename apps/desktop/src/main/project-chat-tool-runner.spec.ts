@@ -5,6 +5,7 @@ import type {
 } from "../shared/desktop-api";
 import { LocalToolBroker } from "./tool-broker";
 import { ProjectChatToolRunner } from "./project-chat-tool-runner";
+import { PROJECT_CHAT_TOOLS } from "./project-chat-tools";
 
 const projectProcess: ManagedProcessSummary = {
   processId: "process_1",
@@ -548,5 +549,28 @@ describe("ProjectChatToolRunner", () => {
     });
     expect(confirm).not.toHaveBeenCalled();
     expect(browser.navigate).not.toHaveBeenCalled();
+  });
+
+  it("keeps fixed chat tools available when Local MCP discovery fails", async () => {
+    const onActivity = vi.fn();
+    const runner = new ProjectChatToolRunner({
+      workerClient: createWorker(),
+      toolBroker: new LocalToolBroker(async () => true),
+      mcpClient: {
+        listMcpServers: vi.fn(async () => {
+          throw new Error("MCP Worker unavailable.");
+        }),
+        startMcpServer: vi.fn(),
+        callMcpTool: vi.fn()
+      },
+      onActivity
+    });
+
+    await expect(runner.listTools("project_1")).resolves.toEqual(PROJECT_CHAT_TOOLS);
+    expect(onActivity).toHaveBeenCalledWith(
+      "job.failed",
+      "Local MCP Tools 暂不可用",
+      "MCP Worker unavailable."
+    );
   });
 });
