@@ -105,7 +105,8 @@ export class ProjectChatClient {
           });
           const execution = await this.options.toolRunner.execute(
             input.project.localProjectId,
-            call
+            call,
+            controller.signal
           );
           if (execution.isError) {
             this.options.onEvent({
@@ -309,6 +310,7 @@ function buildSystemPrompt(input: ProjectChatRequest) {
     "Use the supplied local file context when relevant.",
     "Use the supplied project tools to inspect the project instead of guessing file contents or paths.",
     "Before modifying an existing file, read it and use the returned sha256 for the guarded write.",
+    "When running a project command, pass the executable and arguments separately. Inspect project processes after starting a long-running service, and stop only processes returned for this project.",
     "Do not claim that you changed files, ran commands, or used local tools unless a later tool result explicitly confirms it."
   ];
   const context = input.projectContext;

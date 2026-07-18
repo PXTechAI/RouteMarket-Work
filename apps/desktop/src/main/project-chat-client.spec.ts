@@ -273,11 +273,15 @@ describe("ProjectChatClient", () => {
 
     await createClient(events, toolRunner).send(request);
 
-    expect(toolRunner.execute).toHaveBeenCalledWith("project_1", {
-      id: "call_read_1",
-      name: "project_read_file",
-      arguments: '{"path":"src/index.ts"}'
-    });
+    expect(toolRunner.execute).toHaveBeenCalledWith(
+      "project_1",
+      {
+        id: "call_read_1",
+        name: "project_read_file",
+        arguments: '{"path":"src/index.ts"}'
+      },
+      expect.any(AbortSignal)
+    );
     expect(events).toContainEqual({
       requestId: "request_1",
       type: "tool_started",
@@ -304,6 +308,9 @@ describe("ProjectChatClient", () => {
       expect.arrayContaining([
         expect.objectContaining({
           function: expect.objectContaining({ name: "project_read_file" })
+        }),
+        expect.objectContaining({
+          function: expect.objectContaining({ name: "project_start_process" })
         })
       ])
     );

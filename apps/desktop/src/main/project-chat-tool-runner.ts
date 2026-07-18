@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type {
+  ManagedProcessSummary,
   ProjectFileEntry,
   ProjectSearchMatch,
   ReadResult
@@ -15,6 +16,11 @@ const MAX_PATH_LENGTH = 1_024;
 const MAX_WRITE_CHARACTERS = 1_000_000;
 const MAX_TOOL_TEXT_CHARACTERS = 160_000;
 const MAX_LISTED_PATHS = 500;
+const MAX_PROCESS_ARGUMENTS = 128;
+const MAX_PROCESS_ARGUMENT_LENGTH = 8_192;
+const MAX_PROCESS_WAIT_MS = 15_000;
+const DEFAULT_PROCESS_WAIT_MS = 1_000;
+const PROCESS_POLL_INTERVAL_MS = 100;
 const SHA256_PATTERN = /^[a-f0-9]{64}$/i;
 
 type ProjectChatToolRunnerOptions = {
@@ -25,6 +31,9 @@ type ProjectChatToolRunnerOptions = {
     | "readProjectFile"
     | "writeProjectFile"
     | "createProjectFile"
+    | "startProcess"
+    | "listProcesses"
+    | "stopProcess"
   >;
   toolBroker: LocalToolBroker;
   onActivity?: (
@@ -39,9 +48,11 @@ export class ProjectChatToolRunner {
 
   async execute(
     localProjectId: string,
-    call: ProjectChatToolCall
+    call: ProjectChatToolCall,
+    signal?: AbortSignal
   ): Promise<ProjectChatToolExecution> {
     try {
+      throwIfAborted(signal);
       const args = parseArguments(call.arguments);
       if (call.name === "project_list_files") {
         assertNoUnexpectedKeys(args, []);
@@ -181,8 +192,104 @@ export class ProjectChatToolRunner {
         );
       }
 
+      if (call.name === "project_start_process") {
+        assertNoUnexpectedKeys(args, ["executable", "args", "wait_ms"]);
+        const executable = requiredString(args, "executable", MAX_PATH_LENGTH);
+        const processArgs = requiredStringArray(
+          args,
+          "args",
+          MAX_PROCESS_ARGUMENTS,
+          MAX_PROCESS_ARGUMENT_LENGTH
+        );
+        const waitMs = optionalInteger(
+          args,
+          "wait_ms",
+          0,
+          MAX_PROCESS_WAIT_MS,
+          DEFAULT_PROCESS_WAIT_MS
+        );
+        const command = formatCommand(executable, processArgs);
+        return await this.runAuthorized(
+          localProjectId,
+          {
+            capability: "local.process.start",
+            risk: "R2",
+            title: `允许 AI 在项目中启动 ${executable}？`,
+            detail: clipDetail(command),
+            auditDetail: executable,
+            approvalKey: sha256(JSON.stringify([executable, ...processArgs]))
+          },
+          "启动项目进程",
+          clipDetail(command),
+          async () => {
+            throwIfAborted(signal);
+            const started = await this.options.workerClient.startProcess(
+              localProjectId,
+              executable,
+              processArgs
+            );
+            const result = waitMs > 0
+              ? await this.waitForProcess(
+                  localProjectId,
+                  started.processId,
+                  waitMs,
+                  signal
+                )
+              : started;
+            return {
+              content: stringifyToolResult(sanitizeProcess(result)),
+              summary: processSummary(result)
+            };
+          }
+        );
+      }
+
+      if (call.name === "project_list_processes") {
+        assertNoUnexpectedKeys(args, []);
+        return await this.runWithActivity(
+          "查看项目进程",
+          localProjectId,
+          async () => {
+            const processes = (await this.options.workerClient.listProcesses())
+              .filter((process) => process.localProjectId === localProjectId)
+              .map(sanitizeProcess);
+            return {
+              content: stringifyToolResult({ processes }),
+              summary: `${processes.length} 个项目进程`
+            };
+          }
+        );
+      }
+
+      if (call.name === "project_stop_process") {
+        assertNoUnexpectedKeys(args, ["process_id"]);
+        const processId = requiredString(args, "process_id", 128);
+        const process = await this.findProjectProcess(localProjectId, processId);
+        return await this.runAuthorized(
+          localProjectId,
+          {
+            capability: "local.process.stop",
+            risk: "R2",
+            title: `允许 AI 停止 ${process.executable}？`,
+            detail: processId,
+            auditDetail: process.executable,
+            approvalKey: processId
+          },
+          "停止项目进程",
+          processId,
+          async () => {
+            const result = await this.options.workerClient.stopProcess(processId);
+            return {
+              content: stringifyToolResult(sanitizeProcess(result)),
+              summary: `已停止 ${result.executable} · ${result.processId}`
+            };
+          }
+        );
+      }
+
       throw new Error(`Unsupported local tool: ${call.name}`);
     } catch (error) {
+      if (isAbortError(error)) throw error;
       return {
         content: stringifyToolResult({
           error: {
@@ -228,16 +335,71 @@ export class ProjectChatToolRunner {
     activityDetail: string,
     operation: () => Promise<Omit<ProjectChatToolExecution, "isError">>
   ): Promise<ProjectChatToolExecution> {
+    return this.runAuthorized(
+      localProjectId,
+      { ...authorization, risk: "R1" },
+      activityTitle,
+      activityDetail,
+      operation
+    );
+  }
+
+  private async runAuthorized(
+    localProjectId: string,
+    authorization: {
+      capability: string;
+      risk: "R1" | "R2" | "R3";
+      title: string;
+      detail: string;
+      auditDetail?: string;
+      approvalKey: string;
+    },
+    activityTitle: string,
+    activityDetail: string,
+    operation: () => Promise<Omit<ProjectChatToolExecution, "isError">>
+  ): Promise<ProjectChatToolExecution> {
     return this.runWithActivity(activityTitle, activityDetail, () =>
       this.options.toolBroker.run(
         {
           ...authorization,
-          risk: "R1",
           projectId: localProjectId
         },
         operation
       )
     );
+  }
+
+  private async findProjectProcess(
+    localProjectId: string,
+    processId: string
+  ): Promise<ManagedProcessSummary> {
+    const process = (await this.options.workerClient.listProcesses()).find(
+      (item) => item.processId === processId
+    );
+    if (!process || process.localProjectId !== localProjectId) {
+      const error = new Error("The managed process was not found in the current project.");
+      Object.assign(error, { code: "PROCESS_NOT_FOUND" });
+      throw error;
+    }
+    return process;
+  }
+
+  private async waitForProcess(
+    localProjectId: string,
+    processId: string,
+    waitMs: number,
+    signal?: AbortSignal
+  ): Promise<ManagedProcessSummary> {
+    const deadline = Date.now() + waitMs;
+    let process = await this.findProjectProcess(localProjectId, processId);
+    while (process.status === "running" && Date.now() < deadline) {
+      await delay(
+        Math.min(PROCESS_POLL_INTERVAL_MS, deadline - Date.now()),
+        signal
+      );
+      process = await this.findProjectProcess(localProjectId, processId);
+    }
+    return process;
   }
 
   private async runWithActivity(
@@ -310,6 +472,45 @@ function requiredText(args: Record<string, unknown>): string {
   return text;
 }
 
+function requiredStringArray(
+  args: Record<string, unknown>,
+  key: string,
+  maxItems: number,
+  maxItemLength: number
+): string[] {
+  const value = args[key];
+  if (
+    !Array.isArray(value) ||
+    value.length > maxItems ||
+    value.some(
+      (item) =>
+        typeof item !== "string" ||
+        item.length > maxItemLength ||
+        item.includes("\0")
+    )
+  ) {
+    throw new Error(
+      `${key} must be an array of at most ${maxItems} strings no longer than ${maxItemLength} characters.`
+    );
+  }
+  return value;
+}
+
+function optionalInteger(
+  args: Record<string, unknown>,
+  key: string,
+  minimum: number,
+  maximum: number,
+  fallback: number
+): number {
+  const value = args[key];
+  if (value === undefined) return fallback;
+  if (!Number.isInteger(value) || (value as number) < minimum || (value as number) > maximum) {
+    throw new Error(`${key} must be an integer between ${minimum} and ${maximum}.`);
+  }
+  return value as number;
+}
+
 function flattenEntries(
   entries: ProjectFileEntry[],
   output: Array<{ path: string; kind: "file" | "directory" }> = []
@@ -345,6 +546,46 @@ function sanitizeReadResult(path: string, result: ReadResult) {
   };
 }
 
+function sanitizeProcess(process: ManagedProcessSummary) {
+  const stdout = clipText(process.stdout);
+  const stderr = clipText(process.stderr);
+  return {
+    process_id: process.processId,
+    executable: process.executable,
+    args: process.args,
+    status: process.status,
+    exit_code: process.exitCode,
+    signal: process.signal,
+    stdout: stdout.text,
+    stderr: stderr.text,
+    output_truncated:
+      process.outputTruncated || stdout.truncated || stderr.truncated,
+    started_at: process.startedAt,
+    finished_at: process.finishedAt
+  };
+}
+
+function processSummary(process: ManagedProcessSummary): string {
+  if (process.status === "running") {
+    return `${process.executable} 正在运行 · ${process.processId}`;
+  }
+  const exit = process.exitCode === null ? process.status : `退出码 ${process.exitCode}`;
+  return `${process.executable} 已结束 · ${exit}`;
+}
+
+function formatCommand(executable: string, args: string[]): string {
+  return [executable, ...args.map(formatArgument)].join(" ");
+}
+
+function formatArgument(value: string): string {
+  if (!value || /\s|"/.test(value)) return JSON.stringify(value);
+  return value;
+}
+
+function clipDetail(value: string): string {
+  return value.length > 2_000 ? `${value.slice(0, 2_000)}...` : value;
+}
+
 function clipText(text: string) {
   if (text.length <= MAX_TOOL_TEXT_CHARACTERS) {
     return { text, truncated: false };
@@ -369,4 +610,33 @@ function readErrorCode(error: unknown): string {
     if (typeof code === "string" && code) return code;
   }
   return "LOCAL_TOOL_ERROR";
+}
+
+function delay(milliseconds: number, signal?: AbortSignal): Promise<void> {
+  throwIfAborted(signal);
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, Math.max(0, milliseconds));
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(createAbortError());
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) throw createAbortError();
+}
+
+function createAbortError(): Error {
+  const error = new Error("The local Tool operation was cancelled.");
+  error.name = "AbortError";
+  return error;
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === "AbortError";
 }
