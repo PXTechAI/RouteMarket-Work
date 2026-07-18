@@ -316,6 +316,87 @@ describe("CloudWorkerClient", () => {
     client.stop();
   });
 
+  it("strips Core Job state fields before protocol validation and Worker execution", async () => {
+    const desktopJob: DesktopJob = {
+      jobId: "job_core_contract_1",
+      workflowRunId: "workflow_core_contract_1",
+      workflowNodeRunId: "workflow_node_core_contract_1",
+      runtimeId: "runtime_test",
+      projectBindingId: "binding_core_contract_1",
+      executorKey: "local.fs.read",
+      executorVersion: 1,
+      input: {
+        uri: "project://project_core_contract_1/README.md",
+        maxBytes: 65_536
+      },
+      requiredCapabilities: ["local.fs.read"],
+      executionClass: "pure_read",
+      approvalPolicy: { risk: "R0", mode: "project_grant" },
+      idempotencyKey: `sha256:${"e".repeat(64)}`,
+      deadlineAt: "2026-07-19T00:00:00.000Z",
+      maxInlineResultBytes: 262_144
+    };
+    const coreFormattedJob = {
+      ...desktopJob,
+      status: "leased",
+      leaseId: "lease_core_contract_1",
+      leaseEpoch: 1,
+      leaseExpiresAt: "2026-07-18T00:01:00.000Z",
+      acceptedAt: "2026-07-18T00:00:00.000Z",
+      startedAt: null,
+      completedAt: null,
+      output: null,
+      error: null
+    };
+    const succeeded: JobEvent = {
+      eventId: "event_core_contract_1",
+      jobId: desktopJob.jobId,
+      runtimeId: desktopJob.runtimeId,
+      leaseId: coreFormattedJob.leaseId,
+      leaseEpoch: coreFormattedJob.leaseEpoch,
+      seq: 3,
+      eventType: "job.succeeded",
+      occurredAt: "2026-07-18T00:00:01.000Z",
+      data: {
+        uri: desktopJob.input.uri,
+        text: "# RouteMarket",
+        bytesRead: 13,
+        truncated: false,
+        encoding: "utf8"
+      }
+    };
+    const executeJob = vi.fn(async () => [succeeded]);
+    const worker = createWorker({ executeJob });
+    let offered = false;
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/runtimes/register")) return jsonResponse(runtimeResponse);
+      if (url.endsWith("/capabilities")) return jsonResponse({});
+      if (url.includes("/jobs/offers?")) {
+        if (offered) return jsonResponse({ items: [] });
+        offered = true;
+        return jsonResponse({ items: [coreFormattedJob] });
+      }
+      if (url.endsWith(`/jobs/${desktopJob.jobId}/accept`)) {
+        return jsonResponse(coreFormattedJob);
+      }
+      if (url.endsWith(`/jobs/${desktopJob.jobId}/events`)) {
+        return jsonResponse({ acknowledged: true });
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+    const client = createClient(worker);
+
+    await signIn(client);
+
+    expect(executeJob).toHaveBeenCalledWith(
+      desktopJob,
+      coreFormattedJob.leaseId,
+      coreFormattedJob.leaseEpoch
+    );
+    client.stop();
+  });
+
   it("routes non-filesystem Desktop Jobs through the approved main-process executor", async () => {
     const browserJob: DesktopJob = {
       jobId: "job_browser_1",

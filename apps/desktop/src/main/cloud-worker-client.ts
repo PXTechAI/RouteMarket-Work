@@ -56,6 +56,13 @@ type RuntimeResponse = {
 type JobResponse = DesktopJob & {
   leaseId: string | null;
   leaseEpoch: number;
+  status?: string;
+  leaseExpiresAt?: string | null;
+  acceptedAt?: string | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  output?: unknown;
+  error?: unknown;
 };
 
 type ReconcileAction = {
@@ -746,7 +753,24 @@ export class CloudWorkerClient {
 class StaleConnectionError extends Error {}
 
 function toDesktopJob(job: JobResponse): DesktopJob {
-  const { leaseId: _leaseId, leaseEpoch: _leaseEpoch, ...desktopJob } = job;
+  const desktopJob = {
+    jobId: job.jobId,
+    ...(job.workflowRunId !== undefined ? { workflowRunId: job.workflowRunId } : {}),
+    ...(job.workflowNodeRunId !== undefined
+      ? { workflowNodeRunId: job.workflowNodeRunId }
+      : {}),
+    runtimeId: job.runtimeId,
+    projectBindingId: job.projectBindingId,
+    executorKey: job.executorKey,
+    executorVersion: job.executorVersion,
+    input: job.input,
+    requiredCapabilities: job.requiredCapabilities,
+    executionClass: job.executionClass,
+    approvalPolicy: job.approvalPolicy,
+    idempotencyKey: job.idempotencyKey,
+    deadlineAt: job.deadlineAt,
+    maxInlineResultBytes: job.maxInlineResultBytes
+  };
   assertDesktopJob(desktopJob);
   return desktopJob;
 }
