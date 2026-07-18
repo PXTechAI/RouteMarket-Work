@@ -71,6 +71,11 @@ export function ProjectSidebar({
             {" · "}
             {cloudStatusLabel(state.cloudStatus)}
           </span>
+          {state.cloudError && (
+            <span className="rm-cloud-error" title={state.cloudError}>
+              {state.cloudError}
+            </span>
+          )}
         </div>
         <button className="rm-icon-button" type="button" title="刷新状态" onClick={onRefreshState}>
           <RefreshCw size={14} />
@@ -83,6 +88,8 @@ export function ProjectSidebar({
 function cloudStatusLabel(status: WorkState["cloudStatus"]) {
   if (status === "online") return "云端已连接";
   if (status === "connecting") return "云端连接中";
+  if (status === "degraded") return "云端连接不稳定";
+  if (status === "access_required") return "云端需要重新授权";
   if (status === "error") return "云端异常";
   return "云端未登录";
 }

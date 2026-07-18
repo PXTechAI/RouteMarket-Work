@@ -350,6 +350,10 @@
   font-size: 9px;
 }
 
+.rm-worker-status .rm-cloud-error {
+  color: var(--rm-danger);
+}
+
 .rm-status-dot {
   width: 7px;
   height: 7px;

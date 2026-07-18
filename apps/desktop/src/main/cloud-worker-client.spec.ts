@@ -150,6 +150,71 @@ describe("CloudWorkerClient", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it.each([401, 403])(
+    "requires new cloud access and stops reconnecting after HTTP %s",
+    async (status) => {
+      const message =
+        status === 401
+          ? "Desktop access token is no longer valid."
+          : "Desktop runtime has been revoked.";
+      const fetchMock = vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(jsonResponse({ message }, status));
+      vi.stubGlobal("fetch", fetchMock);
+      const onActivity = vi.fn();
+      const client = createClient(createWorker(), onActivity);
+
+      await signIn(client);
+
+      expect(client.getState()).toEqual({
+        status: "access_required",
+        runtimeId: null,
+        error: message
+      });
+      expect(onActivity).toHaveBeenCalledWith(
+        "cloud.error",
+        "Cloud access requires attention",
+        message
+      );
+
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      client.stop();
+    }
+  );
+
+  it("recovers from access_required after the access token is replaced", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+      const url = String(input);
+      const authorization = (init?.headers as Record<string, string> | undefined)?.Authorization;
+      if (authorization === "Bearer rmw_dt_revoked") {
+        return jsonResponse({ message: "Desktop runtime has been revoked." }, 403);
+      }
+      if (url.endsWith("/runtimes/register")) return jsonResponse(runtimeResponse);
+      if (url.endsWith("/capabilities")) return jsonResponse({});
+      if (url.includes("/jobs/offers?")) return jsonResponse({ items: [] });
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const client = createClient(createWorker());
+
+    await signIn(client, "rmw_dt_revoked");
+    expect(client.getState()).toMatchObject({
+      status: "access_required",
+      error: "Desktop runtime has been revoked."
+    });
+
+    client.setAccessToken("rmw_dt_reauthorized");
+    await vi.waitFor(() => {
+      expect(client.getState()).toEqual({
+        status: "online",
+        runtimeId: "runtime_test",
+        error: null
+      });
+    });
+    client.stop();
+  });
+
   it("uploads projects and acknowledges pending outbox events", async () => {
     const pendingEvent: JobEvent = {
       eventId: "event_1",

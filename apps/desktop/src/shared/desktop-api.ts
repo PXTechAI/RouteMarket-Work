@@ -360,7 +360,13 @@ export type ActivityItem = {
   occurredAt: string;
 };
 
-export type CloudWorkerStatus = "disabled" | "connecting" | "online" | "degraded" | "error";
+export type CloudWorkerStatus =
+  | "disabled"
+  | "connecting"
+  | "online"
+  | "degraded"
+  | "error"
+  | "access_required";
 
 export type WorkState = {
   workerStatus: "starting" | "online" | "offline";

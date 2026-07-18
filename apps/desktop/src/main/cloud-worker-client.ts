@@ -72,6 +72,16 @@ type ReconcileAction = {
   leaseEpoch?: number;
 };
 
+class CloudApiError extends Error {
+  constructor(
+    readonly status: number,
+    message: string
+  ) {
+    super(message);
+    this.name = "CloudApiError";
+  }
+}
+
 export class CloudWorkerClient {
   private accessToken: string | undefined;
   private runtimeId: string | null = null;
@@ -686,7 +696,7 @@ export class CloudWorkerClient {
         payload && typeof payload === "object" && "message" in payload
           ? String(payload.message)
           : `RouteMarket Work API request failed (${response.status}).`;
-      throw new Error(message);
+      throw new CloudApiError(response.status, message);
     }
     return payload as TResult;
   }
@@ -694,6 +704,16 @@ export class CloudWorkerClient {
   private handleError(error: unknown, generation: number): void {
     if (error instanceof StaleConnectionError || !this.isActive(generation)) return;
     const message = error instanceof Error ? error.message : "Unknown cloud worker error";
+    if (error instanceof CloudApiError && (error.status === 401 || error.status === 403)) {
+      this.generation += 1;
+      for (const controller of this.activeExternalJobs.values()) controller.abort();
+      this.activeExternalJobs.clear();
+      this.disconnect();
+      this.status = "access_required";
+      this.lastError = message;
+      this.options.onActivity("cloud.error", "Cloud access requires attention", message);
+      return;
+    }
     this.clearRecurringTimers();
     this.status = "error";
     this.lastError = message;
