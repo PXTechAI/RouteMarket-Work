@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import type { ManagedProcessSummary } from "../shared/desktop-api";
+import type {
+  ManagedBrowserState,
+  ManagedProcessSummary
+} from "../shared/desktop-api";
 import { LocalToolBroker } from "./tool-broker";
 import { ProjectChatToolRunner } from "./project-chat-tool-runner";
 
@@ -17,6 +20,38 @@ const projectProcess: ManagedProcessSummary = {
   outputTruncated: false,
   startedAt: "2026-07-18T07:00:00.000Z",
   finishedAt: "2026-07-18T07:00:01.000Z"
+};
+
+const browserState: ManagedBrowserState = {
+  localProjectId: "project_1",
+  visible: false,
+  activeProfileId: "profile_default",
+  activePageId: "page_1",
+  url: "https://example.com/",
+  title: "Example",
+  loading: false,
+  canGoBack: false,
+  canGoForward: false,
+  userTakeover: false,
+  crashed: false,
+  profiles: [{
+    profileId: "profile_default",
+    localProjectId: "project_1",
+    name: "Default",
+    userAgent: "secret-user-agent",
+    proxyRules: "http://secret-proxy.test:8080",
+    proxyBypassRules: "",
+    persistence: "persistent"
+  }],
+  pages: [{
+    pageId: "page_1",
+    profileId: "profile_default",
+    localProjectId: "project_1",
+    title: "Example",
+    url: "https://example.com/",
+    loading: false,
+    crashed: false
+  }]
 };
 
 function createWorker() {
@@ -74,6 +109,37 @@ function createWorker() {
       { ...projectProcess, processId: "process_other", localProjectId: "project_2" }
     ]),
     stopProcess: vi.fn(async () => ({ ...projectProcess, status: "stopped" as const }))
+  };
+}
+
+function createBrowser() {
+  const assertPage = (projectId: string, pageId?: string) => {
+    if (projectId !== "project_1" || (pageId && pageId !== "page_1")) {
+      const error = new Error("Browser page not found.");
+      Object.assign(error, { code: "BROWSER_PAGE_NOT_FOUND" });
+      throw error;
+    }
+  };
+  return {
+    getState: vi.fn(async (projectId: string) => {
+      assertPage(projectId);
+      return browserState;
+    }),
+    getPageState: vi.fn(async (projectId: string, pageId?: string) => {
+      assertPage(projectId, pageId);
+      return browserState;
+    }),
+    createPage: vi.fn(async () => browserState),
+    selectPage: vi.fn(async () => browserState),
+    setUserTakeover: vi.fn(async () => browserState),
+    navigate: vi.fn(async (_projectId: string, url: string) => ({
+      ...browserState,
+      url,
+      title: "Navigated"
+    })),
+    click: vi.fn(async () => undefined),
+    type: vi.fn(async () => undefined),
+    extract: vi.fn(async () => "Extracted page text")
   };
 }
 
@@ -307,5 +373,180 @@ describe("ProjectChatToolRunner", () => {
 
     await expect(pending).rejects.toMatchObject({ name: "AbortError" });
     expect(worker.stopProcess).not.toHaveBeenCalled();
+  });
+
+  it("navigates an Agent-controlled project page through R1 approval", async () => {
+    const confirm = vi.fn(async () => true);
+    const browser = createBrowser();
+    const runner = new ProjectChatToolRunner({
+      workerClient: createWorker(),
+      toolBroker: new LocalToolBroker(confirm),
+      getBrowser: () => browser
+    });
+
+    const result = await runner.execute("project_1", {
+      id: "call_browser_1",
+      name: "browser_navigate",
+      arguments: '{"url":"https://routemarket.ai/docs","page_id":"page_1"}'
+    });
+
+    expect(result.isError).toBe(false);
+    expect(JSON.parse(result.content)).toMatchObject({
+      active_page_id: "page_1",
+      url: "https://routemarket.ai/docs",
+      user_takeover: false,
+      profile_ids: ["profile_default"]
+    });
+    expect(result.content).not.toContain("secret-user-agent");
+    expect(result.content).not.toContain("secret-proxy");
+    expect(confirm).toHaveBeenCalledWith(
+      expect.objectContaining({
+        capability: "local.browser.navigate",
+        risk: "R1",
+        projectId: "project_1"
+      })
+    );
+    expect(browser.navigate).toHaveBeenCalledWith(
+      "project_1",
+      "https://routemarket.ai/docs",
+      "page_1"
+    );
+    expect(browser.selectPage).toHaveBeenCalledWith("project_1", "page_1");
+  });
+
+  it("creates a browser page under Agent control", async () => {
+    const browser = createBrowser();
+    const runner = new ProjectChatToolRunner({
+      workerClient: createWorker(),
+      toolBroker: new LocalToolBroker(async () => true),
+      getBrowser: () => browser
+    });
+
+    const result = await runner.execute("project_1", {
+      id: "call_browser_2",
+      name: "browser_create_page",
+      arguments: '{"url":"https://example.com"}'
+    });
+
+    expect(result.isError).toBe(false);
+    expect(browser.createPage).toHaveBeenCalledWith(
+      "project_1",
+      undefined,
+      "https://example.com"
+    );
+    expect(browser.setUserTakeover).toHaveBeenCalledWith(
+      "project_1",
+      false,
+      "page_1"
+    );
+  });
+
+  it("runs browser click and type through R2 approval without returning typed text", async () => {
+    const confirm = vi.fn(async () => true);
+    const browser = createBrowser();
+    const runner = new ProjectChatToolRunner({
+      workerClient: createWorker(),
+      toolBroker: new LocalToolBroker(confirm),
+      getBrowser: () => browser
+    });
+
+    const clicked = await runner.execute("project_1", {
+      id: "call_browser_3",
+      name: "browser_click",
+      arguments: '{"selector":"button[type=submit]","page_id":"page_1"}'
+    });
+    const typed = await runner.execute("project_1", {
+      id: "call_browser_4",
+      name: "browser_type",
+      arguments: '{"selector":"#password","text":"private value","page_id":"page_1"}'
+    });
+
+    expect(clicked.isError).toBe(false);
+    expect(typed.isError).toBe(false);
+    expect(JSON.parse(typed.content)).toMatchObject({
+      completed: true,
+      characters: 13
+    });
+    expect(typed.content).not.toContain("private value");
+    expect(confirm).toHaveBeenCalledTimes(2);
+    expect(confirm).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ capability: "local.browser.click", risk: "R2" })
+    );
+    expect(confirm).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ capability: "local.browser.type", risk: "R2" })
+    );
+  });
+
+  it("clips extracted browser text to the Tool Result limit", async () => {
+    const browser = createBrowser();
+    browser.extract.mockResolvedValue("x".repeat(200_000));
+    const runner = new ProjectChatToolRunner({
+      workerClient: createWorker(),
+      toolBroker: new LocalToolBroker(async () => true),
+      getBrowser: () => browser
+    });
+
+    const result = await runner.execute("project_1", {
+      id: "call_browser_5",
+      name: "browser_extract",
+      arguments: '{"selector":"main","page_id":"page_1"}'
+    });
+    const content = JSON.parse(result.content);
+
+    expect(result.isError).toBe(false);
+    expect(content.text).toHaveLength(160_000);
+    expect(content.truncated).toBe(true);
+  });
+
+  it("rejects pages outside the current project before prompting", async () => {
+    const confirm = vi.fn(async () => true);
+    const browser = createBrowser();
+    const runner = new ProjectChatToolRunner({
+      workerClient: createWorker(),
+      toolBroker: new LocalToolBroker(confirm),
+      getBrowser: () => browser
+    });
+
+    const result = await runner.execute("project_1", {
+      id: "call_browser_6",
+      name: "browser_click",
+      arguments: '{"selector":"button","page_id":"page_other"}'
+    });
+
+    expect(result.isError).toBe(true);
+    expect(JSON.parse(result.content)).toMatchObject({
+      error: { code: "BROWSER_PAGE_NOT_FOUND" }
+    });
+    expect(confirm).not.toHaveBeenCalled();
+    expect(browser.click).not.toHaveBeenCalled();
+  });
+
+  it("does not let AI operate a page while the user has taken over", async () => {
+    const confirm = vi.fn(async () => true);
+    const browser = createBrowser();
+    browser.getPageState.mockResolvedValue({
+      ...browserState,
+      userTakeover: true
+    });
+    const runner = new ProjectChatToolRunner({
+      workerClient: createWorker(),
+      toolBroker: new LocalToolBroker(confirm),
+      getBrowser: () => browser
+    });
+
+    const result = await runner.execute("project_1", {
+      id: "call_browser_7",
+      name: "browser_navigate",
+      arguments: '{"url":"https://example.com/account"}'
+    });
+
+    expect(result.isError).toBe(true);
+    expect(JSON.parse(result.content)).toMatchObject({
+      error: { code: "BROWSER_USER_TAKEOVER" }
+    });
+    expect(confirm).not.toHaveBeenCalled();
+    expect(browser.navigate).not.toHaveBeenCalled();
   });
 });

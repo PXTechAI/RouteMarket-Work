@@ -49,6 +49,10 @@ export class ManagedBrowserManager {
     return this.stateFor(page);
   }
 
+  async getPageState(localProjectId: string, pageId?: string): Promise<ManagedBrowserState> {
+    return this.stateFor(await this.resolvePage(localProjectId, pageId));
+  }
+
   async show(localProjectId: string, bounds: Rectangle): Promise<ManagedBrowserState> {
     this.bounds = sanitizeBounds(bounds);
     const page = await this.ensureActivePage(localProjectId);

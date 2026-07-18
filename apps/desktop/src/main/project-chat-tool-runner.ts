@@ -1,10 +1,12 @@
 import { createHash } from "node:crypto";
 import type {
   ManagedProcessSummary,
+  ManagedBrowserState,
   ProjectFileEntry,
   ProjectSearchMatch,
   ReadResult
 } from "../shared/desktop-api";
+import type { ManagedBrowserManager } from "./managed-browser-manager";
 import type { LocalToolBroker } from "./tool-broker";
 import type { WorkerClient } from "./worker-client";
 import type {
@@ -21,7 +23,24 @@ const MAX_PROCESS_ARGUMENT_LENGTH = 8_192;
 const MAX_PROCESS_WAIT_MS = 15_000;
 const DEFAULT_PROCESS_WAIT_MS = 1_000;
 const PROCESS_POLL_INTERVAL_MS = 100;
+const MAX_BROWSER_URL_LENGTH = 8_192;
+const MAX_BROWSER_SELECTOR_LENGTH = 2_048;
+const MAX_BROWSER_TEXT_LENGTH = 100_000;
+const MAX_BROWSER_ID_LENGTH = 256;
 const SHA256_PATTERN = /^[a-f0-9]{64}$/i;
+
+type ProjectChatBrowser = Pick<
+  ManagedBrowserManager,
+  | "getState"
+  | "getPageState"
+  | "createPage"
+  | "selectPage"
+  | "setUserTakeover"
+  | "navigate"
+  | "click"
+  | "type"
+  | "extract"
+>;
 
 type ProjectChatToolRunnerOptions = {
   workerClient: Pick<
@@ -36,6 +55,7 @@ type ProjectChatToolRunnerOptions = {
     | "stopProcess"
   >;
   toolBroker: LocalToolBroker;
+  getBrowser?: () => ProjectChatBrowser;
   onActivity?: (
     type: "job.started" | "job.succeeded" | "job.failed",
     title: string,
@@ -287,6 +307,217 @@ export class ProjectChatToolRunner {
         );
       }
 
+      if (call.name === "browser_get_state") {
+        assertNoUnexpectedKeys(args, []);
+        return await this.runWithActivity(
+          "查看浏览器页面",
+          localProjectId,
+          async () => {
+            const state = await this.requireBrowser().getState(localProjectId);
+            return {
+              content: stringifyToolResult(sanitizeBrowserState(state)),
+              summary: `${state.pages.length} 个浏览器页面`
+            };
+          }
+        );
+      }
+
+      if (call.name === "browser_create_page") {
+        assertNoUnexpectedKeys(args, ["url", "profile_id"]);
+        const url = optionalString(args, "url", MAX_BROWSER_URL_LENGTH);
+        const profileId = optionalString(args, "profile_id", MAX_BROWSER_ID_LENGTH);
+        const detail = url ?? "about:blank";
+        const browser = this.requireBrowser();
+        if (profileId) {
+          const state = await browser.getState(localProjectId);
+          if (!state.profiles.some((profile) => profile.profileId === profileId)) {
+            const error = new Error("Browser Profile not found in the current project.");
+            Object.assign(error, { code: "BROWSER_PROFILE_NOT_FOUND" });
+            throw error;
+          }
+        }
+        return await this.runAuthorized(
+          localProjectId,
+          {
+            capability: "local.browser.navigate",
+            risk: "R1",
+            title: "允许 AI 新建浏览器页面？",
+            detail,
+            auditDetail: "Managed Browser",
+            approvalKey: `${profileId ?? "default"}:${detail}`
+          },
+          "新建浏览器页面",
+          detail,
+          async () => {
+            throwIfAborted(signal);
+            const created = await browser.createPage(
+              localProjectId,
+              profileId,
+              url ?? "about:blank"
+            );
+            const state = await browser.setUserTakeover(
+              localProjectId,
+              false,
+              created.activePageId
+            );
+            return {
+              content: stringifyToolResult(sanitizeBrowserState(state)),
+              summary: browserPageSummary(state)
+            };
+          }
+        );
+      }
+
+      if (call.name === "browser_navigate") {
+        assertNoUnexpectedKeys(args, ["url", "page_id"]);
+        const url = requiredString(args, "url", MAX_BROWSER_URL_LENGTH);
+        const pageId = optionalString(args, "page_id", MAX_BROWSER_ID_LENGTH);
+        const browser = this.requireBrowser();
+        await this.assertAgentBrowserControl(browser, localProjectId, pageId);
+        return await this.runAuthorized(
+          localProjectId,
+          {
+            capability: "local.browser.navigate",
+            risk: "R1",
+            title: "允许 AI 打开网页？",
+            detail: clipDetail(url),
+            auditDetail: "Managed Browser",
+            approvalKey: `${pageId ?? "active"}:${url}`
+          },
+          "打开网页",
+          clipDetail(url),
+          async () => {
+            throwIfAborted(signal);
+            await this.activateAgentBrowserPage(browser, localProjectId, pageId);
+            const state = await browser.navigate(localProjectId, url, pageId);
+            return {
+              content: stringifyToolResult(sanitizeBrowserState(state)),
+              summary: browserPageSummary(state)
+            };
+          }
+        );
+      }
+
+      if (call.name === "browser_click") {
+        assertNoUnexpectedKeys(args, ["selector", "page_id"]);
+        const selector = requiredString(args, "selector", MAX_BROWSER_SELECTOR_LENGTH);
+        const pageId = optionalString(args, "page_id", MAX_BROWSER_ID_LENGTH);
+        const browser = this.requireBrowser();
+        await this.assertAgentBrowserControl(browser, localProjectId, pageId);
+        return await this.runAuthorized(
+          localProjectId,
+          {
+            capability: "local.browser.click",
+            risk: "R2",
+            title: "允许 AI 点击网页元素？",
+            detail: clipDetail(selector),
+            auditDetail: "Managed Browser DOM selector",
+            approvalKey: `${pageId ?? "active"}:${selector}`
+          },
+          "点击网页元素",
+          clipDetail(selector),
+          async () => {
+            throwIfAborted(signal);
+            const before = await this.activateAgentBrowserPage(
+              browser,
+              localProjectId,
+              pageId
+            );
+            await browser.click(localProjectId, selector, pageId);
+            return {
+              content: stringifyToolResult({
+                completed: true,
+                page_id: before.activePageId,
+                url: before.url
+              }),
+              summary: `已点击 ${selector}`
+            };
+          }
+        );
+      }
+
+      if (call.name === "browser_type") {
+        assertNoUnexpectedKeys(args, ["selector", "text", "page_id"]);
+        const selector = requiredString(args, "selector", MAX_BROWSER_SELECTOR_LENGTH);
+        const text = requiredBrowserText(args);
+        const pageId = optionalString(args, "page_id", MAX_BROWSER_ID_LENGTH);
+        const browser = this.requireBrowser();
+        await this.assertAgentBrowserControl(browser, localProjectId, pageId);
+        return await this.runAuthorized(
+          localProjectId,
+          {
+            capability: "local.browser.type",
+            risk: "R2",
+            title: "允许 AI 填写网页内容？",
+            detail: clipDetail(selector),
+            auditDetail: "Managed Browser DOM input",
+            approvalKey: `${pageId ?? "active"}:${selector}:${sha256(text)}`
+          },
+          "填写网页内容",
+          clipDetail(selector),
+          async () => {
+            throwIfAborted(signal);
+            const before = await this.activateAgentBrowserPage(
+              browser,
+              localProjectId,
+              pageId
+            );
+            await browser.type(localProjectId, selector, text, pageId);
+            return {
+              content: stringifyToolResult({
+                completed: true,
+                page_id: before.activePageId,
+                url: before.url,
+                characters: text.length
+              }),
+              summary: `已填写 ${text.length} 个字符`
+            };
+          }
+        );
+      }
+
+      if (call.name === "browser_extract") {
+        assertNoUnexpectedKeys(args, ["selector", "page_id"]);
+        const selector = requiredString(args, "selector", MAX_BROWSER_SELECTOR_LENGTH);
+        const pageId = optionalString(args, "page_id", MAX_BROWSER_ID_LENGTH);
+        const browser = this.requireBrowser();
+        await this.assertAgentBrowserControl(browser, localProjectId, pageId);
+        return await this.runAuthorized(
+          localProjectId,
+          {
+            capability: "local.browser.extract",
+            risk: "R1",
+            title: "允许 AI 读取网页内容？",
+            detail: clipDetail(selector),
+            auditDetail: "Managed Browser DOM selector",
+            approvalKey: `${pageId ?? "active"}:${selector}`
+          },
+          "读取网页内容",
+          clipDetail(selector),
+          async () => {
+            throwIfAborted(signal);
+            const before = await this.activateAgentBrowserPage(
+              browser,
+              localProjectId,
+              pageId
+            );
+            const extracted = clipText(
+              await browser.extract(localProjectId, selector, pageId)
+            );
+            return {
+              content: stringifyToolResult({
+                page_id: before.activePageId,
+                url: before.url,
+                selector,
+                text: extracted.text,
+                truncated: extracted.truncated
+              }),
+              summary: `读取 ${extracted.text.length} 个字符`
+            };
+          }
+        );
+      }
+
       throw new Error(`Unsupported local tool: ${call.name}`);
     } catch (error) {
       if (isAbortError(error)) throw error;
@@ -384,6 +615,40 @@ export class ProjectChatToolRunner {
     return process;
   }
 
+  private requireBrowser(): ProjectChatBrowser {
+    if (!this.options.getBrowser) {
+      const error = new Error("Managed Browser is unavailable.");
+      Object.assign(error, { code: "BROWSER_UNAVAILABLE" });
+      throw error;
+    }
+    return this.options.getBrowser();
+  }
+
+  private async assertAgentBrowserControl(
+    browser: ProjectChatBrowser,
+    localProjectId: string,
+    pageId?: string
+  ): Promise<ManagedBrowserState> {
+    const state = await browser.getPageState(localProjectId, pageId);
+    if (state.userTakeover) {
+      const error = new Error(
+        "This Browser page is under user takeover. Switch it to Agent control or create a new Browser page."
+      );
+      Object.assign(error, { code: "BROWSER_USER_TAKEOVER" });
+      throw error;
+    }
+    return state;
+  }
+
+  private async activateAgentBrowserPage(
+    browser: ProjectChatBrowser,
+    localProjectId: string,
+    pageId?: string
+  ): Promise<ManagedBrowserState> {
+    if (pageId) await browser.selectPage(localProjectId, pageId);
+    return this.assertAgentBrowserControl(browser, localProjectId, pageId);
+  }
+
   private async waitForProcess(
     localProjectId: string,
     processId: string,
@@ -460,6 +725,29 @@ function requiredString(
 
 function requiredPath(args: Record<string, unknown>): string {
   return requiredString(args, "path", MAX_PATH_LENGTH).replaceAll("\\", "/");
+}
+
+function optionalString(
+  args: Record<string, unknown>,
+  key: string,
+  maxLength: number
+): string | undefined {
+  if (args[key] === undefined) return undefined;
+  return requiredString(args, key, maxLength);
+}
+
+function requiredBrowserText(args: Record<string, unknown>): string {
+  const text = args.text;
+  if (
+    typeof text !== "string" ||
+    text.length > MAX_BROWSER_TEXT_LENGTH ||
+    text.includes("\0")
+  ) {
+    throw new Error(
+      `text must be a string no longer than ${MAX_BROWSER_TEXT_LENGTH} characters.`
+    );
+  }
+  return text;
 }
 
 function requiredText(args: Record<string, unknown>): string {
@@ -563,6 +851,31 @@ function sanitizeProcess(process: ManagedProcessSummary) {
     started_at: process.startedAt,
     finished_at: process.finishedAt
   };
+}
+
+function sanitizeBrowserState(state: ManagedBrowserState) {
+  return {
+    active_page_id: state.activePageId,
+    active_profile_id: state.activeProfileId,
+    url: state.url,
+    title: state.title,
+    loading: state.loading,
+    user_takeover: state.userTakeover,
+    crashed: state.crashed,
+    pages: state.pages.map((page) => ({
+      page_id: page.pageId,
+      profile_id: page.profileId,
+      title: page.title,
+      url: page.url,
+      loading: page.loading,
+      crashed: page.crashed
+    })),
+    profile_ids: state.profiles.map((profile) => profile.profileId)
+  };
+}
+
+function browserPageSummary(state: ManagedBrowserState): string {
+  return `${state.title || state.url || "about:blank"} · ${state.activePageId}`;
 }
 
 function processSummary(process: ManagedProcessSummary): string {

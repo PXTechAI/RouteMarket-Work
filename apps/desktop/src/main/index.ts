@@ -1331,6 +1331,7 @@ if (!hasSingleInstanceLock) {
       toolRunner: new ProjectChatToolRunner({
         workerClient,
         toolBroker,
+        getBrowser: () => requireBrowser(),
         onActivity: addActivity
       })
     });
