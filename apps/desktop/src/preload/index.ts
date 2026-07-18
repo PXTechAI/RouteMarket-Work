@@ -130,6 +130,7 @@ const api: RouteMarketWorkApi = {
   refreshMcpTools: (serverId) => ipcRenderer.invoke("work:mcp-tools-refresh", serverId),
   callMcpTool: (serverId, name, args) =>
     ipcRenderer.invoke("work:mcp-tool-call", serverId, name, args),
+  listAgentProfiles: () => ipcRenderer.invoke("work:list-agent-profiles"),
   listChatModels: () => ipcRenderer.invoke("work:list-chat-models"),
   sendProjectMessage: (input) =>
     ipcRenderer.invoke("work:send-project-message", input),

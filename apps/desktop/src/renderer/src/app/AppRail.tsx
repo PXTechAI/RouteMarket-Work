@@ -12,7 +12,7 @@ import { useState } from "react";
 import type { WorkState } from "../../../shared/desktop-api";
 import { AccountMenu } from "./AccountMenu";
 
-type RailView = "chat" | "files" | "workflow" | "browser" | "mcp";
+type RailView = "chat" | "files" | "workflow" | "agent" | "browser" | "mcp";
 const railExpandedKey = "routemarket-work:rail-expanded";
 
 export function AppRail({
@@ -67,7 +67,7 @@ export function AppRail({
 
       <div className="rm-rail-group rm-rail-capabilities">
         <span className="rm-rail-group-label">本地能力</span>
-        <RailButton label="Agent" disabled badge="即将推出">
+        <RailButton label="Agent" active={activeView === "agent"} onClick={() => onSelect("agent")}>
           <Bot size={18} />
         </RailButton>
         <RailButton label="浏览器" active={activeView === "browser"} onClick={() => onSelect("browser")}>

@@ -56,6 +56,8 @@ import { createDiffPreview } from "./diff";
 import { parseCommandLine } from "./command-line";
 import { AppRail } from "./app/AppRail";
 import { GlobalHeader } from "./app/GlobalHeader";
+import { AgentPage } from "./features/agent/AgentPage";
+import { useAgentWorkspace } from "./features/agent/useAgentWorkspace";
 import { BrowserPage } from "./features/browser/BrowserPage";
 import { ChatPage } from "./features/chat/ChatPage";
 import type { ChatMessage } from "./features/chat/types";
@@ -64,7 +66,7 @@ import { ProjectSidebar } from "./features/projects/ProjectSidebar";
 import { WorkflowPage } from "./features/workflow/WorkflowPage";
 import type { WorkflowPanel } from "./features/workflow/types";
 
-type WorkspaceView = "chat" | "files" | "changes" | "versions" | "terminal" | "approvals" | "browser" | "mcp" | "workflow";
+type WorkspaceView = "chat" | "files" | "changes" | "versions" | "terminal" | "approvals" | "browser" | "mcp" | "workflow" | "agent";
 
 const previewState: WorkState = {
   workerStatus: "online",
@@ -113,6 +115,39 @@ const previewModels: ChatModel[] = [
     supportsTools: true,
     supportsVision: true,
     supportsStream: true
+  }
+];
+
+const previewAgents = [
+  {
+    id: "agent_project_builder",
+    name: "Project Builder",
+    description: "读取项目、调用本地能力并持续完成开发任务。",
+    avatarUrl: null,
+    systemPrompt: "Work through the project task carefully and verify every concrete change.",
+    greeting: "今天要在这个项目里完成什么？",
+    starterQuestions: [
+      "检查当前项目并告诉我下一步应该做什么",
+      "运行测试并修复发现的问题",
+      "梳理这个项目的架构"
+    ],
+    tags: ["project", "development"],
+    defaultModelCode: "gpt-5",
+    tools: [],
+    updatedAt: "2026-07-18T00:00:00.000Z"
+  },
+  {
+    id: "agent_browser_operator",
+    name: "Browser Operator",
+    description: "使用内置浏览器处理网页操作和信息采集。",
+    avatarUrl: null,
+    systemPrompt: "Use browser tools deliberately and report what was actually observed.",
+    greeting: "告诉我需要在浏览器里完成的目标。",
+    starterQuestions: ["打开网站并检查当前页面", "整理页面中的关键信息"],
+    tags: ["browser"],
+    defaultModelCode: "claude-sonnet",
+    tools: [{ type: "browser" }],
+    updatedAt: "2026-07-18T00:00:00.000Z"
   }
 ];
 
@@ -687,6 +722,9 @@ const previewApi: RouteMarketWorkApi = {
   async listChatModels() {
     return previewModels;
   },
+  async listAgentProfiles() {
+    return previewAgents;
+  },
   async sendProjectMessage(input) {
     const reply = input.contextFile
       ? `我已经收到问题，并会结合 \`${input.contextFile.relativePath}\` 的内容来分析。`
@@ -795,6 +833,7 @@ const unavailableApi: RouteMarketWorkApi = {
   removeMcpServer: async () => desktopBridgeUnavailable(),
   refreshMcpTools: async () => desktopBridgeUnavailable(),
   callMcpTool: async () => desktopBridgeUnavailable(),
+  listAgentProfiles: async () => desktopBridgeUnavailable(),
   listChatModels: async () => desktopBridgeUnavailable(),
   sendProjectMessage: async () => desktopBridgeUnavailable(),
   stopProjectMessage: async () => desktopBridgeUnavailable(),
@@ -905,6 +944,16 @@ export function App() {
     () => state.projects.find((project) => project.localProjectId === selectedProjectId) ?? null,
     [selectedProjectId, state.projects]
   );
+  const agentWorkspace = useAgentWorkspace({
+    api,
+    active: workspaceView === "agent",
+    authStatus: state.authStatus,
+    selectedProject,
+    projectContext,
+    models,
+    modelsLoading,
+    onChooseProject: () => void chooseProject()
+  });
   const chatMessages = selectedProjectId
     ? chatMessagesByProject[selectedProjectId] ?? []
     : [];
@@ -1328,6 +1377,7 @@ export function App() {
     if (activeRequestId) {
       await api.stopProjectMessage(activeRequestId).catch(() => undefined);
     }
+    await agentWorkspace.stopActive().catch(() => undefined);
     setAuthAction("sign-out");
     setError(null);
     try {
@@ -2356,7 +2406,12 @@ export function App() {
         </div>
 
         <div className="workspace-body">
-          {workspaceView === "workflow" ? (
+          {workspaceView === "agent" ? (
+            <AgentPage
+              model={agentWorkspace.model}
+              actions={agentWorkspace.actions}
+            />
+          ) : workspaceView === "workflow" ? (
             <WorkflowPage
               model={{
                 panel: workflowPanel,

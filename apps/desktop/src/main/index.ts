@@ -1240,6 +1240,13 @@ function registerIpc(): void {
     return projectChatClient.listModels();
   });
 
+  ipcMain.handle("work:list-agent-profiles", async () => {
+    if (!projectChatClient) {
+      throw new Error("RouteMarket Agent profiles are unavailable.");
+    }
+    return projectChatClient.listAgents();
+  });
+
   ipcMain.handle(
     "work:send-project-message",
     async (_event, input: ProjectChatRequest) => {

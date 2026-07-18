@@ -8,6 +8,7 @@ import "./app/account-menu.css";
 import "./app/activity-menu.css";
 import "./features/projects/project-sidebar.css";
 import "./features/chat/chat.css";
+import "./features/agent/agent.css";
 import "./features/browser/browser.css";
 import "./features/files/files.css";
 import "./features/workflow/workflow.css";

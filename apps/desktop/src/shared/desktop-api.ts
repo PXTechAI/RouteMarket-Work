@@ -384,6 +384,33 @@ export type ChatModel = {
   supportsStream: boolean;
 };
 
+export type DesktopAgentTool = {
+  type: string;
+  serverId?: string;
+  credentialId?: string;
+};
+
+export type DesktopAgentProfile = {
+  id: string;
+  name: string;
+  description: string | null;
+  avatarUrl: string | null;
+  systemPrompt: string;
+  greeting: string | null;
+  starterQuestions: string[];
+  tags: string[];
+  defaultModelCode: string | null;
+  tools: DesktopAgentTool[];
+  updatedAt: string;
+};
+
+export type AgentLocalToolGroup =
+  | "files"
+  | "processes"
+  | "browser"
+  | "mcp"
+  | "skills";
+
 export type ProjectChatRequest = {
   requestId: string;
   sessionId: string;
@@ -407,6 +434,11 @@ export type ProjectChatRequest = {
     relativePath: string;
     text: string;
     truncated: boolean;
+  };
+  agent?: {
+    agentId: string;
+    localToolGroups: AgentLocalToolGroup[];
+    maxToolRounds: number;
   };
 };
 
@@ -625,6 +657,7 @@ export type RouteMarketWorkApi = {
     name: string,
     args: Record<string, unknown>
   ): Promise<Record<string, unknown>>;
+  listAgentProfiles(): Promise<DesktopAgentProfile[]>;
   listChatModels(): Promise<ChatModel[]>;
   sendProjectMessage(input: ProjectChatRequest): Promise<void>;
   stopProjectMessage(requestId: string): Promise<void>;

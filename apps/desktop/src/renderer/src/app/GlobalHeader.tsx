@@ -29,6 +29,7 @@ function viewLabel(view: string) {
     terminal: "本地终端",
     browser: "浏览器",
     workflow: "工作流",
+    agent: "Agent",
     mcp: "Local MCP",
     changes: "更改审查",
     versions: "版本历史",

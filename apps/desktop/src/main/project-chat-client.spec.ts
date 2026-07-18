@@ -52,6 +52,32 @@ const request: ProjectChatRequest = {
   }
 };
 
+const agentProfilePayload = {
+  id: "agent_builder",
+  name: "Project Builder",
+  description: "Build and verify project changes.",
+  avatar_url: "https://assets.example.test/agent.png",
+  system_prompt: "Complete the requested project task and verify the result.",
+  greeting: "What should we build?",
+  starter_questions: ["Run the tests", "Inspect the project"],
+  tags: ["development"],
+  default_model_code: "model_chat",
+  tools: [{ type: "mcp", serverId: "server_cloud" }],
+  updated_at: "2026-07-18T00:00:00.000Z"
+};
+
+const agentRequest: ProjectChatRequest = {
+  ...request,
+  requestId: "request_agent_1",
+  sessionId: "session_agent_1",
+  message: "Inspect the project.",
+  agent: {
+    agentId: "agent_builder",
+    localToolGroups: ["files", "skills"],
+    maxToolRounds: 4
+  }
+};
+
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -162,6 +188,40 @@ describe("ProjectChatClient", () => {
     );
   });
 
+  it("normalizes Agent profiles and authorizes the Core Agent API request", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      jsonResponse({
+        items: [
+          agentProfilePayload,
+          { id: "invalid_agent", name: "Missing prompt" }
+        ]
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(createClient().listAgents()).resolves.toEqual([{
+      id: "agent_builder",
+      name: "Project Builder",
+      description: "Build and verify project changes.",
+      avatarUrl: "https://assets.example.test/agent.png",
+      systemPrompt: "Complete the requested project task and verify the result.",
+      greeting: "What should we build?",
+      starterQuestions: ["Run the tests", "Inspect the project"],
+      tags: ["development"],
+      defaultModelCode: "model_chat",
+      tools: [{ type: "mcp", serverId: "server_cloud" }],
+      updatedAt: "2026-07-18T00:00:00.000Z"
+    }]);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.example.test/api/app/v1/agents",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: "Bearer rmw_dt_test"
+        })
+      })
+    );
+  });
+
   it("streams OpenAI chat completion deltas and completes with accumulated text", async () => {
     const events: ProjectChatEvent[] = [];
     const fetchMock = chatFetch(
@@ -234,6 +294,158 @@ describe("ProjectChatClient", () => {
       requestId: "request_1",
       type: "complete",
       content: "First second"
+    });
+  });
+
+  it("fetches the authoritative Agent profile and filters local Tools by permission group", async () => {
+    const skillTool = {
+      type: "function" as const,
+      function: {
+        name: "skill_local_review_123456789abc",
+        description: "Load the review Skill.",
+        parameters: { type: "object", properties: {}, additionalProperties: false }
+      }
+    };
+    const mcpTool = {
+      type: "function" as const,
+      function: {
+        name: "mcp_local_excel_read_123456789abc",
+        description: "Read Excel.",
+        parameters: { type: "object", properties: {}, additionalProperties: false }
+      }
+    };
+    const toolRunner = {
+      listTools: vi.fn(async () => [...PROJECT_CHAT_TOOLS, skillTool, mcpTool]),
+      execute: vi.fn()
+    };
+    const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+      const url = String(input);
+      if (url.endsWith("/agents/agent_builder")) {
+        return jsonResponse(agentProfilePayload);
+      }
+      if (url.endsWith("/sessions")) {
+        return jsonResponse({ session: { id: agentRequest.sessionId } });
+      }
+      if (url.endsWith("/turns")) {
+        return jsonResponse({ session_id: agentRequest.sessionId });
+      }
+      expect(init?.headers).toMatchObject({ "x-request-id": "request_agent_1" });
+      return sseResponse(
+        'data: {"choices":[{"delta":{"content":"Project inspected."}}]}\n\n',
+        "data: [DONE]\n\n"
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const events: ProjectChatEvent[] = [];
+
+    await createClient(events, toolRunner).send(agentRequest);
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
+      "https://api.example.test/api/app/v1/agents/agent_builder"
+    );
+    expect(fetchMock.mock.calls[0]?.[1]?.headers).toMatchObject({
+      Authorization: "Bearer rmw_dt_test"
+    });
+    const prepareBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body));
+    expect(prepareBody.title).toContain("Project Builder");
+    expect(prepareBody.system_prompt).toContain(
+      'RouteMarket Agent profile "Project Builder"'
+    );
+    expect(prepareBody.system_prompt).toContain(
+      "Complete the requested project task and verify the result."
+    );
+
+    const modelBody = JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body));
+    const toolNames = modelBody.tools.map(
+      (tool: { function: { name: string } }) => tool.function.name
+    );
+    expect(toolNames).toContain("project_read_file");
+    expect(toolNames).toContain("skill_local_review_123456789abc");
+    expect(toolNames).not.toContain("project_start_process");
+    expect(toolNames).not.toContain("browser_navigate");
+    expect(toolNames).not.toContain("mcp_local_excel_read_123456789abc");
+    expect(toolRunner.execute).not.toHaveBeenCalled();
+    expect(events.at(-1)).toEqual({
+      requestId: "request_agent_1",
+      type: "complete",
+      content: "Project inspected."
+    });
+  });
+
+  it("rejects an Agent Tool call outside the desktop permission policy", async () => {
+    const events: ProjectChatEvent[] = [];
+    const toolRunner = {
+      listTools: vi.fn(async () => PROJECT_CHAT_TOOLS),
+      execute: vi.fn()
+    };
+    const fetchMock = vi.fn<typeof fetch>(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/agents/agent_builder")) {
+        return jsonResponse(agentProfilePayload);
+      }
+      if (url.endsWith("/sessions")) {
+        return jsonResponse({ session: { id: agentRequest.sessionId } });
+      }
+      return sseResponse(
+        'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_browser_1","type":"function","function":{"name":"browser_navigate","arguments":"{\\"url\\":\\"https://example.com\\"}"}}]},"finish_reason":"tool_calls"}]}\n\n',
+        "data: [DONE]\n\n"
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createClient(events, toolRunner).send(agentRequest);
+
+    expect(toolRunner.execute).not.toHaveBeenCalled();
+    expect(events.at(-1)).toEqual({
+      requestId: "request_agent_1",
+      type: "error",
+      message:
+        "The Agent requested a local Tool outside its permission policy: browser_navigate"
+    });
+  });
+
+  it("stops the Agent Tool loop at the configured maximum round count", async () => {
+    const events: ProjectChatEvent[] = [];
+    const toolRunner = {
+      listTools: vi.fn(async () => PROJECT_CHAT_TOOLS),
+      execute: vi.fn(async () => ({
+        content: JSON.stringify({ url: "about:blank" }),
+        summary: "Browser state",
+        isError: false
+      }))
+    };
+    let modelRound = 0;
+    const fetchMock = vi.fn<typeof fetch>(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/agents/agent_builder")) {
+        return jsonResponse(agentProfilePayload);
+      }
+      if (url.endsWith("/sessions")) {
+        return jsonResponse({ session: { id: agentRequest.sessionId } });
+      }
+      modelRound += 1;
+      return sseResponse(
+        `data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_browser_${modelRound}","type":"function","function":{"name":"browser_get_state","arguments":"{}"}}]},"finish_reason":"tool_calls"}]}\n\n`,
+        "data: [DONE]\n\n"
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createClient(events, toolRunner).send({
+      ...agentRequest,
+      agent: {
+        agentId: "agent_builder",
+        localToolGroups: ["browser"],
+        maxToolRounds: 2
+      }
+    });
+
+    expect(modelRound).toBe(2);
+    expect(toolRunner.execute).toHaveBeenCalledTimes(2);
+    expect(events.at(-1)).toEqual({
+      requestId: "request_agent_1",
+      type: "error",
+      message: "The local Tool loop reached its maximum number of rounds."
     });
   });
 

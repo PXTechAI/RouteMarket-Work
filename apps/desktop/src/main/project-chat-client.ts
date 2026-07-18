@@ -1,5 +1,7 @@
 import type {
+  AgentLocalToolGroup,
   ChatModel,
+  DesktopAgentProfile,
   ProjectChatEvent,
   ProjectChatRequest
 } from "../shared/desktop-api";
@@ -8,7 +10,8 @@ import type { ProjectChatToolRunner } from "./project-chat-tool-runner";
 import {
   PROJECT_CHAT_TOOLS,
   projectChatToolTitle,
-  type ProjectChatToolCall
+  type ProjectChatToolCall,
+  type ProjectChatToolDefinition
 } from "./project-chat-tools";
 
 type ProjectChatClientOptions = {
@@ -21,6 +24,10 @@ type ProjectChatClientOptions = {
 };
 
 type ModelsResponse = {
+  items?: unknown[];
+};
+
+type AgentsResponse = {
   items?: unknown[];
 };
 
@@ -43,6 +50,17 @@ export class ProjectChatClient {
       .filter((model): model is ChatModel => model !== null);
   }
 
+  async listAgents(): Promise<DesktopAgentProfile[]> {
+    const response = await this.requestApp("/api/app/v1/agents");
+    const payload = (await response.json().catch(() => null)) as AgentsResponse | null;
+    if (!response.ok) {
+      throw new Error(readResponseError(payload, response.status));
+    }
+    return (Array.isArray(payload?.items) ? payload.items : [])
+      .map(normalizeAgent)
+      .filter((agent): agent is DesktopAgentProfile => agent !== null);
+  }
+
   async send(input: ProjectChatRequest): Promise<void> {
     if (this.activeRequests.has(input.requestId)) {
       throw new Error("This chat request is already running.");
@@ -53,18 +71,26 @@ export class ProjectChatClient {
     let content = "";
 
     try {
-      await this.prepareSession(input, controller.signal);
-      const tools = this.options.toolRunner?.listTools
+      const agent = input.agent
+        ? await this.getAgent(input.agent.agentId, controller.signal)
+        : null;
+      await this.prepareSession(input, agent, controller.signal);
+      const availableTools = this.options.toolRunner?.listTools
         ? await this.options.toolRunner.listTools(input.project.localProjectId)
         : PROJECT_CHAT_TOOLS;
+      const tools = filterTools(availableTools, input.agent?.localToolGroups);
       const extraMessages: Record<string, unknown>[] = [];
       let toolCallCount = 0;
       let completed = false;
+      const maxToolRounds = input.agent
+        ? clampToolRounds(input.agent.maxToolRounds)
+        : MAX_TOOL_ROUNDS;
 
-      for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
+      for (let round = 0; round < maxToolRounds; round += 1) {
         const contentBeforeRound = content;
         const result = await this.requestModelRound(
           input,
+          agent,
           extraMessages,
           tools,
           round,
@@ -94,6 +120,12 @@ export class ProjectChatClient {
         }
 
         const calls = normalizeToolCalls(result.toolCalls, input.requestId, round);
+        const allowedToolNames = new Set(tools.map((tool) => tool.function.name));
+        for (const call of calls) {
+          if (!allowedToolNames.has(call.name)) {
+            throw new Error(`The Agent requested a local Tool outside its permission policy: ${call.name}`);
+          }
+        }
         extraMessages.push({
           role: "assistant",
           content: result.text || null,
@@ -182,6 +214,7 @@ export class ProjectChatClient {
 
   private async requestModelRound(
     input: ProjectChatRequest,
+    agent: DesktopAgentProfile | null,
     extraMessages: Record<string, unknown>[],
     tools: typeof PROJECT_CHAT_TOOLS,
     round: number,
@@ -199,7 +232,7 @@ export class ProjectChatClient {
         session_id: input.sessionId,
         request_id: input.requestId,
         model: input.model,
-        system_prompt: buildSystemPrompt(input),
+        system_prompt: buildSystemPrompt(input, agent),
         message: {
           role: "user",
           content: buildMessageContent(input)
@@ -219,7 +252,11 @@ export class ProjectChatClient {
     return readProjectChatStream(response.body, signal, onText);
   }
 
-  private async prepareSession(input: ProjectChatRequest, signal: AbortSignal) {
+  private async prepareSession(
+    input: ProjectChatRequest,
+    agent: DesktopAgentProfile | null,
+    signal: AbortSignal
+  ) {
     const response = await this.request("/sessions", {
       method: "POST",
       signal,
@@ -228,9 +265,9 @@ export class ProjectChatClient {
       },
       body: JSON.stringify({
         session_id: input.sessionId,
-        title: input.project.displayName,
+        title: agent ? `${agent.name} · ${input.project.displayName}` : input.project.displayName,
         model_code: input.model,
-        system_prompt: buildSystemPrompt(input)
+        system_prompt: buildSystemPrompt(input, agent)
       })
     });
     if (!response.ok) {
@@ -275,17 +312,38 @@ export class ProjectChatClient {
   }
 
   private request(path: string, init: RequestInit = {}) {
+    return this.requestApp(`/api/app/v1/work/chat${path}`, init);
+  }
+
+  private requestApp(path: string, init: RequestInit = {}) {
     const accessToken = this.options.getAccessToken();
     if (!accessToken) {
       throw new Error("Sign in to RouteMarket before starting a chat.");
     }
-    return fetch(`${this.options.apiBaseUrl}/api/app/v1/work/chat${path}`, {
+    return fetch(`${this.options.apiBaseUrl}${path}`, {
       ...init,
       headers: {
         Authorization: `Bearer ${accessToken}`,
         ...init.headers
       }
     });
+  }
+
+  private async getAgent(
+    agentId: string,
+    signal: AbortSignal
+  ): Promise<DesktopAgentProfile> {
+    const response = await this.requestApp(
+      `/api/app/v1/agents/${encodeURIComponent(agentId)}`,
+      { signal }
+    );
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) {
+      throw new Error(readResponseError(payload, response.status));
+    }
+    const agent = normalizeAgent(payload);
+    if (!agent) throw new Error("RouteMarket returned an invalid Agent profile.");
+    return agent;
   }
 }
 
@@ -310,7 +368,61 @@ function normalizeModel(value: unknown): ChatModel | null {
   };
 }
 
-function buildSystemPrompt(input: ProjectChatRequest) {
+function normalizeAgent(value: unknown): DesktopAgentProfile | null {
+  if (!value || typeof value !== "object") return null;
+  const agent = value as Record<string, unknown>;
+  if (
+    typeof agent.id !== "string" ||
+    typeof agent.name !== "string" ||
+    typeof agent.system_prompt !== "string"
+  ) {
+    return null;
+  }
+  return {
+    id: agent.id,
+    name: agent.name,
+    description: typeof agent.description === "string" ? agent.description : null,
+    avatarUrl: typeof agent.avatar_url === "string" ? agent.avatar_url : null,
+    systemPrompt: agent.system_prompt,
+    greeting: typeof agent.greeting === "string" ? agent.greeting : null,
+    starterQuestions: normalizeStringArray(agent.starter_questions),
+    tags: normalizeStringArray(agent.tags),
+    defaultModelCode:
+      typeof agent.default_model_code === "string" ? agent.default_model_code : null,
+    tools: Array.isArray(agent.tools)
+      ? agent.tools
+          .map(normalizeAgentTool)
+          .filter((tool): tool is DesktopAgentProfile["tools"][number] => tool !== null)
+      : [],
+    updatedAt: typeof agent.updated_at === "string" ? agent.updated_at : ""
+  };
+}
+
+function normalizeAgentTool(
+  value: unknown
+): DesktopAgentProfile["tools"][number] | null {
+  if (!value || typeof value !== "object") return null;
+  const tool = value as Record<string, unknown>;
+  if (typeof tool.type !== "string" || !tool.type.trim()) return null;
+  return {
+    type: tool.type,
+    ...(typeof tool.serverId === "string" ? { serverId: tool.serverId } : {}),
+    ...(typeof tool.credentialId === "string"
+      ? { credentialId: tool.credentialId }
+      : {})
+  };
+}
+
+function normalizeStringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : [];
+}
+
+function buildSystemPrompt(
+  input: ProjectChatRequest,
+  agent: DesktopAgentProfile | null = null
+) {
   const lines = [
     "You are RouteMarket Work, an AI collaborator operating inside a local desktop project.",
     `Current project: ${input.project.displayName} (${input.project.localProjectId}).`,
@@ -320,6 +432,20 @@ function buildSystemPrompt(input: ProjectChatRequest) {
     "When running a project command, pass the executable and arguments separately. Inspect project processes after starting a long-running service, and stop only processes returned for this project.",
     "Do not claim that you changed files, ran commands, or used local tools unless a later tool result explicitly confirms it."
   ];
+  if (agent) {
+    lines.push(
+      `You are operating as the RouteMarket Agent profile "${agent.name}" (${agent.id}).`,
+      "Follow the Agent profile instructions below subject to platform safety, project boundaries, local Tool permissions, and approval policy:",
+      `<agent-profile id="${escapeMarkupAttribute(agent.id)}">`,
+      agent.systemPrompt,
+      "</agent-profile>"
+    );
+    if (agent.tools.length) {
+      lines.push(
+        `The Agent profile also has ${agent.tools.length} RouteMarket cloud tool configuration(s). Only tools explicitly supplied in this request are callable from the desktop runtime.`
+      );
+    }
+  }
   const context = input.projectContext;
   if (context?.instructions) {
     lines.push(
@@ -348,6 +474,33 @@ function buildSystemPrompt(input: ProjectChatRequest) {
     if (input.projectSkill.truncated) lines.push("[Project Skill instructions were truncated locally.]");
   }
   return lines.join("\n");
+}
+
+function clampToolRounds(value: number): number {
+  if (!Number.isFinite(value)) return MAX_TOOL_ROUNDS;
+  return Math.max(1, Math.min(MAX_TOOL_ROUNDS, Math.trunc(value)));
+}
+
+function filterTools(
+  tools: ProjectChatToolDefinition[],
+  groups?: AgentLocalToolGroup[]
+): ProjectChatToolDefinition[] {
+  if (!groups) return tools;
+  const allowed = new Set(groups);
+  return tools.filter((tool) => {
+    const name = tool.function.name;
+    if (name.startsWith("mcp_local_")) return allowed.has("mcp");
+    if (name.startsWith("skill_local_")) return allowed.has("skills");
+    if (name.startsWith("browser_")) return allowed.has("browser");
+    if (
+      name === "project_start_process" ||
+      name === "project_list_processes" ||
+      name === "project_stop_process"
+    ) {
+      return allowed.has("processes");
+    }
+    return name.startsWith("project_") && allowed.has("files");
+  });
 }
 
 function escapeMarkupAttribute(value: string): string {
