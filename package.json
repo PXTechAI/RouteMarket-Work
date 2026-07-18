@@ -12,6 +12,7 @@
     "dist:mac": "corepack pnpm --filter @routemarket/work-desktop run dist:mac",
     "lint": "corepack pnpm -r run lint",
     "test": "corepack pnpm -r run test",
+    "test:core-e2e": "node scripts/run-core-work-e2e.mjs",
     "typecheck": "corepack pnpm -r run typecheck"
   }
 }
