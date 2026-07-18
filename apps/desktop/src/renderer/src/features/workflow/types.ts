@@ -1,6 +1,7 @@
 import type {
   DesktopWorkflowDraft,
   DesktopWorkflowDraftSummary,
+  DesktopWorkflowRun,
   DesktopWorkflowNodeDefinition,
   DesktopWorkflowNodeRegistry,
   LocalTriggerKind,
@@ -19,6 +20,10 @@ export type WorkflowPageModel = {
   drafts: DesktopWorkflowDraftSummary[];
   draftDirty: boolean;
   draftBusy: boolean;
+  runs: DesktopWorkflowRun[];
+  selectedRun: DesktopWorkflowRun | null;
+  runInput: string;
+  runBusy: boolean;
   addExecutor: string;
   edgeSource: string;
   edgeTarget: string;
@@ -52,6 +57,10 @@ export type WorkflowPageActions = {
     onRemoveNode(nodeId: string): void;
     onSaveDraft(): void;
     onDeleteDraft(): void;
+    onRunInputChange(value: string): void;
+    onRun(): void;
+    onCancelRun(): void;
+    onRetryRun(): void;
   };
   triggers: {
     onNameChange(value: string): void;

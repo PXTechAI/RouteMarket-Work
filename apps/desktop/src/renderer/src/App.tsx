@@ -28,9 +28,11 @@ import type {
   AttachedBrowserState,
   AttachedBrowserTarget,
   ChatModel,
-  DesktopWorkflowNodeRegistry,
   DesktopWorkflowDraft,
   DesktopWorkflowDraftSummary,
+  DesktopWorkflowNodeRegistry,
+  DesktopWorkflowRun,
+  DesktopWorkflowRunEvent,
   ManagedProcessSummary,
   ManagedBrowserState,
   LocalTriggerSummary,
@@ -116,6 +118,9 @@ const previewModels: ChatModel[] = [
 
 let previewCurrentState = previewState;
 const previewChatListeners = new Set<(event: ProjectChatEvent) => void>();
+const previewWorkflowRunListeners = new Set<
+  (event: DesktopWorkflowRunEvent) => void
+>();
 let previewProcesses: ManagedProcessSummary[] = [];
 let previewBrowserState: ManagedBrowserState = {
   localProjectId: "project_preview",
@@ -157,6 +162,7 @@ let previewAttachedBrowserState: AttachedBrowserState = {
 let previewMcpServers: McpServerSummary[] = [];
 let previewLocalTriggers: LocalTriggerSummary[] = [];
 let previewWorkflowDraft: DesktopWorkflowDraft | null = null;
+let previewWorkflowRuns: DesktopWorkflowRun[] = [];
 
 const previewApi: RouteMarketWorkApi = {
   async getState() {
@@ -538,6 +544,100 @@ const previewApi: RouteMarketWorkApi = {
   async getDesktopWorkflowDraft(localProjectId, workflowId) { return previewWorkflowDraft?.localProjectId === localProjectId && (!workflowId || previewWorkflowDraft.workflowId === workflowId) ? previewWorkflowDraft : null; },
   async saveDesktopWorkflowDraft(draft) { previewWorkflowDraft = { ...draft, updatedAt: new Date().toISOString() }; return previewWorkflowDraft; },
   async deleteDesktopWorkflowDraft(_localProjectId, workflowId) { if (previewWorkflowDraft?.workflowId === workflowId) previewWorkflowDraft = null; },
+  async runDesktopWorkflow(localProjectId, workflowId, input = {}) {
+    if (
+      !previewWorkflowDraft ||
+      previewWorkflowDraft.localProjectId !== localProjectId ||
+      previewWorkflowDraft.workflowId !== workflowId
+    ) {
+      throw new Error("Workflow draft not found");
+    }
+    const now = new Date().toISOString();
+    const run: DesktopWorkflowRun = {
+      runId: `run_${crypto.randomUUID().replaceAll("-", "")}`,
+      workflowId,
+      workflowName: previewWorkflowDraft.name,
+      localProjectId,
+      status: "running",
+      input,
+      output: null,
+      error: null,
+      createdAt: now,
+      startedAt: now,
+      finishedAt: null,
+      nodeRuns: previewWorkflowDraft.nodes.map((node) => ({
+        nodeRunId: `node_run_${crypto.randomUUID().replaceAll("-", "")}`,
+        nodeId: node.nodeId,
+        executorKey: node.executorKey,
+        title: node.title,
+        status: "running",
+        input,
+        output: null,
+        error: null,
+        startedAt: now,
+        finishedAt: null,
+        attempt: 1
+      }))
+    };
+    previewWorkflowRuns = [run, ...previewWorkflowRuns];
+    window.setTimeout(() => {
+      if (run.status !== "running") return;
+      const finishedAt = new Date().toISOString();
+      run.status = "succeeded";
+      run.output = { preview: true, input };
+      run.finishedAt = finishedAt;
+      run.nodeRuns = run.nodeRuns.map((node) => ({
+        ...node,
+        status: "succeeded",
+        output: { preview: true },
+        finishedAt
+      }));
+      for (const listener of previewWorkflowRunListeners) {
+        listener({ type: "updated", run: structuredClone(run) });
+      }
+    }, 700);
+    return structuredClone(run);
+  },
+  async getDesktopWorkflowRun(runId) {
+    const run = previewWorkflowRuns.find((item) => item.runId === runId);
+    return run ? structuredClone(run) : null;
+  },
+  async listDesktopWorkflowRuns(localProjectId, workflowId) {
+    return previewWorkflowRuns
+      .filter(
+        (run) =>
+          run.localProjectId === localProjectId &&
+          (!workflowId || run.workflowId === workflowId)
+      )
+      .map((run) => structuredClone(run));
+  },
+  async cancelDesktopWorkflowRun(runId) {
+    const run = previewWorkflowRuns.find((item) => item.runId === runId);
+    if (!run) throw new Error("Workflow run not found");
+    const finishedAt = new Date().toISOString();
+    run.status = "canceled";
+    run.error = "Workflow run was canceled.";
+    run.finishedAt = finishedAt;
+    run.nodeRuns = run.nodeRuns.map((node) => ({
+      ...node,
+      status: node.status === "succeeded" ? node.status : "canceled",
+      finishedAt
+    }));
+    return structuredClone(run);
+  },
+  async retryDesktopWorkflowRun(runId) {
+    const run = previewWorkflowRuns.find((item) => item.runId === runId);
+    if (!run) throw new Error("Workflow run not found");
+    return previewApi.runDesktopWorkflow(
+      run.localProjectId,
+      run.workflowId,
+      run.input
+    );
+  },
+  onDesktopWorkflowRunEvent(listener) {
+    previewWorkflowRunListeners.add(listener);
+    return () => previewWorkflowRunListeners.delete(listener);
+  },
   async installMcpServer(input) {
     const server: McpServerSummary = {
       serverId: `mcp_${crypto.randomUUID().replaceAll("-", "")}`,
@@ -682,6 +782,12 @@ const unavailableApi: RouteMarketWorkApi = {
   listDesktopWorkflowDrafts: async () => desktopBridgeUnavailable(),
   saveDesktopWorkflowDraft: async () => desktopBridgeUnavailable(),
   deleteDesktopWorkflowDraft: async () => desktopBridgeUnavailable(),
+  runDesktopWorkflow: async () => desktopBridgeUnavailable(),
+  getDesktopWorkflowRun: async () => desktopBridgeUnavailable(),
+  listDesktopWorkflowRuns: async () => desktopBridgeUnavailable(),
+  cancelDesktopWorkflowRun: async () => desktopBridgeUnavailable(),
+  retryDesktopWorkflowRun: async () => desktopBridgeUnavailable(),
+  onDesktopWorkflowRunEvent: () => () => undefined,
   installMcpServer: async () => desktopBridgeUnavailable(),
   listMcpServers: async () => desktopBridgeUnavailable(),
   startMcpServer: async () => desktopBridgeUnavailable(),
@@ -767,6 +873,9 @@ export function App() {
   const [workflowDrafts, setWorkflowDrafts] = useState<DesktopWorkflowDraftSummary[]>([]);
   const [workflowDraftDirty, setWorkflowDraftDirty] = useState(false);
   const [workflowDraftBusy, setWorkflowDraftBusy] = useState(false);
+  const [workflowRuns, setWorkflowRuns] = useState<DesktopWorkflowRun[]>([]);
+  const [workflowRunInput, setWorkflowRunInput] = useState("{}");
+  const [workflowRunBusy, setWorkflowRunBusy] = useState(false);
   const [workflowAddExecutor, setWorkflowAddExecutor] = useState("");
   const [workflowEdgeSource, setWorkflowEdgeSource] = useState("");
   const [workflowEdgeTarget, setWorkflowEdgeTarget] = useState("");
@@ -811,6 +920,9 @@ export function App() {
     mcpServers[0] ?? null;
   const selectedMcpTool = selectedMcpServer?.tools.find((tool) => tool.name === selectedMcpToolName) ??
     selectedMcpServer?.tools[0] ?? null;
+  const selectedWorkflowRun = workflowRuns.find(
+    (run) => run.workflowId === workflowDraft?.workflowId
+  ) ?? null;
   const visibleWorkflowDefinitions = useMemo(() => {
     const query = workflowSearch.trim().toLocaleLowerCase();
     const definitions = workflowRegistry?.definitions ?? [];
@@ -891,6 +1003,12 @@ export function App() {
       }
     });
     return unsubscribe;
+  }, []);
+
+  useEffect(() => {
+    return api.onDesktopWorkflowRunEvent((event) => {
+      setWorkflowRuns((current) => upsertWorkflowRun(current, event.run));
+    });
   }, []);
 
   useEffect(() => {
@@ -1134,6 +1252,33 @@ export function App() {
       })
       .finally(() => { if (active) setWorkflowDraftBusy(false); });
     return () => { active = false; };
+  }, [selectedProjectId, workflowPanel, workspaceView]);
+
+  useEffect(() => {
+    if (
+      workspaceView !== "workflow" ||
+      workflowPanel !== "canvas" ||
+      !selectedProjectId
+    ) {
+      return;
+    }
+    let active = true;
+    void api.listDesktopWorkflowRuns(selectedProjectId)
+      .then((runs) => {
+        if (active) setWorkflowRuns(runs);
+      })
+      .catch((nextError) => {
+        if (active) {
+          setError(
+            nextError instanceof Error
+              ? nextError.message
+              : "Workflow 运行记录加载失败"
+          );
+        }
+      });
+    return () => {
+      active = false;
+    };
   }, [selectedProjectId, workflowPanel, workspaceView]);
 
   useEffect(() => {
@@ -1805,6 +1950,70 @@ export function App() {
     }
   }
 
+  async function runWorkflowDraft() {
+    if (
+      !selectedProjectId ||
+      !workflowDraft ||
+      workflowDraft.kind !== "workflow" ||
+      workflowDraftDirty ||
+      workflowRunBusy
+    ) {
+      return;
+    }
+    setWorkflowRunBusy(true);
+    setError(null);
+    try {
+      const input = JSON.parse(workflowRunInput) as unknown;
+      if (!input || typeof input !== "object" || Array.isArray(input)) {
+        throw new Error("Workflow 运行输入必须是 JSON 对象。");
+      }
+      const run = await api.runDesktopWorkflow(
+        selectedProjectId,
+        workflowDraft.workflowId,
+        input as Record<string, unknown>
+      );
+      setWorkflowRuns((current) => upsertWorkflowRun(current, run));
+    } catch (nextError) {
+      setError(
+        nextError instanceof Error ? nextError.message : "Workflow 运行失败"
+      );
+    } finally {
+      setWorkflowRunBusy(false);
+    }
+  }
+
+  async function cancelWorkflowRun() {
+    if (!selectedWorkflowRun || workflowRunBusy) return;
+    setWorkflowRunBusy(true);
+    setError(null);
+    try {
+      const run = await api.cancelDesktopWorkflowRun(selectedWorkflowRun.runId);
+      setWorkflowRuns((current) => upsertWorkflowRun(current, run));
+    } catch (nextError) {
+      setError(
+        nextError instanceof Error ? nextError.message : "Workflow 取消失败"
+      );
+    } finally {
+      setWorkflowRunBusy(false);
+    }
+  }
+
+  async function retryWorkflowRun() {
+    if (!selectedWorkflowRun || workflowRunBusy) return;
+    setWorkflowRunBusy(true);
+    setError(null);
+    try {
+      const run = await api.retryDesktopWorkflowRun(selectedWorkflowRun.runId);
+      setWorkflowRuns((current) => upsertWorkflowRun(current, run));
+    } catch (nextError) {
+      setError(
+        nextError instanceof Error ? nextError.message : "Workflow 重试失败"
+      );
+    } finally {
+      setWorkflowRunBusy(false);
+    }
+  }
+
   async function selectWorkflowDraft(workflowId: string) {
     if (!selectedProjectId || workflowDraftBusy || workflowId === workflowDraft?.workflowId) return;
     if (workflowDraftDirty && !window.confirm("当前工作流有未保存更改。放弃并切换吗？")) return;
@@ -2158,6 +2367,10 @@ export function App() {
                 drafts: workflowDrafts,
                 draftDirty: workflowDraftDirty,
                 draftBusy: workflowDraftBusy,
+                runs: workflowRuns,
+                selectedRun: selectedWorkflowRun,
+                runInput: workflowRunInput,
+                runBusy: workflowRunBusy,
                 addExecutor: workflowAddExecutor,
                 edgeSource: workflowEdgeSource,
                 edgeTarget: workflowEdgeTarget,
@@ -2191,7 +2404,11 @@ export function App() {
                     updateWorkflowDraft((draft) => ({ ...draft, edges: [] })),
                   onRemoveNode: removeWorkflowNode,
                   onSaveDraft: () => void saveWorkflowDraft(),
-                  onDeleteDraft: () => void deleteWorkflowDraft()
+                  onDeleteDraft: () => void deleteWorkflowDraft(),
+                  onRunInputChange: setWorkflowRunInput,
+                  onRun: () => void runWorkflowDraft(),
+                  onCancelRun: () => void cancelWorkflowRun(),
+                  onRetryRun: () => void retryWorkflowRun()
                 },
                 triggers: {
                   onNameChange: setTriggerName,
@@ -2710,6 +2927,16 @@ function updateChatToolActivity(
   );
   if (existingIndex < 0) return [...tools, next];
   return tools.map((tool, index) => index === existingIndex ? next : tool);
+}
+
+function upsertWorkflowRun(
+  runs: DesktopWorkflowRun[],
+  run: DesktopWorkflowRun
+): DesktopWorkflowRun[] {
+  return [
+    run,
+    ...runs.filter((candidate) => candidate.runId !== run.runId)
+  ].sort((left, right) => right.createdAt.localeCompare(left.createdAt));
 }
 
 function fileVersionSourceLabel(source: ProjectFileVersionSummary["source"]): string {

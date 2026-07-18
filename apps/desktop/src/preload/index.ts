@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type {
+  DesktopWorkflowRunEvent,
   ProjectChatEvent,
   RouteMarketWorkApi
 } from "../shared/desktop-api";
@@ -101,6 +102,26 @@ const api: RouteMarketWorkApi = {
   getDesktopWorkflowDraft: (localProjectId, workflowId) => ipcRenderer.invoke("work:workflow-draft-get", localProjectId, workflowId),
   saveDesktopWorkflowDraft: (draft) => ipcRenderer.invoke("work:workflow-draft-save", draft),
   deleteDesktopWorkflowDraft: (localProjectId, workflowId) => ipcRenderer.invoke("work:workflow-draft-delete", localProjectId, workflowId),
+  runDesktopWorkflow: (localProjectId, workflowId, input) =>
+    ipcRenderer.invoke("work:workflow-run", localProjectId, workflowId, input),
+  getDesktopWorkflowRun: (runId) =>
+    ipcRenderer.invoke("work:workflow-run-get", runId),
+  listDesktopWorkflowRuns: (localProjectId, workflowId) =>
+    ipcRenderer.invoke("work:workflow-run-list", localProjectId, workflowId),
+  cancelDesktopWorkflowRun: (runId) =>
+    ipcRenderer.invoke("work:workflow-run-cancel", runId),
+  retryDesktopWorkflowRun: (runId) =>
+    ipcRenderer.invoke("work:workflow-run-retry", runId),
+  onDesktopWorkflowRunEvent: (listener) => {
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      payload: DesktopWorkflowRunEvent
+    ) => {
+      listener(payload);
+    };
+    ipcRenderer.on("work:workflow-run-event", handler);
+    return () => ipcRenderer.removeListener("work:workflow-run-event", handler);
+  },
   installMcpServer: (input) => ipcRenderer.invoke("work:mcp-install", input),
   listMcpServers: () => ipcRenderer.invoke("work:mcp-list"),
   startMcpServer: (serverId) => ipcRenderer.invoke("work:mcp-start", serverId),

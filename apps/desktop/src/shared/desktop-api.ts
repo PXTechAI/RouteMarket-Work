@@ -219,6 +219,55 @@ export type DesktopWorkflowDraftSummary = Pick<
   "workflowId" | "localProjectId" | "kind" | "name" | "createdAt" | "updatedAt"
 > & { nodeCount: number; edgeCount: number };
 
+export type DesktopWorkflowRunStatus =
+  | "queued"
+  | "running"
+  | "succeeded"
+  | "failed"
+  | "canceled";
+
+export type DesktopWorkflowNodeRunStatus =
+  | "pending"
+  | "running"
+  | "succeeded"
+  | "failed"
+  | "skipped"
+  | "canceled";
+
+export type DesktopWorkflowNodeRun = {
+  nodeRunId: string;
+  nodeId: string;
+  executorKey: string;
+  title: string;
+  status: DesktopWorkflowNodeRunStatus;
+  input: Record<string, unknown> | null;
+  output: unknown;
+  error: string | null;
+  startedAt: string | null;
+  finishedAt: string | null;
+  attempt: number;
+};
+
+export type DesktopWorkflowRun = {
+  runId: string;
+  workflowId: string;
+  workflowName: string;
+  localProjectId: string;
+  status: DesktopWorkflowRunStatus;
+  input: Record<string, unknown>;
+  output: unknown;
+  error: string | null;
+  createdAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+  nodeRuns: DesktopWorkflowNodeRun[];
+};
+
+export type DesktopWorkflowRunEvent = {
+  type: "updated";
+  run: DesktopWorkflowRun;
+};
+
 export type ProjectFileVersionSummary = {
   versionId: string;
   localProjectId: string;
@@ -524,6 +573,21 @@ export type RouteMarketWorkApi = {
   ): Promise<DesktopWorkflowDraft | null>;
   saveDesktopWorkflowDraft(draft: DesktopWorkflowDraft): Promise<DesktopWorkflowDraft>;
   deleteDesktopWorkflowDraft(localProjectId: string, workflowId: string): Promise<void>;
+  runDesktopWorkflow(
+    localProjectId: string,
+    workflowId: string,
+    input?: Record<string, unknown>
+  ): Promise<DesktopWorkflowRun>;
+  getDesktopWorkflowRun(runId: string): Promise<DesktopWorkflowRun | null>;
+  listDesktopWorkflowRuns(
+    localProjectId: string,
+    workflowId?: string
+  ): Promise<DesktopWorkflowRun[]>;
+  cancelDesktopWorkflowRun(runId: string): Promise<DesktopWorkflowRun>;
+  retryDesktopWorkflowRun(runId: string): Promise<DesktopWorkflowRun>;
+  onDesktopWorkflowRunEvent(
+    listener: (event: DesktopWorkflowRunEvent) => void
+  ): () => void;
   listProjectFileVersions(
     localProjectId: string,
     relativePath: string

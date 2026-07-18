@@ -8,8 +8,8 @@ import { projectBindingIdFor } from "@routemarket/work-worker-core";
 import type {
   ActivityItem,
   BrowserBounds,
-  DesktopWorkflowNodeRegistry,
   DesktopWorkflowDraft,
+  DesktopWorkflowNodeRegistry,
   LocalTriggerInput,
   ManagedBrowserProfileInput,
   NativeAppConnectorId,
@@ -29,7 +29,10 @@ import { ManagedBrowserManager } from "./managed-browser-manager";
 import { AttachedBrowserManager } from "./attached-browser-manager";
 import { LocalTriggerManager } from "./local-trigger-manager";
 import { NativeAppConnectorManager } from "./native-app-connector-manager";
+import { createLocalWorkflowNodeExecutor } from "./local-workflow-node-executor";
+import { LocalWorkflowRuntime } from "./local-workflow-runtime";
 import { WorkflowDraftStore } from "./workflow-draft-store";
+import { WorkflowRunStore } from "./workflow-run-store";
 import { WorkerClient } from "./worker-client";
 
 declare const __ROUTEMARKET_WORK_DEFAULT_API_URL__: string;
@@ -50,6 +53,8 @@ let activityStore: ActivityStore | null = null;
 let managedBrowser: ManagedBrowserManager | null = null;
 let localTriggerManager: LocalTriggerManager | null = null;
 let workflowDraftStore: WorkflowDraftStore | null = null;
+let workflowRunStore: WorkflowRunStore | null = null;
+let localWorkflowRuntime: LocalWorkflowRuntime | null = null;
 const attachedBrowser = new AttachedBrowserManager();
 const nativeAppConnectors = new NativeAppConnectorManager();
 let pendingDeepLink: string | null = null;
@@ -531,6 +536,47 @@ function registerIpc(): void {
       },
       async () => workflowDraftStore!.delete(localProjectId, workflowId)
     );
+  });
+  ipcMain.handle(
+    "work:workflow-run",
+    (
+      _event,
+      localProjectId: string,
+      workflowId: string,
+      input?: Record<string, unknown>
+    ) => {
+      if (!localWorkflowRuntime) {
+        throw new Error("Local Workflow runtime is unavailable.");
+      }
+      return localWorkflowRuntime.run(localProjectId, workflowId, input ?? {});
+    }
+  );
+  ipcMain.handle("work:workflow-run-get", (_event, runId: string) => {
+    if (!localWorkflowRuntime) {
+      throw new Error("Local Workflow runtime is unavailable.");
+    }
+    return localWorkflowRuntime.get(runId);
+  });
+  ipcMain.handle(
+    "work:workflow-run-list",
+    (_event, localProjectId: string, workflowId?: string) => {
+      if (!localWorkflowRuntime) {
+        throw new Error("Local Workflow runtime is unavailable.");
+      }
+      return localWorkflowRuntime.list(localProjectId, workflowId);
+    }
+  );
+  ipcMain.handle("work:workflow-run-cancel", (_event, runId: string) => {
+    if (!localWorkflowRuntime) {
+      throw new Error("Local Workflow runtime is unavailable.");
+    }
+    return localWorkflowRuntime.cancel(runId);
+  });
+  ipcMain.handle("work:workflow-run-retry", (_event, runId: string) => {
+    if (!localWorkflowRuntime) {
+      throw new Error("Local Workflow runtime is unavailable.");
+    }
+    return localWorkflowRuntime.retry(runId);
   });
 
   ipcMain.handle(
@@ -1298,6 +1344,36 @@ if (!hasSingleInstanceLock) {
       }
     );
     workflowDraftStore = new WorkflowDraftStore(join(workDataPath, "work.db"));
+    workflowRunStore = new WorkflowRunStore(join(workDataPath, "work.db"));
+    localWorkflowRuntime = new LocalWorkflowRuntime(
+      workflowDraftStore,
+      workflowRunStore,
+      createLocalWorkflowNodeExecutor({
+        workerClient,
+        toolBroker,
+        getBrowser: requireBrowser,
+        nativeAppConnectors
+      }),
+      (event) => {
+        mainWindow?.webContents.send("work:workflow-run-event", event);
+        if (event.run.status === "succeeded") {
+          addActivity(
+            "job.succeeded",
+            `Workflow completed: ${event.run.workflowName}`,
+            event.run.runId
+          );
+        } else if (
+          event.run.status === "failed" ||
+          event.run.status === "canceled"
+        ) {
+          addActivity(
+            "job.failed",
+            `Workflow ${event.run.status}: ${event.run.workflowName}`,
+            event.run.error ?? event.run.runId
+          );
+        }
+      }
+    );
     for (const item of transientActivities.reverse()) activityStore.append(item);
     transientActivities.length = 0;
 
@@ -1373,6 +1449,10 @@ app.on("before-quit", () => {
   localTriggerManager = null;
   workflowDraftStore?.close();
   workflowDraftStore = null;
+  localWorkflowRuntime?.cancelAll();
+  localWorkflowRuntime = null;
+  workflowRunStore?.close();
+  workflowRunStore = null;
   projectChatClient?.stopAll();
   cloudWorkerClient?.stop();
   workerClient?.stop();

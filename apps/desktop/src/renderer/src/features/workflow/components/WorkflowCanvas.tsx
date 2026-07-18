@@ -8,6 +8,7 @@ import {
   X
 } from "lucide-react";
 import type { WorkflowPageActions, WorkflowPageModel } from "../types";
+import { WorkflowRunPanel } from "./WorkflowRunPanel";
 
 export function WorkflowCanvas({
   model,
@@ -161,7 +162,12 @@ export function WorkflowCanvas({
           {model.draft?.nodes.map((node) => (
             <article
               key={node.nodeId}
-              className="workflow-canvas-node"
+              className={[
+                "workflow-canvas-node",
+                model.selectedRun?.nodeRuns.find(
+                  (nodeRun) => nodeRun.nodeId === node.nodeId
+                )?.status ?? ""
+              ].filter(Boolean).join(" ")}
               style={{ left: node.x, top: node.y }}
             >
               <div>
@@ -197,6 +203,8 @@ export function WorkflowCanvas({
           )}
         </div>
       </div>
+
+      <WorkflowRunPanel model={model} actions={actions} />
 
       <div className="workflow-canvas-status">
         <span>
