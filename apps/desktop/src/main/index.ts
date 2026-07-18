@@ -23,6 +23,7 @@ import { ActivityStore } from "./activity-store";
 import { DesktopAuthManager } from "./desktop-auth-manager";
 import { DeviceCredentialStore } from "./device-credential-store";
 import { ProjectChatClient } from "./project-chat-client";
+import { ProjectChatToolRunner } from "./project-chat-tool-runner";
 import { LocalToolBroker } from "./tool-broker";
 import { ManagedBrowserManager } from "./managed-browser-manager";
 import { AttachedBrowserManager } from "./attached-browser-manager";
@@ -1326,7 +1327,12 @@ if (!hasSingleInstanceLock) {
     projectChatClient = new ProjectChatClient({
       apiBaseUrl: API_BASE_URL,
       getAccessToken: () => desktopAuthManager?.getAccessToken(),
-      onEvent: (event) => mainWindow?.webContents.send("work:project-chat-event", event)
+      onEvent: (event) => mainWindow?.webContents.send("work:project-chat-event", event),
+      toolRunner: new ProjectChatToolRunner({
+        workerClient,
+        toolBroker,
+        onActivity: addActivity
+      })
     });
     registerIpc();
     createWindow();

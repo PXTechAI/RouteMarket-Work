@@ -402,6 +402,29 @@ export type ProjectChatEvent =
     }
   | {
       requestId: string;
+      type: "tool_started";
+      toolCallId: string;
+      toolName: string;
+      title: string;
+    }
+  | {
+      requestId: string;
+      type: "tool_completed";
+      toolCallId: string;
+      toolName: string;
+      title: string;
+      summary: string;
+    }
+  | {
+      requestId: string;
+      type: "tool_error";
+      toolCallId: string;
+      toolName: string;
+      title: string;
+      message: string;
+    }
+  | {
+      requestId: string;
       type: "error";
       message: string;
     };

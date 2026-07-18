@@ -864,6 +864,20 @@ export function App() {
         return;
       }
 
+      if (
+        event.type === "tool_started" ||
+        event.type === "tool_completed" ||
+        event.type === "tool_error"
+      ) {
+        setChatMessagesByProject((current) =>
+          updateAssistantMessage(current, projectId, event.requestId, (message) => ({
+            ...message,
+            tools: updateChatToolActivity(message.tools ?? [], event)
+          }))
+        );
+        return;
+      }
+
       setChatMessagesByProject((current) =>
         updateAssistantMessage(current, projectId, event.requestId, (message) => ({
           ...message,
@@ -2666,6 +2680,36 @@ function updateAssistantMessage(
       message.id === `assistant:${requestId}` ? update(message) : message
     )
   };
+}
+
+function updateChatToolActivity(
+  tools: NonNullable<ChatMessage["tools"]>,
+  event: Extract<
+    ProjectChatEvent,
+    { type: "tool_started" | "tool_completed" | "tool_error" }
+  >
+) {
+  const next = {
+    toolCallId: event.toolCallId,
+    toolName: event.toolName,
+    title: event.title,
+    status:
+      event.type === "tool_started"
+        ? "running" as const
+        : event.type === "tool_completed"
+          ? "completed" as const
+          : "error" as const,
+    ...(event.type === "tool_completed"
+      ? { detail: event.summary }
+      : event.type === "tool_error"
+        ? { detail: event.message }
+        : {})
+  };
+  const existingIndex = tools.findIndex(
+    (tool) => tool.toolCallId === event.toolCallId
+  );
+  if (existingIndex < 0) return [...tools, next];
+  return tools.map((tool, index) => index === existingIndex ? next : tool);
 }
 
 function fileVersionSourceLabel(source: ProjectFileVersionSummary["source"]): string {

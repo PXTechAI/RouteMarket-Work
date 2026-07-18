@@ -3,16 +3,27 @@ import type {
   ProjectChatEvent,
   ProjectChatRequest
 } from "../shared/desktop-api";
+import { readProjectChatStream } from "./project-chat-stream";
+import type { ProjectChatToolRunner } from "./project-chat-tool-runner";
+import {
+  PROJECT_CHAT_TOOLS,
+  projectChatToolTitle,
+  type ProjectChatToolCall
+} from "./project-chat-tools";
 
 type ProjectChatClientOptions = {
   apiBaseUrl: string;
   getAccessToken(): string | undefined;
   onEvent(event: ProjectChatEvent): void;
+  toolRunner?: Pick<ProjectChatToolRunner, "execute">;
 };
 
 type ModelsResponse = {
   items?: unknown[];
 };
+
+const MAX_TOOL_ROUNDS = 8;
+const MAX_TOOL_CALLS = 24;
 
 export class ProjectChatClient {
   private readonly activeRequests = new Map<string, AbortController>();
@@ -41,56 +52,90 @@ export class ProjectChatClient {
 
     try {
       await this.prepareSession(input, controller.signal);
-      const response = await this.request("", {
-        method: "POST",
-        signal: controller.signal,
-        headers: {
-          "Content-Type": "application/json",
-          "x-request-id": input.requestId
-        },
-        body: JSON.stringify({
-          session_id: input.sessionId,
-          request_id: input.requestId,
-          model: input.model,
-          system_prompt: buildSystemPrompt(input),
-          message: {
-            role: "user",
-            content: buildMessageContent(input)
-          },
-          stream: true
-        })
-      });
+      const extraMessages: Record<string, unknown>[] = [];
+      let toolCallCount = 0;
+      let completed = false;
 
-      if (!response.ok || !response.body) {
-        const payload = await response.json().catch(() => null);
-        throw new Error(readResponseError(payload, response.status));
-      }
+      for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
+        const contentBeforeRound = content;
+        const result = await this.requestModelRound(
+          input,
+          extraMessages,
+          round,
+          controller.signal,
+          (roundText) => {
+            content = appendRoundText(contentBeforeRound, roundText);
+            this.options.onEvent({
+              requestId: input.requestId,
+              type: "delta",
+              content
+            });
+          }
+        );
+        content = appendRoundText(contentBeforeRound, result.text);
 
-      const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
-      let buffer = "";
+        if (!result.toolCalls.length) {
+          completed = true;
+          break;
+        }
+        if (!this.options.toolRunner) {
+          throw new Error("The local chat Tool runtime is unavailable.");
+        }
 
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buffer += value;
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
+        toolCallCount += result.toolCalls.length;
+        if (toolCallCount > MAX_TOOL_CALLS) {
+          throw new Error("The model requested too many local Tool calls.");
+        }
 
-        for (const rawLine of lines) {
-          const next = parseSseLine(rawLine, content);
-          if (!next) continue;
-          content = next;
+        const calls = normalizeToolCalls(result.toolCalls, input.requestId, round);
+        extraMessages.push({
+          role: "assistant",
+          content: result.text || null,
+          tool_calls: calls.map(toTranscriptToolCall)
+        });
+
+        for (const call of calls) {
+          const title = projectChatToolTitle(call.name);
           this.options.onEvent({
             requestId: input.requestId,
-            type: "delta",
-            content
+            type: "tool_started",
+            toolCallId: call.id,
+            toolName: call.name,
+            title
+          });
+          const execution = await this.options.toolRunner.execute(
+            input.project.localProjectId,
+            call
+          );
+          if (execution.isError) {
+            this.options.onEvent({
+              requestId: input.requestId,
+              type: "tool_error",
+              toolCallId: call.id,
+              toolName: call.name,
+              title,
+              message: execution.summary
+            });
+          } else {
+            this.options.onEvent({
+              requestId: input.requestId,
+              type: "tool_completed",
+              toolCallId: call.id,
+              toolName: call.name,
+              title,
+              summary: execution.summary
+            });
+          }
+          extraMessages.push({
+            role: "tool",
+            tool_call_id: call.id,
+            content: execution.content
           });
         }
       }
 
-      if (buffer.trim()) {
-        const next = parseSseLine(buffer, content);
-        if (next) content = next;
+      if (!completed) {
+        throw new Error("The local Tool loop reached its maximum number of rounds.");
       }
 
       await this.persistTurn(input, content, controller.signal);
@@ -126,6 +171,44 @@ export class ProjectChatClient {
     for (const controller of this.activeRequests.values()) {
       controller.abort();
     }
+  }
+
+  private async requestModelRound(
+    input: ProjectChatRequest,
+    extraMessages: Record<string, unknown>[],
+    round: number,
+    signal: AbortSignal,
+    onText: (text: string) => void
+  ) {
+    const response = await this.request("", {
+      method: "POST",
+      signal,
+      headers: {
+        "Content-Type": "application/json",
+        "x-request-id": roundRequestId(input.requestId, round)
+      },
+      body: JSON.stringify({
+        session_id: input.sessionId,
+        request_id: input.requestId,
+        model: input.model,
+        system_prompt: buildSystemPrompt(input),
+        message: {
+          role: "user",
+          content: buildMessageContent(input)
+        },
+        tools: PROJECT_CHAT_TOOLS,
+        tool_choice: "auto",
+        parallel_tool_calls: false,
+        ...(extraMessages.length ? { extra_messages: extraMessages } : {}),
+        stream: true
+      })
+    });
+
+    if (!response.ok || !response.body) {
+      const payload = await response.json().catch(() => null);
+      throw new Error(readResponseError(payload, response.status));
+    }
+    return readProjectChatStream(response.body, signal, onText);
   }
 
   private async prepareSession(input: ProjectChatRequest, signal: AbortSignal) {
@@ -224,6 +307,8 @@ function buildSystemPrompt(input: ProjectChatRequest) {
     "You are RouteMarket Work, an AI collaborator operating inside a local desktop project.",
     `Current project: ${input.project.displayName} (${input.project.localProjectId}).`,
     "Use the supplied local file context when relevant.",
+    "Use the supplied project tools to inspect the project instead of guessing file contents or paths.",
+    "Before modifying an existing file, read it and use the returned sha256 for the guarded write.",
     "Do not claim that you changed files, ran commands, or used local tools unless a later tool result explicitly confirms it."
   ];
   const context = input.projectContext;
@@ -282,82 +367,37 @@ function buildMessageContent(input: ProjectChatRequest) {
   ].join("\n");
 }
 
-function parseSseLine(rawLine: string, currentContent: string) {
-  const line = rawLine.trim();
-  if (!line.startsWith("data:")) return null;
-  const payload = line.slice("data:".length).trim();
-  if (
-    !payload ||
-    payload === "[DONE]" ||
-    payload.startsWith("[DONE_WITH_META]")
-  ) {
-    return null;
-  }
+function appendRoundText(existing: string, roundText: string): string {
+  if (!roundText) return existing;
+  if (!existing) return roundText;
+  const separator = existing.endsWith("\n") || roundText.startsWith("\n") ? "" : "\n\n";
+  return `${existing}${separator}${roundText}`;
+}
 
-  try {
-    const chunk = JSON.parse(payload) as Record<string, unknown>;
-    const delta = extractTextDelta(chunk);
-    if (delta) return currentContent + delta;
-    const fallback = extractTextFallback(chunk);
-    if (fallback && !currentContent.includes(fallback)) {
-      return currentContent + fallback;
+function roundRequestId(requestId: string, round: number): string {
+  return round === 0 ? requestId : `${requestId}_tool_round_${round}`;
+}
+
+function normalizeToolCalls(
+  calls: ProjectChatToolCall[],
+  requestId: string,
+  round: number
+): ProjectChatToolCall[] {
+  return calls.map((call, index) => ({
+    ...call,
+    id: call.id || `call_${requestId}_${round}_${index}`
+  }));
+}
+
+function toTranscriptToolCall(call: ProjectChatToolCall) {
+  return {
+    id: call.id,
+    type: "function",
+    function: {
+      name: call.name,
+      arguments: call.arguments || "{}"
     }
-  } catch {
-    return null;
-  }
-  return null;
-}
-
-function extractTextDelta(payload: Record<string, unknown>) {
-  const eventType = typeof payload.type === "string" ? payload.type : "";
-  if (
-    eventType === "response.output_text.delta" ||
-    eventType === "response.refusal.delta"
-  ) {
-    return typeof payload.delta === "string" ? payload.delta : "";
-  }
-
-  const firstChoice = firstRecord(payload.choices);
-  const delta = firstRecord(firstChoice?.delta);
-  return typeof delta?.content === "string" ? delta.content : "";
-}
-
-function extractTextFallback(payload: Record<string, unknown>) {
-  const firstChoice = firstRecord(payload.choices);
-  const message = firstRecord(firstChoice?.message);
-  if (typeof message?.content === "string") {
-    return message.content.trim();
-  }
-
-  if (payload.type === "response.completed") {
-    const response = firstRecord(payload.response);
-    return collectText(response?.output).join("\n\n").trim();
-  }
-  return "";
-}
-
-function collectText(value: unknown): string[] {
-  if (typeof value === "string") return value.trim() ? [value.trim()] : [];
-  if (Array.isArray(value)) return value.flatMap(collectText);
-  if (!value || typeof value !== "object") return [];
-  const record = value as Record<string, unknown>;
-  const direct =
-    typeof record.text === "string"
-      ? record.text
-      : typeof record.output_text === "string"
-        ? record.output_text
-        : "";
-  return [
-    ...(direct.trim() ? [direct.trim()] : []),
-    ...collectText(record.content)
-  ];
-}
-
-function firstRecord(value: unknown): Record<string, unknown> | null {
-  const candidate = Array.isArray(value) ? value[0] : value;
-  return candidate && typeof candidate === "object"
-    ? candidate as Record<string, unknown>
-    : null;
+  };
 }
 
 function readResponseError(payload: unknown, status: number) {

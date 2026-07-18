@@ -107,6 +107,66 @@
   border-color: rgb(65 98 255 / 14%);
 }
 
+.message-tools {
+  display: grid;
+  gap: 6px;
+  margin: 8px 0;
+}
+
+.message-tool {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  align-items: start;
+  gap: 7px;
+  width: min(100%, 560px);
+  padding: 7px 9px;
+  color: var(--rm-text-muted);
+  background: var(--rm-surface-subtle);
+  border: 1px solid var(--rm-border);
+  border-radius: 6px;
+  font-size: 11px;
+}
+
+.message-tool.completed {
+  color: var(--rm-success);
+}
+
+.message-tool.error {
+  color: var(--rm-danger);
+}
+
+.message-tool span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.message-tool strong,
+.message-tool small {
+  overflow-wrap: anywhere;
+}
+
+.message-tool strong {
+  color: var(--rm-text);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.message-tool small {
+  color: inherit;
+  font-size: 10px;
+}
+
+.message-tool-spinner {
+  animation: message-tool-spin 900ms linear infinite;
+}
+
+@keyframes message-tool-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .context-chip button {
   color: var(--rm-text-muted);
 }

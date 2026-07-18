@@ -1,4 +1,10 @@
-import { Paperclip, Sparkles } from "lucide-react";
+import {
+  CheckCircle2,
+  CircleAlert,
+  LoaderCircle,
+  Paperclip,
+  Sparkles
+} from "lucide-react";
 import type { ChatMessage } from "../types";
 
 export function ChatMessageRow({
@@ -29,6 +35,25 @@ export function ChatMessageRow({
             {message.contextFile}
           </div>
         )}
+        {message.tools?.length ? (
+          <div className="message-tools" aria-label="本地工具活动">
+            {message.tools.map((tool) => (
+              <div className={`message-tool ${tool.status}`} key={tool.toolCallId}>
+                {tool.status === "running" ? (
+                  <LoaderCircle className="message-tool-spinner" size={14} />
+                ) : tool.status === "completed" ? (
+                  <CheckCircle2 size={14} />
+                ) : (
+                  <CircleAlert size={14} />
+                )}
+                <span>
+                  <strong>{tool.title}</strong>
+                  {tool.detail ? <small>{tool.detail}</small> : null}
+                </span>
+              </div>
+            ))}
+          </div>
+        ) : null}
         <div className="message-text">
           {message.content || (streaming ? "正在思考..." : "")}
         </div>

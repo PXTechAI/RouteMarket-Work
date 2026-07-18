@@ -4,6 +4,7 @@ import type {
   ProjectChatRequest
 } from "../shared/desktop-api";
 import { ProjectChatClient } from "./project-chat-client";
+import type { ProjectChatToolRunner } from "./project-chat-tool-runner";
 
 const request: ProjectChatRequest = {
   requestId: "request_1",
@@ -73,11 +74,15 @@ function sseResponse(...events: string[]) {
   );
 }
 
-function createClient(events: ProjectChatEvent[] = []) {
+function createClient(
+  events: ProjectChatEvent[] = [],
+  toolRunner?: Pick<ProjectChatToolRunner, "execute">
+) {
   return new ProjectChatClient({
     apiBaseUrl: "https://api.example.test",
     getAccessToken: () => "rmw_dt_test",
-    onEvent: (event) => events.push(event)
+    onEvent: (event) => events.push(event),
+    toolRunner
   });
 }
 
@@ -226,6 +231,104 @@ describe("ProjectChatClient", () => {
       requestId: "request_1",
       type: "complete",
       content: "First second"
+    });
+  });
+
+  it("executes streamed local Tool calls and continues the model with Tool results", async () => {
+    const events: ProjectChatEvent[] = [];
+    const toolRunner = {
+      execute: vi.fn(async () => ({
+        content: JSON.stringify({
+          path: "src/index.ts",
+          text: "export const answer = 42;",
+          sha256: "a".repeat(64)
+        }),
+        summary: "src/index.ts · 25 bytes",
+        isError: false
+      }))
+    };
+    let chatRound = 0;
+    const fetchMock = vi.fn<typeof fetch>(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/sessions")) {
+        return jsonResponse({ session: { id: request.sessionId } });
+      }
+      if (url.endsWith("/turns")) {
+        return jsonResponse({ session_id: request.sessionId });
+      }
+      chatRound += 1;
+      if (chatRound === 1) {
+        return sseResponse(
+          'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_read_1","type":"function","function":{"name":"project_read_file","arguments":"{\\"path\\":"}}]}}]}\n\n',
+          'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\\"src/index.ts\\"}"}}]},"finish_reason":"tool_calls"}]}\n\n',
+          "data: [DONE]\n\n"
+        );
+      }
+      return sseResponse(
+        'data: {"choices":[{"delta":{"content":"The answer is 42."}}]}\n\n',
+        "data: [DONE]\n\n"
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createClient(events, toolRunner).send(request);
+
+    expect(toolRunner.execute).toHaveBeenCalledWith("project_1", {
+      id: "call_read_1",
+      name: "project_read_file",
+      arguments: '{"path":"src/index.ts"}'
+    });
+    expect(events).toContainEqual({
+      requestId: "request_1",
+      type: "tool_started",
+      toolCallId: "call_read_1",
+      toolName: "project_read_file",
+      title: "读取项目文件"
+    });
+    expect(events).toContainEqual({
+      requestId: "request_1",
+      type: "tool_completed",
+      toolCallId: "call_read_1",
+      toolName: "project_read_file",
+      title: "读取项目文件",
+      summary: "src/index.ts · 25 bytes"
+    });
+    expect(events.at(-1)).toEqual({
+      requestId: "request_1",
+      type: "complete",
+      content: "The answer is 42."
+    });
+
+    const firstRound = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body));
+    expect(firstRound.tools).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          function: expect.objectContaining({ name: "project_read_file" })
+        })
+      ])
+    );
+    const secondRound = JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body));
+    expect(secondRound.extra_messages).toEqual([
+      {
+        role: "assistant",
+        content: null,
+        tool_calls: [{
+          id: "call_read_1",
+          type: "function",
+          function: {
+            name: "project_read_file",
+            arguments: '{"path":"src/index.ts"}'
+          }
+        }]
+      },
+      {
+        role: "tool",
+        tool_call_id: "call_read_1",
+        content: expect.stringContaining('"sha256"')
+      }
+    ]);
+    expect(fetchMock.mock.calls[2]?.[1]?.headers).toMatchObject({
+      "x-request-id": "request_1_tool_round_1"
     });
   });
 
