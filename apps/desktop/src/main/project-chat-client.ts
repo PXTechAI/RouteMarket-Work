@@ -332,7 +332,7 @@ function buildSystemPrompt(input: ProjectChatRequest) {
   }
   if (context?.skills.length) {
     lines.push(
-      "Project-local Skills available on this device (metadata only; invocation still requires the local Tool Broker):",
+      "Project-local Skills available through the local Skill Runtime. Invoke the matching Skill tool when its guidance is relevant, then use the available local Tools for concrete actions:",
       ...context.skills.map((skill) =>
         `- ${skill.name} (${skill.id}): ${skill.description || "No description"}`
       )

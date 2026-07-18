@@ -366,6 +366,109 @@ describe("ProjectChatClient", () => {
     });
   });
 
+  it("offers project Skills to the model and continues with loaded instructions", async () => {
+    const events: ProjectChatEvent[] = [];
+    const skillTool = {
+      type: "function" as const,
+      function: {
+        name: "skill_local_review_123456789abc",
+        description: "Load the project review Skill.",
+        parameters: {
+          type: "object",
+          properties: {
+            task: { type: "string" }
+          },
+          required: ["task"],
+          additionalProperties: false
+        }
+      }
+    };
+    const toolRunner = {
+      listTools: vi.fn(async () => [...PROJECT_CHAT_TOOLS, skillTool]),
+      execute: vi.fn(async () => ({
+        content: JSON.stringify({
+          skill_id: "review",
+          task: "Review the current changes.",
+          instructions: "Inspect the diff and report findings by severity."
+        }),
+        summary: "Code review · 49 characters",
+        isError: false
+      }))
+    };
+    let chatRound = 0;
+    const fetchMock = vi.fn<typeof fetch>(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/sessions")) {
+        return jsonResponse({ session: { id: request.sessionId } });
+      }
+      if (url.endsWith("/turns")) {
+        return jsonResponse({ session_id: request.sessionId });
+      }
+      chatRound += 1;
+      if (chatRound === 1) {
+        return sseResponse(
+          'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_skill_1","type":"function","function":{"name":"skill_local_review_123456789abc","arguments":"{\\"task\\":\\"Review the current changes.\\"}"}}]},"finish_reason":"tool_calls"}]}\n\n',
+          "data: [DONE]\n\n"
+        );
+      }
+      return sseResponse(
+        'data: {"choices":[{"delta":{"content":"I found one issue."}}]}\n\n',
+        "data: [DONE]\n\n"
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createClient(events, toolRunner).send(request);
+
+    expect(toolRunner.execute).toHaveBeenCalledWith(
+      "project_1",
+      {
+        id: "call_skill_1",
+        name: "skill_local_review_123456789abc",
+        arguments: '{"task":"Review the current changes."}'
+      },
+      expect.any(AbortSignal)
+    );
+    expect(events).toContainEqual({
+      requestId: "request_1",
+      type: "tool_started",
+      toolCallId: "call_skill_1",
+      toolName: "skill_local_review_123456789abc",
+      title: "调用项目 Skill"
+    });
+    expect(events).toContainEqual({
+      requestId: "request_1",
+      type: "tool_completed",
+      toolCallId: "call_skill_1",
+      toolName: "skill_local_review_123456789abc",
+      title: "调用项目 Skill",
+      summary: "Code review · 49 characters"
+    });
+
+    const firstRound = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body));
+    expect(firstRound.tools).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        function: expect.objectContaining({
+          name: "skill_local_review_123456789abc"
+        })
+      })
+    ]));
+    expect(firstRound.system_prompt).toContain(
+      "Project-local Skills available through the local Skill Runtime."
+    );
+    const secondRound = JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body));
+    expect(secondRound.extra_messages.at(-1)).toEqual({
+      role: "tool",
+      tool_call_id: "call_skill_1",
+      content: expect.stringContaining("report findings by severity")
+    });
+    expect(events.at(-1)).toEqual({
+      requestId: "request_1",
+      type: "complete",
+      content: "I found one issue."
+    });
+  });
+
   it("emits a stopped event when an active request is cancelled", async () => {
     const events: ProjectChatEvent[] = [];
     const fetchMock = vi.fn<typeof fetch>(

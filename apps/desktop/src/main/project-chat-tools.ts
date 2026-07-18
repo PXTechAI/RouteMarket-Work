@@ -320,6 +320,7 @@ export const PROJECT_CHAT_TOOLS: ProjectChatToolDefinition[] = [
 
 export function projectChatToolTitle(name: string): string {
   if (name.startsWith("mcp_local_")) return "调用 Local MCP Tool";
+  if (name.startsWith("skill_local_")) return "调用项目 Skill";
   if (name === "project_list_files") return "查看项目文件";
   if (name === "project_search") return "搜索项目";
   if (name === "project_read_file") return "读取项目文件";

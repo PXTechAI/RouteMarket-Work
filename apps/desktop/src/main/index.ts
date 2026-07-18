@@ -1333,6 +1333,7 @@ if (!hasSingleInstanceLock) {
         toolBroker,
         getBrowser: () => requireBrowser(),
         mcpClient: workerClient,
+        skillClient: workerClient,
         onActivity: addActivity
       })
     });

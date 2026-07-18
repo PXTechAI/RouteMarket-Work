@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import type {
   ManagedBrowserState,
-  ManagedProcessSummary
+  ManagedProcessSummary,
+  ProjectContext
 } from "../shared/desktop-api";
 import { LocalToolBroker } from "./tool-broker";
 import { ProjectChatToolRunner } from "./project-chat-tool-runner";
@@ -141,6 +142,36 @@ function createBrowser() {
     click: vi.fn(async () => undefined),
     type: vi.fn(async () => undefined),
     extract: vi.fn(async () => "Extracted page text")
+  };
+}
+
+function createSkillClient() {
+  const projectContext: ProjectContext = {
+    instructions: null,
+    readme: null,
+    settings: {
+      defaultAgent: null,
+      defaultModel: null,
+      cloudProjectId: null,
+      ignore: []
+    },
+    skills: [{
+      id: "review",
+      name: "Code review",
+      description: "Review project changes.",
+      relativePath: ".routemarket/skills/review/SKILL.md"
+    }]
+  };
+  return {
+    projectContext: vi.fn(async () => projectContext),
+    readProjectFile: vi.fn(async () => ({
+      uri: "routemarket-work://project/project_1/.routemarket/skills/review/SKILL.md",
+      text: "Inspect changes and report findings by severity.",
+      bytesRead: 48,
+      truncated: false,
+      encoding: "utf8" as const,
+      sha256: "c".repeat(64)
+    }))
   };
 }
 
@@ -571,6 +602,105 @@ describe("ProjectChatToolRunner", () => {
       "job.failed",
       "Local MCP Tools 暂不可用",
       "MCP Worker unavailable."
+    );
+  });
+
+  it("combines fixed, project Skill and Local MCP definitions", async () => {
+    const skillClient = createSkillClient();
+    const runner = new ProjectChatToolRunner({
+      workerClient: createWorker(),
+      toolBroker: new LocalToolBroker(async () => true),
+      skillClient,
+      mcpClient: {
+        listMcpServers: vi.fn(async () => [{
+          serverId: "server_1",
+          localProjectId: "project_1",
+          name: "Project MCP",
+          transport: "stdio" as const,
+          command: "project-mcp",
+          args: [],
+          url: null,
+          enabled: true,
+          createdAt: "2026-07-18T08:00:00.000Z",
+          updatedAt: "2026-07-18T08:00:00.000Z",
+          status: "online" as const,
+          tools: [{
+            name: "inspect",
+            title: "Inspect",
+            description: "Inspect project state.",
+            inputSchema: { type: "object", properties: {} }
+          }],
+          serverInfo: { name: "Project MCP", version: "1.0.0" },
+          protocolVersion: "2025-06-18",
+          stderr: "",
+          lastError: null
+        }]),
+        startMcpServer: vi.fn(),
+        callMcpTool: vi.fn()
+      }
+    });
+
+    const tools = await runner.listTools("project_1");
+    const names = tools.map((tool) => tool.function.name);
+
+    expect(names).toEqual(expect.arrayContaining([
+      "project_read_file",
+      expect.stringMatching(/^skill_local_/),
+      expect.stringMatching(/^mcp_local_/)
+    ]));
+  });
+
+  it("keeps fixed and MCP tools available when project Skill discovery fails", async () => {
+    const onActivity = vi.fn();
+    const skillClient = createSkillClient();
+    skillClient.projectContext.mockRejectedValue(new Error("Skill Worker unavailable."));
+    const runner = new ProjectChatToolRunner({
+      workerClient: createWorker(),
+      toolBroker: new LocalToolBroker(async () => true),
+      skillClient,
+      mcpClient: {
+        listMcpServers: vi.fn(async () => []),
+        startMcpServer: vi.fn(),
+        callMcpTool: vi.fn()
+      },
+      onActivity
+    });
+
+    await expect(runner.listTools("project_1")).resolves.toEqual(PROJECT_CHAT_TOOLS);
+    expect(onActivity).toHaveBeenCalledWith(
+      "job.failed",
+      "项目 Skills 暂不可用",
+      "Skill Worker unavailable."
+    );
+  });
+
+  it("delegates dynamic Skill calls to the project Skill Runtime", async () => {
+    const skillClient = createSkillClient();
+    const runner = new ProjectChatToolRunner({
+      workerClient: createWorker(),
+      toolBroker: new LocalToolBroker(async () => true),
+      skillClient
+    });
+    const tools = await runner.listTools("project_1");
+    const skillTool = tools.find((tool) =>
+      tool.function.name.startsWith("skill_local_")
+    );
+
+    const result = await runner.execute("project_1", {
+      id: "call_skill",
+      name: skillTool!.function.name,
+      arguments: '{"task":"Review current changes."}'
+    });
+
+    expect(result.isError).toBe(false);
+    expect(JSON.parse(result.content)).toMatchObject({
+      skill_id: "review",
+      task: "Review current changes.",
+      instructions: "Inspect changes and report findings by severity."
+    });
+    expect(skillClient.readProjectFile).toHaveBeenCalledWith(
+      "project_1",
+      ".routemarket/skills/review/SKILL.md"
     );
   });
 });

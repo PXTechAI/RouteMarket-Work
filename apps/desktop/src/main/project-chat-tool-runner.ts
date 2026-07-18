@@ -8,6 +8,7 @@ import type {
 } from "../shared/desktop-api";
 import type { ManagedBrowserManager } from "./managed-browser-manager";
 import { ProjectChatMcpToolRuntime } from "./project-chat-mcp-tools";
+import { ProjectChatSkillRuntime } from "./project-chat-skill-tools";
 import type { LocalToolBroker } from "./tool-broker";
 import type { WorkerClient } from "./worker-client";
 import type {
@@ -63,6 +64,7 @@ type ProjectChatToolRunnerOptions = {
     WorkerClient,
     "listMcpServers" | "startMcpServer" | "callMcpTool"
   >;
+  skillClient?: Pick<WorkerClient, "projectContext" | "readProjectFile">;
   onActivity?: (
     type: "job.started" | "job.succeeded" | "job.failed",
     title: string,
@@ -72,6 +74,7 @@ type ProjectChatToolRunnerOptions = {
 
 export class ProjectChatToolRunner {
   private readonly mcpRuntime: ProjectChatMcpToolRuntime | null;
+  private readonly skillRuntime: ProjectChatSkillRuntime | null;
 
   constructor(private readonly options: ProjectChatToolRunnerOptions) {
     this.mcpRuntime = options.mcpClient
@@ -81,23 +84,39 @@ export class ProjectChatToolRunner {
           onActivity: options.onActivity
         })
       : null;
+    this.skillRuntime = options.skillClient
+      ? new ProjectChatSkillRuntime({
+          client: options.skillClient,
+          onActivity: options.onActivity
+        })
+      : null;
   }
 
   async listTools(localProjectId: string): Promise<ProjectChatToolDefinition[]> {
-    if (!this.mcpRuntime) return PROJECT_CHAT_TOOLS;
-    try {
-      return [
-        ...PROJECT_CHAT_TOOLS,
-        ...await this.mcpRuntime.listDefinitions(localProjectId)
-      ];
-    } catch (error) {
-      this.options.onActivity?.(
-        "job.failed",
-        "Local MCP Tools 暂不可用",
-        error instanceof Error ? error.message : "无法读取 Local MCP Tool 列表"
-      );
-      return PROJECT_CHAT_TOOLS;
+    const tools = [...PROJECT_CHAT_TOOLS];
+    if (this.skillRuntime) {
+      try {
+        tools.push(...await this.skillRuntime.listDefinitions(localProjectId));
+      } catch (error) {
+        this.options.onActivity?.(
+          "job.failed",
+          "项目 Skills 暂不可用",
+          error instanceof Error ? error.message : "无法读取项目 Skill 列表"
+        );
+      }
     }
+    if (this.mcpRuntime) {
+      try {
+        tools.push(...await this.mcpRuntime.listDefinitions(localProjectId));
+      } catch (error) {
+        this.options.onActivity?.(
+          "job.failed",
+          "Local MCP Tools 暂不可用",
+          error instanceof Error ? error.message : "无法读取 Local MCP Tool 列表"
+        );
+      }
+    }
+    return tools;
   }
 
   async execute(
@@ -107,6 +126,9 @@ export class ProjectChatToolRunner {
   ): Promise<ProjectChatToolExecution> {
     if (this.mcpRuntime?.isDynamicToolName(call.name)) {
       return this.mcpRuntime.execute(localProjectId, call, signal);
+    }
+    if (this.skillRuntime?.isDynamicToolName(call.name)) {
+      return this.skillRuntime.execute(localProjectId, call, signal);
     }
     try {
       throwIfAborted(signal);
