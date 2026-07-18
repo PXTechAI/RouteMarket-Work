@@ -745,7 +745,10 @@ export class CloudWorkerClient {
     const socket = this.socket;
     this.socket = null;
     socket?.removeAllListeners();
-    socket?.close();
+    if (socket) {
+      socket.on("error", () => {});
+      socket.close();
+    }
     this.runtimeId = null;
     this.manifestRevision = 0;
     this.lastError = null;

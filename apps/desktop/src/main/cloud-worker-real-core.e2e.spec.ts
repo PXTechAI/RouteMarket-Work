@@ -7,6 +7,8 @@ import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { spawn } from "node:child_process";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import WebSocket from "ws";
+import type { DesktopJob, JobEvent } from "@routemarket/work-protocol";
 import {
   JobStore,
   ProjectRegistry,
@@ -28,6 +30,15 @@ type WorkerActivity = {
   kind: string;
   title: string;
   detail: string;
+};
+type ExternalJobControl = {
+  started: Deferred;
+  aborted: Deferred;
+  release: Deferred;
+};
+type Deferred = {
+  promise: Promise<void>;
+  resolve: () => void;
 };
 
 type PrismaClientLike = {
@@ -56,6 +67,8 @@ describe.runIf(E2E_ENABLED)("CloudWorkerClient with a real local Core", () => {
   let worker: CloudJobRuntime;
   let client: CloudWorkerClient;
   let workerActivities: WorkerActivity[] = [];
+  let externalJobControl: ExternalJobControl | null = null;
+  let runtimeChannelOpened: Deferred;
 
   beforeAll(async () => {
     if (CORE_PORT === 3001) {
@@ -85,6 +98,7 @@ describe.runIf(E2E_ENABLED)("CloudWorkerClient with a real local Core", () => {
     await waitForCore(startedCore);
 
     workerActivities = [];
+    runtimeChannelOpened = deferred();
     client = new CloudWorkerClient({
       apiBaseUrl: API_BASE_URL,
       installationId: INSTALLATION_ID,
@@ -97,7 +111,23 @@ describe.runIf(E2E_ENABLED)("CloudWorkerClient with a real local Core", () => {
       onActivity: (kind, title, detail) => {
         workerActivities.push({ kind, title, detail });
       },
-      socketFactory: false
+      executeDesktopJob: (job, leaseId, leaseEpoch, signal, emitEvents) =>
+        executeControlledExternalJob(
+          worker,
+          externalJobControl,
+          job,
+          leaseId,
+          leaseEpoch,
+          signal,
+          emitEvents
+        ),
+      socketFactory: (url, token) => {
+        const socket = new WebSocket(url, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        socket.once("open", runtimeChannelOpened.resolve);
+        return socket;
+      }
     });
     client.setAccessToken(ACCESS_TOKEN);
     await client.start();
@@ -119,6 +149,10 @@ describe.runIf(E2E_ENABLED)("CloudWorkerClient with a real local Core", () => {
         ].join("\n")
       );
     }
+    await waitFor(
+      () => runtimeChannelOpened.promise.then(() => true),
+      "Cloud Worker runtime channel did not open."
+    );
   }, 120_000);
 
   afterAll(async () => {
@@ -294,6 +328,175 @@ describe.runIf(E2E_ENABLED)("CloudWorkerClient with a real local Core", () => {
     expect(persistedRun).toMatchObject({
       status: "succeeded"
     });
+  }, 60_000);
+
+  it("cancels a running Desktop Job through the runtime channel", async () => {
+    const state = client.getState();
+    const bindingId = projectBindingIdFor(project.localProjectId);
+    const nodeId = "desktop_browser_navigate";
+    const graphSnapshot = {
+      nodes: [
+        {
+          id: nodeId,
+          title: "Open cancellation fixture",
+          nodeType: "desktop.local_browser_navigate",
+          kind: "workflow",
+          executionMode: "transform",
+          joinStrategy: "passthrough",
+          prompt: null,
+          model: null,
+          resourceType: null,
+          resourceUrl: null,
+          resourceMimeType: null,
+          resourceFileName: null,
+          storyboardSourceMode: null,
+          generationOutput: null,
+          generationSize: null,
+          generationDurationSeconds: null,
+          generationQuality: null,
+          generationStyle: null,
+          generationCount: null,
+          inputPorts: [],
+          outputPorts: [
+            {
+              id: "text-output",
+              label: "Text",
+              accepts: [],
+              produces: ["text"],
+              required: false
+            }
+          ],
+          runtime: { executorKey: "local.browser.navigate" },
+          channelGroupBindings: {},
+          desktopRuntimeId: state.runtimeId,
+          desktopProjectBindingId: bindingId,
+          desktopUrl: "https://example.invalid/cancel-me"
+        }
+      ],
+      edges: []
+    };
+    const run = await prisma.workflowRun.create({
+      data: {
+        userId,
+        status: "waiting_desktop",
+        graphSnapshot
+      }
+    });
+    const nodeRun = await prisma.workflowNodeRun.create({
+      data: {
+        runId: run.id,
+        nodeId,
+        executorKey: "local.browser.navigate",
+        executorFamily: "desktop",
+        stage: 1,
+        status: "waiting_desktop",
+        attempts: 0
+      }
+    });
+    externalJobControl = {
+      started: deferred(),
+      aborted: deferred(),
+      release: deferred()
+    };
+
+    let created: { jobId: string };
+    try {
+      created = await workRequest<{ jobId: string }>("/jobs", {
+        method: "POST",
+        body: {
+          runtime_id: state.runtimeId,
+          project_binding_id: bindingId,
+          workflow_run_id: run.id,
+          workflow_node_run_id: nodeRun.id,
+          executor_key: "local.browser.navigate",
+          executor_version: 1,
+          input: { url: "https://example.invalid/cancel-me" },
+          required_capabilities: ["local.browser.navigate"],
+          execution_class: "external_side_effect",
+          approval_policy: { risk: "R1", mode: "invocation" },
+          idempotency_key: `sha256:${createHash("sha256")
+            .update(`core-e2e-cancel:${run.id}`)
+            .digest("hex")}`,
+          deadline_at: new Date(Date.now() + 60_000).toISOString(),
+          max_inline_result_bytes: 262_144
+        }
+      });
+    } catch (error) {
+      externalJobControl.release.resolve();
+      externalJobControl = null;
+      throw new Error(
+        [
+          error instanceof Error ? error.message : String(error),
+          coreProcess ? coreOutput.get(coreProcess) ?? "" : ""
+        ].join("\n")
+      );
+    }
+
+    try {
+      await externalJobControl.started.promise;
+      await waitFor(async () => {
+        const current = await prisma.desktopJob.findUnique({
+          where: { jobId: created.jobId }
+        });
+        return current?.status === "running";
+      }, "Desktop Job did not enter running before cancellation.");
+
+      const cancellation = await workRequest<{ status: string }>(
+        `/jobs/${created.jobId}/cancel`,
+        { method: "POST" }
+      );
+      expect(cancellation.status).toBe("cancel_requested");
+      await externalJobControl.aborted.promise;
+
+      await waitFor(async () => {
+        const [job, workflowRun, workflowNodeRun] = await Promise.all([
+          prisma.desktopJob.findUnique({ where: { jobId: created.jobId } }),
+          prisma.workflowRun.findUnique({ where: { id: run.id } }),
+          prisma.workflowNodeRun.findUnique({ where: { id: nodeRun.id } })
+        ]);
+        return (
+          job?.status === "canceled" &&
+          workflowRun?.status === "canceled" &&
+          workflowNodeRun?.status === "failed"
+        );
+      }, "Running Desktop Job cancellation did not converge.", 20_000);
+
+      expect(jobStore.getStatus(created.jobId)).toBe("canceled");
+      expect(workerActivities).toContainEqual({
+        kind: "job.canceled",
+        title: "Cloud job canceled",
+        detail: created.jobId
+      });
+      const persistedJob = await prisma.desktopJob.findUnique({
+        where: { jobId: created.jobId },
+        include: { events: { orderBy: { sequence: "asc" } } }
+      });
+      expect(persistedJob).toMatchObject({
+        status: "canceled",
+        cancelRequested: true
+      });
+      expect(persistedJob.events.map((event: { type: string }) => event.type)).toEqual([
+        "job.accepted",
+        "job.started",
+        "job.canceled"
+      ]);
+    } catch (error) {
+      const diagnostics = await collectDiagnostics({
+        prisma,
+        worker,
+        client,
+        coreProcess,
+        runId: run.id,
+        nodeRunId: nodeRun.id,
+        jobId: created.jobId
+      });
+      throw new Error(
+        `${error instanceof Error ? error.message : String(error)}\n${JSON.stringify(diagnostics, null, 2)}`
+      );
+    } finally {
+      externalJobControl.release.resolve();
+      externalJobControl = null;
+    }
   }, 60_000);
 
   it("rejects project escape attempts and stops retrying after device revocation", async () => {
@@ -499,6 +702,50 @@ function createTransport(
   };
 }
 
+async function executeControlledExternalJob(
+  runtime: CloudJobRuntime,
+  control: ExternalJobControl | null,
+  job: DesktopJob,
+  leaseId: string,
+  leaseEpoch: number,
+  signal: AbortSignal,
+  emitEvents: (events: JobEvent[]) => Promise<void>
+): Promise<JobEvent[]> {
+  const began = runtime.beginExternalJob({ job, leaseId, leaseEpoch });
+  if (!began.execute) return began.events;
+  await emitEvents(began.events);
+  if (!control) {
+    return runtime.failExternalJob({
+      job,
+      leaseId,
+      leaseEpoch,
+      failure: {
+        code: "E2E_EXTERNAL_EXECUTOR_UNAVAILABLE",
+        message: "The real Core E2E external executor was not armed."
+      }
+    });
+  }
+  control.started.resolve();
+  await new Promise<void>((resolveAbort) => {
+    const onAbort = () => {
+      control.aborted.resolve();
+      resolveAbort();
+    };
+    if (signal.aborted) onAbort();
+    else signal.addEventListener("abort", onAbort, { once: true });
+  });
+  await control.release.promise;
+  return runtime.failExternalJob({
+    job,
+    leaseId,
+    leaseEpoch,
+    failure: {
+      code: "TOOL_CANCELED",
+      message: "Desktop Job was canceled by the real Core E2E."
+    }
+  });
+}
+
 async function workRequest<TResult>(
   path: string,
   options: { method?: "GET" | "POST"; body?: unknown } = {}
@@ -520,6 +767,14 @@ function authHeaders() {
     Authorization: `Bearer ${ACCESS_TOKEN}`,
     "Content-Type": "application/json"
   };
+}
+
+function deferred(): Deferred {
+  let resolvePromise!: () => void;
+  const promise = new Promise<void>((resolve) => {
+    resolvePromise = resolve;
+  });
+  return { promise, resolve: resolvePromise };
 }
 
 async function assertPortAvailable(port: number) {

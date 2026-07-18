@@ -36,6 +36,13 @@ class MockRuntimeSocket extends EventEmitter {
   }
 }
 
+class ConnectingCloseErrorSocket extends MockRuntimeSocket {
+  override close(): void {
+    this.emit("error", new Error("WebSocket was closed before the connection was established"));
+    super.close();
+  }
+}
+
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -148,6 +155,34 @@ describe("CloudWorkerClient", () => {
     await vi.advanceTimersByTimeAsync(60_000);
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("absorbs a transport error when a connecting runtime channel is closed", async () => {
+    const socket = new ConnectingCloseErrorSocket();
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/runtimes/register")) return jsonResponse(runtimeResponse);
+      if (url.endsWith("/capabilities")) return jsonResponse({});
+      if (url.includes("/jobs/offers?")) return jsonResponse({ items: [] });
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+    const client = new CloudWorkerClient({
+      apiBaseUrl: "https://api.example.test",
+      installationId: "install_test",
+      deviceName: "Test Workstation",
+      platform: "windows",
+      arch: "x64",
+      appVersion: "0.1.0",
+      workerVersion: "0.1.0",
+      workerClient: createWorker(),
+      onActivity: vi.fn(),
+      socketFactory: () => socket as unknown as WebSocket
+    });
+
+    await signIn(client);
+
+    expect(() => client.stop()).not.toThrow();
+    expect(client.getState().status).toBe("disabled");
   });
 
   it.each([401, 403])(
