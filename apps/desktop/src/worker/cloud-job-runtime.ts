@@ -83,19 +83,30 @@ export class CloudJobRuntime {
     if (this.activeJobs.has(input.job.jobId)) {
       return { execute: false, events: this.jobStore.pendingEvents(input.job.jobId) };
     }
-    if (
-      received.duplicate &&
-      input.job.executionClass === "external_side_effect" &&
-      (received.status === "leased" || received.status === "running")
-    ) {
-      return { execute: false, events: this.jobStore.pendingEvents(input.job.jobId) };
-    }
     const execution = this.jobStore.beginExecution(
       input.job.jobId,
       input.leaseId,
       input.leaseEpoch
     );
     if (!execution.execute) {
+      return { execute: false, events: this.jobStore.pendingEvents(input.job.jobId) };
+    }
+    if (
+      received.duplicate &&
+      input.job.executionClass === "external_side_effect" &&
+      (execution.status === "leased" || execution.status === "running")
+    ) {
+      const failure = {
+        code: "JOB_EXECUTION_INTERRUPTED",
+        message:
+          "Desktop restarted while an external side-effect Job was running. " +
+          "The Job was not replayed because its effects may already have occurred."
+      };
+      this.jobStore.commitEvent(
+        createJobEvent(input, execution.nextSeq, "job.failed", failure),
+        "failed",
+        failure
+      );
       return { execute: false, events: this.jobStore.pendingEvents(input.job.jobId) };
     }
     let nextSeq = execution.nextSeq;
