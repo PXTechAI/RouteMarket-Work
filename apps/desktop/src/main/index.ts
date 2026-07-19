@@ -18,6 +18,7 @@ import type {
   WorkState
 } from "../shared/desktop-api";
 import { CloudWorkerClient } from "./cloud-worker-client";
+import { CloudWorkflowClient } from "./cloud-workflow-client";
 import {
   approvalDialogChoices,
   approvalDialogLabel,
@@ -1569,10 +1570,15 @@ if (!hasSingleInstanceLock) {
     );
     workflowDraftStore = new WorkflowDraftStore(join(workDataPath, "work.db"));
     workflowRunStore = new WorkflowRunStore(join(workDataPath, "work.db"));
+    const cloudWorkflowClient = new CloudWorkflowClient({
+      apiBaseUrl: API_BASE_URL,
+      getAccessToken: () => desktopAuthManager?.getAccessToken()
+    });
     localWorkflowRuntime = new LocalWorkflowRuntime(
       workflowDraftStore,
       workflowRunStore,
       createLocalWorkflowNodeExecutor({
+        cloudWorkflowClient,
         workerClient,
         toolBroker,
         getBrowser: requireBrowser,

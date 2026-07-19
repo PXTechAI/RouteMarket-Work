@@ -155,6 +155,7 @@ function validateDraft(draft: DesktopWorkflowDraft): void {
     if (!["cloud", "desktop", "auto"].includes(node.executionTarget)) throw new Error("Workflow execution target is invalid.");
     if (![node.x, node.y].every((value) => Number.isFinite(value) && value >= -10_000 && value <= 10_000)) throw new Error("Workflow node position is invalid.");
     if (node.definitionSnapshot.executorKey !== node.executorKey) throw new Error("Workflow definition snapshot does not match the executor.");
+    validateCloudRuntime(node.definitionSnapshot.cloudRuntime);
   }
   const edgeIds = new Set<string>();
   for (const edge of draft.edges) {
@@ -164,6 +165,60 @@ function validateDraft(draft: DesktopWorkflowDraft): void {
       throw new Error("Workflow edge endpoints are invalid.");
     }
   }
+}
+
+function validateCloudRuntime(runtime: unknown): void {
+  if (runtime === undefined) return;
+  if (!isRecord(runtime)) {
+    throw new Error("Workflow cloud runtime definition is invalid.");
+  }
+  const fields = [
+    runtime.nodeType,
+    runtime.kind,
+    runtime.executionMode,
+    runtime.joinStrategy
+  ];
+  if (
+    fields.some(
+      (value) =>
+        typeof value !== "string" || !value.trim() || value.length > 160
+    )
+  ) {
+    throw new Error("Workflow cloud runtime definition is invalid.");
+  }
+  for (const ports of [runtime.inputPorts, runtime.outputPorts]) {
+    if (!Array.isArray(ports) || ports.length > 64) {
+      throw new Error("Workflow cloud runtime ports are invalid.");
+    }
+    const portIds = new Set<string>();
+    for (const port of ports) {
+      if (
+        !isRecord(port) ||
+        typeof port.id !== "string" ||
+        !port.id.trim() ||
+        port.id.length > 160 ||
+        portIds.has(port.id) ||
+        !validPortTypes(port.accepts) ||
+        !validPortTypes(port.produces)
+      ) {
+        throw new Error("Workflow cloud runtime ports are invalid.");
+      }
+      portIds.add(port.id);
+    }
+  }
+}
+
+function validPortTypes(value: unknown): boolean {
+  return (
+    value === undefined ||
+    (Array.isArray(value) &&
+      value.length <= 32 &&
+      value.every((item) => typeof item === "string" && item.length > 0 && item.length <= 64))
+  );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 function mapRow(row: DraftRow): DesktopWorkflowDraft {

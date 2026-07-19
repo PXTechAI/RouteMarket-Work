@@ -26,6 +26,27 @@ describe("WorkflowDraftStore", () => {
     expect(store.get("project_test", saved.workflowId)).toEqual(saved);
   });
 
+  it("preserves the canonical cloud runtime definition", () => {
+    const draft = createDraft();
+    const node = draft.nodes[0]!;
+    node.executionTarget = "cloud";
+    node.definitionSnapshot.source = "cloud";
+    node.definitionSnapshot.executionTarget = "cloud";
+    node.definitionSnapshot.cloudRuntime = {
+      nodeType: "llm.prompt",
+      kind: "llm",
+      executionMode: "transform",
+      joinStrategy: "passthrough",
+      inputPorts: [{ id: "prompt", accepts: ["text"], required: false }],
+      outputPorts: [{ id: "text", produces: ["text"], required: false }]
+    };
+
+    const saved = store.save(draft);
+
+    expect(store.get("project_test", saved.workflowId)?.nodes[0]?.definitionSnapshot.cloudRuntime)
+      .toEqual(node.definitionSnapshot.cloudRuntime);
+  });
+
   it("rejects edges that reference unknown nodes", () => {
     const draft = createDraft();
     draft.edges.push({ edgeId: "edge_invalid", sourceNodeId: "node_read1", targetNodeId: "node_missing" });

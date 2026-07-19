@@ -14,6 +14,27 @@ import type { WorkerClient } from "./worker-client";
 const projectId = "project_test";
 
 describe("createLocalWorkflowNodeExecutor", () => {
+  it("delegates cloud nodes with the current input and cancellation signal", async () => {
+    const cloudWorkflowClient = {
+      executeNode: vi.fn(async () => "cloud result")
+    };
+    const executor = createExecutor(createWorkerClient(), undefined, undefined, cloudWorkflowClient);
+    const signal = new AbortController().signal;
+    const cloud = node("cloud.llm.prompt");
+    cloud.executionTarget = "cloud";
+    cloud.definitionSnapshot.executionTarget = "cloud";
+    cloud.definitionSnapshot.source = "cloud";
+
+    await expect(
+      executor(cloud, { prompt: "Hello" }, signal)
+    ).resolves.toBe("cloud result");
+    expect(cloudWorkflowClient.executeNode).toHaveBeenCalledWith(
+      cloud,
+      { prompt: "Hello" },
+      signal
+    );
+  });
+
   it("resolves the original project Skill ID from its sanitized executor key", async () => {
     const workerClient = createWorkerClient({
       skills: [skill("设计 / 文档")]
@@ -188,9 +209,19 @@ describe("createLocalWorkflowNodeExecutor", () => {
 function createExecutor(
   workerClient: ReturnType<typeof createWorkerClient>,
   confirm = vi.fn(async () => true),
-  browser = {} as ManagedBrowserManager
+  browser = {} as ManagedBrowserManager,
+  cloudWorkflowClient: {
+    executeNode(
+      node: DesktopWorkflowDraftNode,
+      input: Record<string, unknown>,
+      signal: AbortSignal
+    ): Promise<unknown>;
+  } = {
+    executeNode: vi.fn(async () => ({ completed: true }))
+  }
 ) {
   return createLocalWorkflowNodeExecutor({
+    cloudWorkflowClient,
     workerClient: workerClient as unknown as WorkerClient,
     toolBroker: new LocalToolBroker(confirm),
     getBrowser: () => browser,

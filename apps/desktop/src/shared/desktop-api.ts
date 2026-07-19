@@ -376,6 +376,23 @@ export type McpServerSummary = {
 
 export type BrowserBounds = { x: number; y: number; width: number; height: number };
 
+export type DesktopWorkflowCloudPort = {
+  id: string;
+  label?: string;
+  accepts?: string[];
+  produces?: string[];
+  required?: boolean;
+};
+
+export type DesktopWorkflowCloudRuntime = {
+  nodeType: string;
+  kind: string;
+  executionMode: string;
+  joinStrategy: string;
+  inputPorts: DesktopWorkflowCloudPort[];
+  outputPorts: DesktopWorkflowCloudPort[];
+};
+
 export type DesktopWorkflowNodeDefinition = {
   executorKey: string;
   definitionVersion: number;
@@ -390,6 +407,7 @@ export type DesktopWorkflowNodeDefinition = {
   description: string;
   available: boolean;
   blockedReason: string | null;
+  cloudRuntime?: DesktopWorkflowCloudRuntime;
 };
 
 export type DesktopWorkflowNodeRegistry = {

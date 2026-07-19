@@ -3,6 +3,7 @@ import type {
   DesktopWorkflowDraftNode,
   NativeAppConnectorId
 } from "../shared/desktop-api";
+import type { CloudWorkflowClient } from "./cloud-workflow-client";
 import type { LocalWorkflowNodeExecutor } from "./local-workflow-runtime";
 import type { ManagedBrowserManager } from "./managed-browser-manager";
 import type { NativeAppConnectorManager } from "./native-app-connector-manager";
@@ -10,6 +11,7 @@ import type { LocalToolBroker, ToolRisk } from "./tool-broker";
 import type { WorkerClient } from "./worker-client";
 
 type ExecutorOptions = {
+  cloudWorkflowClient: Pick<CloudWorkflowClient, "executeNode">;
   workerClient: WorkerClient;
   toolBroker: LocalToolBroker;
   getBrowser(): ManagedBrowserManager;
@@ -27,9 +29,7 @@ export function createLocalWorkflowNodeExecutor(
       );
     }
     if (node.executionTarget === "cloud") {
-      throw new Error(
-        `Cloud node ${node.executorKey} requires the RouteMarket hybrid Workflow runtime.`
-      );
+      return options.cloudWorkflowClient.executeNode(node, input, signal);
     }
     if (
       node.executorKey.startsWith("desktop.trigger.") ||
