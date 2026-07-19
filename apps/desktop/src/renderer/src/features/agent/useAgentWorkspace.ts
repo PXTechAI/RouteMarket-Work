@@ -9,6 +9,7 @@ import type {
   WorkState
 } from "../../../../shared/desktop-api";
 import type { ChatMessage } from "../chat/types";
+import { selectAgentId } from "./agent-selection";
 import type { AgentPageActions, AgentPageModel } from "./types";
 
 const defaultLocalToolGroups: AgentLocalToolGroup[] = [
@@ -59,6 +60,8 @@ export function useAgentWorkspace({
   const [activeRequestId, setActiveRequestId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const sessionIdsRef = useRef(new Map<string, string>());
+  const selectedAgentsByProjectRef = useRef(new Map<string, string>());
+  const selectionProjectIdRef = useRef<string | null>(null);
   const activeRequestRef = useRef<{
     requestId: string;
     conversationKey: string;
@@ -87,11 +90,6 @@ export function useAgentWorkspace({
     try {
       const nextAgents = await api.listAgentProfiles();
       setAgents(nextAgents);
-      setSelectedAgentId((current) =>
-        nextAgents.some((agent) => agent.id === current)
-          ? current
-          : nextAgents[0]?.id ?? ""
-      );
     } catch (nextError) {
       setError(
         nextError instanceof Error
@@ -114,7 +112,35 @@ export function useAgentWorkspace({
     setSelectedAgentId("");
     setSelectedModelCode("");
     setError(null);
+    selectedAgentsByProjectRef.current.clear();
+    selectionProjectIdRef.current = null;
   }, [authStatus]);
+
+  useEffect(() => {
+    const projectId = selectedProject?.localProjectId ?? null;
+    if (!projectId) {
+      selectionProjectIdRef.current = null;
+      setSelectedAgentId("");
+      return;
+    }
+
+    const sameProject = selectionProjectIdRef.current === projectId;
+    selectionProjectIdRef.current = projectId;
+    setSelectedAgentId((current) =>
+      selectAgentId({
+        agents,
+        rememberedAgentId: selectedAgentsByProjectRef.current.get(projectId),
+        defaultAgentId: sameProject
+          ? projectContext?.settings.defaultAgent
+          : null,
+        currentAgentId: sameProject ? current : null
+      })
+    );
+  }, [
+    agents,
+    projectContext?.settings.defaultAgent,
+    selectedProject?.localProjectId
+  ]);
 
   useEffect(() => {
     const preferred = selectedAgent?.defaultModelCode;
@@ -272,6 +298,12 @@ export function useAgentWorkspace({
     onChooseProject,
     onSelectAgent(agentId) {
       if (!activeRequestRef.current) {
+        if (selectedProject) {
+          selectedAgentsByProjectRef.current.set(
+            selectedProject.localProjectId,
+            agentId
+          );
+        }
         setSelectedAgentId(agentId);
         setError(null);
       }
@@ -293,7 +325,7 @@ export function useAgentWorkspace({
     onSend: () => void send(),
     onStop: () => void stopActive(),
     onDismissError: () => setError(null)
-  }), [onChooseProject, refreshAgents, send, stopActive]);
+  }), [onChooseProject, refreshAgents, selectedProject, send, stopActive]);
 
   return {
     model: {
