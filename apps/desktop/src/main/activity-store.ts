@@ -40,6 +40,7 @@ export class ActivityStore {
       SET first_occurred_at = occurred_at
       WHERE first_occurred_at IS NULL OR first_occurred_at = '';
     `);
+    this.redactExistingActivities();
     this.compactRepeatedCloudErrors();
   }
 
@@ -147,6 +148,29 @@ export class ActivityStore {
         DELETE FROM work_activities
         WHERE kind = ? AND title = ? AND detail = ? AND id <> ?
       `).run(group.kind, group.title, group.detail, latest.id);
+    }
+  }
+
+  private redactExistingActivities(): void {
+    const rows = this.db.prepare(
+      "SELECT id, title, detail FROM work_activities"
+    ).all() as Array<{ id: string; title: string; detail: string }>;
+    const update = this.db.prepare(
+      "UPDATE work_activities SET title = ?, detail = ? WHERE id = ?"
+    );
+    this.db.exec("BEGIN");
+    try {
+      for (const row of rows) {
+        const title = redactCloudText(row.title).slice(0, 512);
+        const detail = redactCloudText(row.detail).slice(0, 8_192);
+        if (title !== row.title || detail !== row.detail) {
+          update.run(title, detail, row.id);
+        }
+      }
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
     }
   }
 

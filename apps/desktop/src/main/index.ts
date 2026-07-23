@@ -27,6 +27,7 @@ import {
 import { ApprovalStore } from "./approval-store";
 import { ActivityStore } from "./activity-store";
 import { LocalChatStore } from "./local-chat-store";
+import { redactCloudText } from "./cloud-redaction";
 import {
   clearLocalDataOnStartup,
   exportLocalDatabase,
@@ -264,8 +265,8 @@ function addActivity(
   const item: ActivityItem = {
     id: `activity_${randomUUID().replaceAll("-", "")}`,
     kind,
-    title,
-    detail,
+    title: redactCloudText(title).slice(0, 512),
+    detail: redactCloudText(detail).slice(0, 8_192),
     occurredAt: new Date().toISOString()
   };
   if (activityStore) activityStore.append(item);

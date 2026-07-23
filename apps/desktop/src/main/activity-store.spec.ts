@@ -1,3 +1,4 @@
+import { DatabaseSync } from "node:sqlite";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -66,6 +67,43 @@ describe("ActivityStore", () => {
     ]);
     store.clear();
     expect(store.list()).toEqual([]);
+    store.close();
+  });
+
+  it("redacts legacy rows when opening an existing activity database", async () => {
+    const root = await mkdtemp(join(tmpdir(), "routemarket-activity-"));
+    cleanups.push(() => rm(root, { recursive: true, force: true }));
+    const databasePath = join(root, "work.db");
+    const database = new DatabaseSync(databasePath);
+    database.exec(`
+      CREATE TABLE work_activities (
+        id TEXT PRIMARY KEY,
+        kind TEXT NOT NULL,
+        title TEXT NOT NULL,
+        detail TEXT NOT NULL,
+        occurred_at TEXT NOT NULL,
+        first_occurred_at TEXT NOT NULL,
+        occurrence_count INTEGER NOT NULL DEFAULT 1
+      );
+    `);
+    database.prepare(`
+      INSERT INTO work_activities VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      "legacy",
+      "cloud.error",
+      "Failed in D:\\private\\project",
+      '{"access_token":"legacy-secret-value"}',
+      "2026-07-18T00:00:00.000Z",
+      "2026-07-18T00:00:00.000Z",
+      1
+    );
+    database.close();
+
+    const store = new ActivityStore(databasePath);
+    expect(store.list()[0]).toMatchObject({
+      title: "Failed in <local-path>",
+      detail: '{"access_token":"[REDACTED]"}'
+    });
     store.close();
   });
 });

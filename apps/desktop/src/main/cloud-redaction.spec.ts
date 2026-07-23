@@ -24,4 +24,22 @@ describe("cloud redaction", () => {
     expect(value).toContain("[REDACTED]");
     expect(value).toContain("<local-path>");
   });
+
+  it("redacts structured, URL and standalone token forms plus arbitrary absolute paths", () => {
+    const value = redactCloudText([
+      '{"access_token":"top-secret-value","safe":"visible"}',
+      "https://example.test/callback?api_key=query-secret-value&mode=test",
+      "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signaturevalue",
+      '"D:\\PX Labs\\private\\notes.txt"',
+      "/var/tmp/private.log"
+    ].join(" "));
+
+    expect(value).toContain('"safe":"visible"');
+    expect(value).toContain("mode=test");
+    expect(value).not.toContain("top-secret-value");
+    expect(value).not.toContain("query-secret-value");
+    expect(value).not.toContain("eyJhbGci");
+    expect(value).not.toContain("PX Labs");
+    expect(value).not.toContain("/var/tmp");
+  });
 });
