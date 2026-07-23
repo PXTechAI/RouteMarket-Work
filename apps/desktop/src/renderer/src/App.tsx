@@ -61,6 +61,7 @@ import { useAgentWorkspace } from "./features/agent/useAgentWorkspace";
 import { ApprovalPage } from "./features/approvals/ApprovalPage";
 import { BrowserPage } from "./features/browser/BrowserPage";
 import { ChatPage } from "./features/chat/ChatPage";
+import { resolveConversationAgentVersion } from "./features/chat/agent-version";
 import type { ChatMessage } from "./features/chat/types";
 import { FilesPage } from "./features/files/FilesPage";
 import { ProjectCreateDialog } from "./features/projects/ProjectCreateDialog";
@@ -1171,6 +1172,9 @@ export function App() {
     Record<string, ChatMessage[]>
   >({});
   const [activeRequestId, setActiveRequestId] = useState<string | null>(null);
+  const [adoptedAgentRevisions, setAdoptedAgentRevisions] = useState<
+    Record<string, number>
+  >({});
   const sessionIdsRef = useRef(new Map<string, string>());
   const activeRequestRef = useRef<{
     requestId: string;
@@ -1198,6 +1202,25 @@ export function App() {
   const chatMessages = selectedProjectId
     ? chatMessagesByProject[selectedProjectId] ?? []
     : [];
+  const selectedChatAgent = agentWorkspace.model.selectedAgent;
+  const agentVersionKey =
+    selectedProjectId && selectedChatAgent
+      ? `${selectedProjectId}:${selectedChatAgent.id}`
+      : null;
+  const conversationAgentVersion = useMemo(
+    () =>
+      resolveConversationAgentVersion(
+        chatMessages,
+        selectedChatAgent,
+        agentVersionKey ? adoptedAgentRevisions[agentVersionKey] : undefined
+      ),
+    [
+      adoptedAgentRevisions,
+      agentVersionKey,
+      chatMessages,
+      selectedChatAgent
+    ]
+  );
 
   useEffect(() => {
     if (!selectedProjectId) return;
@@ -2556,11 +2579,13 @@ export function App() {
   async function sendMessage(messageOverride?: string) {
     const message = (messageOverride ?? draft).trim();
     const selectedAgent = agentWorkspace.model.selectedAgent;
+    const activeAgentVersion = conversationAgentVersion;
     if (
       !message ||
       !selectedProject ||
       !selectedModelCode ||
       !selectedAgent ||
+      !activeAgentVersion ||
       activeRequestId
     ) return;
     if (state.authStatus !== "signed_in") {
@@ -2610,9 +2635,9 @@ export function App() {
       content: "",
       sentAt,
       agentId: selectedAgent.id,
-      agentRevision: selectedAgent.revision,
-      agentName: selectedAgent.name,
-      agentAvatarUrl: selectedAgent.avatarUrl
+      agentRevision: activeAgentVersion.activeRevision,
+      agentName: activeAgentVersion.name,
+      agentAvatarUrl: activeAgentVersion.avatarUrl
     };
 
     setChatMessagesByProject((current) => ({
@@ -2647,10 +2672,10 @@ export function App() {
         ...(projectSkill ? { projectSkill } : {}),
         agent: {
           agentId: selectedAgent.id,
-          agentRevision: selectedAgent.revision,
+          agentRevision: activeAgentVersion.activeRevision,
           executionEnvironment,
-          agentName: selectedAgent.name,
-          agentAvatarUrl: selectedAgent.avatarUrl,
+          agentName: activeAgentVersion.name,
+          agentAvatarUrl: activeAgentVersion.avatarUrl,
           localToolGroups: agentWorkspace.model.localToolGroups,
           maxToolRounds: agentWorkspace.model.maxToolRounds
         },
@@ -3138,6 +3163,7 @@ export function App() {
               agentsLoading={agentWorkspace.model.agentsLoading}
               selectedAgentId={agentWorkspace.model.selectedAgentId}
               selectedAgent={agentWorkspace.model.selectedAgent}
+              agentVersion={conversationAgentVersion}
               projectContext={projectContext}
               selectedProjectSkillId={selectedProjectSkillId}
               error={error}
@@ -3163,6 +3189,14 @@ export function App() {
                 if (nextAgent?.executionPolicy.environment) {
                   setExecutionEnvironment(nextAgent.executionPolicy.environment);
                 }
+              }}
+              onUpdateAgent={() => {
+                const currentAgent = agentWorkspace.model.selectedAgent;
+                if (!agentVersionKey || !currentAgent) return;
+                setAdoptedAgentRevisions((current) => ({
+                  ...current,
+                  [agentVersionKey]: currentAgent.revision
+                }));
               }}
               onProjectSkillChange={setSelectedProjectSkillId}
               onIncludeFileContextChange={setIncludeFileContext}

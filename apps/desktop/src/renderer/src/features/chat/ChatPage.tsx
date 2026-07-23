@@ -4,6 +4,7 @@ import {
   CircleAlert,
   FolderPlus,
   Paperclip,
+  RefreshCw,
   Send,
   Square,
   WandSparkles,
@@ -47,6 +48,11 @@ type ChatPageProps = {
   agentsLoading: boolean;
   selectedAgentId: string;
   selectedAgent: DesktopAgentProfile | null;
+  agentVersion: {
+    activeRevision: number;
+    currentRevision: number;
+    updateAvailable: boolean;
+  } | null;
   projectContext: ProjectContext | null;
   selectedProjectSkillId: string;
   error: string | null;
@@ -59,6 +65,7 @@ type ChatPageProps = {
   onModelChange(value: string): void;
   onExecutionEnvironmentChange(value: "auto" | "local" | "cloud"): void;
   onAgentChange(agentId: string): void;
+  onUpdateAgent(): void;
   onProjectSkillChange(value: string): void;
   onIncludeFileContextChange(value: boolean): void;
   onDismissError(): void;
@@ -81,6 +88,7 @@ export function ChatPage({
   agentsLoading,
   selectedAgentId,
   selectedAgent,
+  agentVersion,
   projectContext,
   selectedProjectSkillId,
   error,
@@ -93,6 +101,7 @@ export function ChatPage({
   onModelChange,
   onExecutionEnvironmentChange,
   onAgentChange,
+  onUpdateAgent,
   onProjectSkillChange,
   onIncludeFileContextChange,
   onDismissError
@@ -193,6 +202,25 @@ export function ChatPage({
 
       {selectedProject && (
         <div className="composer-shell">
+          {agentVersion?.updateAvailable && (
+            <div className="agent-version-banner" role="status">
+              <div>
+                <strong>Agent 有新版本</strong>
+                <span>
+                  当前对话使用 v{agentVersion.activeRevision}，最新为{" "}
+                  v{agentVersion.currentRevision}。旧消息仍保留原版本记录。
+                </span>
+              </div>
+              <button
+                type="button"
+                disabled={Boolean(activeRequestId)}
+                onClick={onUpdateAgent}
+              >
+                <RefreshCw size={13} />
+                更新后继续
+              </button>
+            </div>
+          )}
           {includeFileContext && selectedFilePath && readResult && (
             <div className="context-chip">
               <Paperclip size={13} />

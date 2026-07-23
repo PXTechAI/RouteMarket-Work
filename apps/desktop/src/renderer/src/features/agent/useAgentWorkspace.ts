@@ -79,31 +79,43 @@ export function useAgentWorkspace({
     ? messagesByConversation[conversationKey] ?? []
     : [];
 
-  const refreshAgents = useCallback(async () => {
+  const refreshAgents = useCallback(async (silent = false) => {
     if (authStatus !== "signed_in") {
       setAgents([]);
       setSelectedAgentId("");
       return;
     }
-    setAgentsLoading(true);
-    setError(null);
+    if (!silent) {
+      setAgentsLoading(true);
+      setError(null);
+    }
     try {
       const nextAgents = await api.listAgentProfiles();
       setAgents(nextAgents);
     } catch (nextError) {
-      setError(
-        nextError instanceof Error
-          ? nextError.message
-          : "RouteMarket Agent 加载失败"
-      );
+      if (!silent) {
+        setError(
+          nextError instanceof Error
+            ? nextError.message
+            : "RouteMarket Agent 加载失败"
+        );
+      }
     } finally {
-      setAgentsLoading(false);
+      if (!silent) setAgentsLoading(false);
     }
   }, [api, authStatus]);
 
   useEffect(() => {
     if (!active || authStatus !== "signed_in") return;
     void refreshAgents();
+  }, [active, authStatus, refreshAgents]);
+
+  useEffect(() => {
+    if (!active || authStatus !== "signed_in") return;
+    const timer = window.setInterval(() => {
+      void refreshAgents(true);
+    }, 60_000);
+    return () => window.clearInterval(timer);
   }, [active, authStatus, refreshAgents]);
 
   useEffect(() => {

@@ -415,6 +415,53 @@
   background: linear-gradient(180deg, transparent, var(--rm-surface) 34%);
 }
 
+.agent-version-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: min(100%, 920px);
+  margin: 0 auto 9px;
+  padding: 9px 11px;
+  color: var(--rm-text);
+  background: var(--rm-accent-soft);
+  border: 1px solid var(--rm-accent-soft-strong);
+  border-radius: 9px;
+}
+
+.agent-version-banner > div {
+  display: grid;
+  gap: 2px;
+}
+
+.agent-version-banner strong {
+  font-size: 11px;
+}
+
+.agent-version-banner span {
+  color: var(--rm-text-muted);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.agent-version-banner button {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 8px;
+  color: var(--rm-accent);
+  background: var(--rm-surface);
+  border: 1px solid var(--rm-border);
+  border-radius: 7px;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.agent-version-banner button:hover:not(:disabled) {
+  border-color: var(--rm-accent);
+}
+
 .chat-pane .composer {
   position: relative;
   width: min(100%, 920px);
