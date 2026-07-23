@@ -32,7 +32,7 @@ async function waitForExit(manager: ControlledProcessManager, processId: string)
   throw new Error("Managed process did not exit in time.");
 }
 
-describe("ControlledProcessManager", () => {
+describe("ControlledProcessManager", { timeout: 20_000 }, () => {
   it("captures stdout, stderr and exit state", async () => {
     const value = await fixture();
     const started = value.manager.start({

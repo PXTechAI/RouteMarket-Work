@@ -72,6 +72,7 @@
     "dist:mac": "corepack pnpm run build && electron-builder --mac dmg",
     "lint": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run --passWithNoTests",
+    "test:chat-smoke": "vitest run src/main/desktop-chat-smoke.integration.spec.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
