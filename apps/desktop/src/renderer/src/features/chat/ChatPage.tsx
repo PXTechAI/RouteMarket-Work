@@ -23,6 +23,12 @@ import { AgentAvatar } from "./components/AgentAvatar";
 import { ChatAgentPicker } from "./components/ChatAgentPicker";
 import { ModelPicker } from "./components/ModelPicker";
 import type { ChatMessage } from "./types";
+import {
+  projectFolderAvailable,
+  projectFolderLabel,
+  projectFolderMessage,
+  projectFolderStatus
+} from "../projects/project-folder-status";
 
 type ChatPageProps = {
   selectedProject: ProjectSummary | null;
@@ -93,6 +99,8 @@ export function ChatPage({
 }: ChatPageProps) {
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const latestMessage = messages.at(-1);
+  const folderAvailable = projectFolderAvailable(selectedProject);
+  const folderStatus = projectFolderStatus(selectedProject);
 
   useEffect(() => {
     const scroller = chatScrollRef.current;
@@ -136,11 +144,16 @@ export function ChatPage({
                 : `和 ${selectedProject.displayName} 一起工作`}
             </h2>
             {selectedAgent?.greeting ? <p>{selectedAgent.greeting}</p> : null}
-            {selectedProject.hasFolder === false ? (
+            {!folderAvailable ? (
               <>
-                <p>这个项目尚未关联文件夹，可以直接对话，也可以关联文件夹让 AI 读取和操作其中的内容。</p>
+                <p>
+                  {folderStatus === "unlinked"
+                    ? "这个项目尚未关联文件夹，可以直接对话，也可以关联文件夹让 AI 读取和操作其中的内容。"
+                    : projectFolderMessage(selectedProject)}
+                </p>
                 <button className="chat-link-folder" type="button" onClick={onAttachProjectFolder}>
-                  <FolderPlus size={15} />关联本机文件夹
+                  <FolderPlus size={15} />
+                  {folderStatus === "unlinked" ? "关联本机文件夹" : "重新关联文件夹"}
                 </button>
               </>
             ) : (
@@ -286,7 +299,9 @@ export function ChatPage({
                     引用当前文件
                   </button>
                 )}
-                <span className="composer-location">{selectedProject.hasFolder === false ? "仅本地对话" : "本机文件夹"}</span>
+                <span className="composer-location">
+                  {folderAvailable ? "本机文件夹" : `仅对话 · ${projectFolderLabel(selectedProject)}`}
+                </span>
               </div>
               {activeRequestId ? (
                 <button

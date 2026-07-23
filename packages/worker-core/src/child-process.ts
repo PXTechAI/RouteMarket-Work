@@ -1,10 +1,22 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 
 const PROCESS_EXIT_TIMEOUT_MS = 5_000;
+const TASKKILL_TIMEOUT_MS = 1_000;
+const activeTerminations = new WeakMap<ChildProcessWithoutNullStreams, Promise<void>>();
 
-export async function terminateProcessTree(
+export function terminateProcessTree(
   child: ChildProcessWithoutNullStreams
 ): Promise<void> {
+  const active = activeTerminations.get(child);
+  if (active) return active;
+  const termination = terminateProcessTreeOnce(child).finally(() => {
+    if (activeTerminations.get(child) === termination) activeTerminations.delete(child);
+  });
+  activeTerminations.set(child, termination);
+  return termination;
+}
+
+async function terminateProcessTreeOnce(child: ChildProcessWithoutNullStreams): Promise<void> {
   if (hasExited(child)) return;
 
   const exitPromise = waitForExit(child);
@@ -30,17 +42,30 @@ export async function terminateProcessTree(
 
 function runTaskkill(pid: number, child: ChildProcessWithoutNullStreams): Promise<void> {
   return new Promise((resolve) => {
+    let settled = false;
     const killer = spawn("taskkill.exe", ["/pid", String(pid), "/t", "/f"], {
       windowsHide: true,
       stdio: "ignore"
     });
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve();
+    };
+    const timer = setTimeout(() => {
+      killer.kill();
+      if (!hasExited(child)) child.kill("SIGKILL");
+      finish();
+    }, TASKKILL_TIMEOUT_MS);
+    timer.unref();
     killer.once("exit", (code) => {
       if (code !== 0 && !hasExited(child)) child.kill("SIGKILL");
-      resolve();
+      finish();
     });
     killer.once("error", () => {
       child.kill();
-      resolve();
+      finish();
     });
   });
 }

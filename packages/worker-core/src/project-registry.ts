@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { accessSync, constants, statSync } from "node:fs";
 import { lstat, realpath } from "node:fs/promises";
 import { basename, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -8,6 +9,7 @@ export type LocalProject = {
   localProjectId: string;
   displayName: string;
   hasFolder: boolean;
+  folderStatus: "unlinked" | "available" | "missing" | "unavailable";
   rootPath: string;
   realRootPath: string;
   rootFingerprint: string;
@@ -64,6 +66,7 @@ export class ProjectRegistry {
       localProjectId: `project_${randomUUID().replaceAll("-", "")}`,
       displayName: basename(realRootPath),
       hasFolder: true,
+      folderStatus: "available",
       rootPath: absoluteRoot,
       realRootPath,
       rootFingerprint: `sha256:${createHash("sha256").update(realRootPath).digest("hex")}`,
@@ -102,6 +105,7 @@ export class ProjectRegistry {
       localProjectId: `project_${randomUUID().replaceAll("-", "")}`,
       displayName: normalizedName,
       hasFolder: false,
+      folderStatus: "unlinked",
       rootPath: "",
       realRootPath: "",
       rootFingerprint: "",
@@ -150,7 +154,7 @@ export class ProjectRegistry {
 
   get(localProjectId: string): LocalProject | null {
     const project = this.getAny(localProjectId);
-    return project?.hasFolder ? project : null;
+    return project?.folderStatus === "available" ? project : null;
   }
 
   private getAny(localProjectId: string): LocalProject | null {
@@ -176,6 +180,7 @@ export class ProjectRegistry {
       localProjectId: row.local_project_id,
       displayName: row.display_name,
       hasFolder: Boolean(row.real_root_path),
+      folderStatus: inspectFolder(row.real_root_path),
       rootPath: row.root_path,
       realRootPath: row.real_root_path,
       rootFingerprint: row.root_fingerprint,
@@ -200,4 +205,24 @@ export class ProjectRegistry {
       project.updatedAt
     );
   }
+}
+
+function inspectFolder(realRootPath: string): LocalProject["folderStatus"] {
+  if (!realRootPath) return "unlinked";
+  try {
+    if (!statSync(realRootPath).isDirectory()) return "missing";
+  } catch (error) {
+    return isMissingPathError(error) ? "missing" : "unavailable";
+  }
+  try {
+    accessSync(realRootPath, constants.R_OK);
+    return "available";
+  } catch {
+    return "unavailable";
+  }
+}
+
+function isMissingPathError(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException | null)?.code;
+  return code === "ENOENT" || code === "ENOTDIR";
 }

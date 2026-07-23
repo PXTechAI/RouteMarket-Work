@@ -236,7 +236,9 @@ export class CloudWorkerClient {
     const mcpServers = await this.options.workerClient.listMcpServers();
     this.assertActive(generation);
     const revision = this.manifestRevision + 1;
-    const bindings = projects.filter((project) => project.hasFolder !== false).map((project) => ({
+    const bindings = projects.filter(
+      (project) => project.hasFolder !== false && (project.folderStatus ?? "available") === "available"
+    ).map((project) => ({
       project,
       bindingId: projectBindingIdFor(project.localProjectId)
     }));

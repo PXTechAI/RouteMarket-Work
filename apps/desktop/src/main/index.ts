@@ -1578,7 +1578,9 @@ function registerIpc(): void {
         (candidate) => candidate.localProjectId === input.project.localProjectId
       );
       if (!project) throw new Error("The selected project does not exist on this device.");
-      const projectContext = project.hasFolder === false
+      const folderAvailable =
+        project.hasFolder !== false && (project.folderStatus ?? "available") === "available";
+      const projectContext = !folderAvailable
         ? null
         : await workerClient.projectContext(project.localProjectId);
       if (!localChatStore) throw new Error("Local chat storage is unavailable.");
@@ -1611,7 +1613,7 @@ function registerIpc(): void {
         project: {
           localProjectId: project.localProjectId,
           displayName: project.displayName,
-          hasFolder: project.hasFolder !== false
+          hasFolder: folderAvailable
         },
         ...(projectContext ? { projectContext } : {})
       });

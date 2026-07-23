@@ -2,6 +2,7 @@ export type ProjectSummary = {
   localProjectId: string;
   displayName: string;
   hasFolder?: boolean;
+  folderStatus?: "unlinked" | "available" | "missing" | "unavailable";
   rootFingerprint: string;
   createdAt: string;
   updatedAt: string;

@@ -64,6 +64,11 @@ import { ChatPage } from "./features/chat/ChatPage";
 import type { ChatMessage } from "./features/chat/types";
 import { FilesPage } from "./features/files/FilesPage";
 import { ProjectCreateDialog } from "./features/projects/ProjectCreateDialog";
+import {
+  projectFolderAvailable,
+  projectFolderMessage,
+  projectFolderStatus
+} from "./features/projects/project-folder-status";
 import { WorkflowPage } from "./features/workflow/WorkflowPage";
 import type { WorkflowPanel } from "./features/workflow/types";
 
@@ -1178,6 +1183,8 @@ export function App() {
     () => state.projects.find((project) => project.localProjectId === selectedProjectId) ?? null,
     [selectedProjectId, state.projects]
   );
+  const selectedFolderAvailable = projectFolderAvailable(selectedProject);
+  const selectedFolderStatus = projectFolderStatus(selectedProject);
   const agentWorkspace = useAgentWorkspace({
     api,
     active: workspaceView === "agent" || workspaceView === "chat",
@@ -1341,7 +1348,7 @@ export function App() {
     setFileDraft("");
     setNewFileDraft(false);
     setIncludeFileContext(true);
-    if (!selectedProjectId || selectedProject?.hasFolder === false) {
+    if (!selectedProjectId || !selectedFolderAvailable) {
       setTreeLoading(false);
       return () => {
         active = false;
@@ -1370,7 +1377,7 @@ export function App() {
     return () => {
       active = false;
     };
-  }, [selectedProject?.hasFolder, selectedProjectId]);
+  }, [selectedFolderAvailable, selectedProjectId]);
 
   useEffect(() => {
     const preferred = projectContext?.settings.defaultModel;
@@ -2634,7 +2641,7 @@ export function App() {
         project: {
           localProjectId: selectedProject.localProjectId,
           displayName: selectedProject.displayName,
-          hasFolder: selectedProject.hasFolder !== false
+          hasFolder: selectedFolderAvailable
         },
         ...(projectContext ? { projectContext } : {}),
         ...(projectSkill ? { projectSkill } : {}),
@@ -2754,9 +2761,9 @@ export function App() {
                         ? `${projectContext.skills.length} 个项目 Skill`
                         : null,
                       projectContext.settings.cloudProjectId ? "已关联云端项目" : null
-                    ].filter(Boolean).join(" · ") || (selectedProject?.hasFolder === false ? "未关联文件夹" : "已关联本机文件夹")
+                    ].filter(Boolean).join(" · ") || projectFolderMessage(selectedProject)
                   : selectedProject
-                    ? selectedProject.hasFolder === false ? "未关联文件夹" : "已关联本机文件夹"
+                    ? projectFolderMessage(selectedProject)
                     : "项目可选关联文件夹"
               )}</span>
             </div>
@@ -2767,6 +2774,16 @@ export function App() {
             )}
           </div>
           <div className="header-actions">
+            {selectedProject && !selectedFolderAvailable && (
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => void attachProjectFolder(selectedProject.localProjectId)}
+              >
+                <FolderOpen size={15} />
+                {selectedFolderStatus === "unlinked" ? "关联文件夹" : "修复文件夹"}
+              </button>
+            )}
             <span className="rm-worker-pill">
               <span className={`rm-status-dot ${state.workerStatus}`} />
               <strong>本机 Worker</strong>
@@ -2775,7 +2792,7 @@ export function App() {
             <button
               className="primary-button"
               type="button"
-              disabled={!selectedProject || selectedProject.hasFolder === false || treeLoading}
+              disabled={!selectedProject || !selectedFolderAvailable || treeLoading}
               onClick={() => void refreshProjectFiles()}
             >
               {treeLoading
@@ -2790,8 +2807,8 @@ export function App() {
           <button
             className={`tab ${workspaceView === "files" ? "active" : ""}`}
             type="button"
-            disabled={selectedProject?.hasFolder === false}
-            title={selectedProject?.hasFolder === false ? "请先关联项目文件夹" : undefined}
+            disabled={Boolean(selectedProject && !selectedFolderAvailable)}
+            title={selectedProject && !selectedFolderAvailable ? projectFolderMessage(selectedProject) : undefined}
             onClick={() => setWorkspaceView("files")}
           >
             <FileText size={15} />文件
@@ -2799,8 +2816,8 @@ export function App() {
           <button
             className={`tab ${workspaceView === "terminal" ? "active" : ""}`}
             type="button"
-            disabled={selectedProject?.hasFolder === false}
-            title={selectedProject?.hasFolder === false ? "请先关联项目文件夹" : undefined}
+            disabled={Boolean(selectedProject && !selectedFolderAvailable)}
+            title={selectedProject && !selectedFolderAvailable ? projectFolderMessage(selectedProject) : undefined}
             onClick={() => setWorkspaceView("terminal")}
           ><SquareTerminal size={15} />终端</button>
           <button

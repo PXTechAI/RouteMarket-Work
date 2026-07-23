@@ -15,6 +15,11 @@ import {
 import { useState } from "react";
 import brandIcon from "../../../../build/icon.png";
 import type { WorkState } from "../../../shared/desktop-api";
+import {
+  projectFolderAvailable,
+  projectFolderLabel,
+  projectFolderStatus
+} from "../features/projects/project-folder-status";
 import { AccountMenu } from "./AccountMenu";
 
 type RailView = "chat" | "files" | "workflow" | "agent" | "browser" | "mcp";
@@ -64,6 +69,9 @@ export function AppRail({
   const selectedProject = state.projects.find(
     (project) => project.localProjectId === selectedProjectId
   );
+  const selectedFolderAvailable = selectedProject
+    ? projectFolderAvailable(selectedProject)
+    : true;
 
   return (
     <nav className={`rm-rail ${expanded ? "expanded" : ""}`} aria-label="主导航">
@@ -80,8 +88,8 @@ export function AppRail({
         <RailButton
           label="文件"
           active={activeView === "files"}
-          disabled={selectedProject?.hasFolder === false}
-          badge={selectedProject?.hasFolder === false ? "先关联文件夹" : undefined}
+          disabled={!selectedFolderAvailable}
+          badge={!selectedFolderAvailable ? projectFolderLabel(selectedProject) : undefined}
           onClick={() => onSelect("files")}
         >
           <Folder size={18} />
@@ -102,26 +110,35 @@ export function AppRail({
           </button>
         </div>
         <div className="rm-rail-project-list">
-          {state.projects.map((project) => (
-            <div
-              className={`rm-rail-project-row ${project.localProjectId === selectedProjectId ? "active" : ""}`}
-              key={project.localProjectId}
-            >
-              <button className="rm-rail-project-main" type="button" title={project.displayName} onClick={() => onSelectProject(project.localProjectId)}>
-                <FolderOpen size={15} />
-                <span>{project.displayName}</span>
-                <small>{project.hasFolder === false ? "未关联" : "本机"}</small>
-              </button>
-              {project.hasFolder === false && (
-                <button className="rm-rail-project-action" type="button" title="关联本机文件夹" onClick={() => onAttachProjectFolder(project.localProjectId)}>
-                  <FolderPlus size={13} />
+          {state.projects.map((project) => {
+            const folderStatus = projectFolderStatus(project);
+            const folderAvailable = projectFolderAvailable(project);
+            return (
+              <div
+                className={`rm-rail-project-row ${project.localProjectId === selectedProjectId ? "active" : ""}`}
+                key={project.localProjectId}
+              >
+                <button className="rm-rail-project-main" type="button" title={project.displayName} onClick={() => onSelectProject(project.localProjectId)}>
+                  <FolderOpen size={15} />
+                  <span>{project.displayName}</span>
+                  <small className={`folder-status ${folderStatus}`}>{projectFolderLabel(project)}</small>
                 </button>
-              )}
-              <button className="rm-rail-project-action danger" type="button" title="删除项目" onClick={() => onDeleteProject(project.localProjectId)}>
-                <Trash2 size={13} />
-              </button>
-            </div>
-          ))}
+                {!folderAvailable && (
+                  <button
+                    className="rm-rail-project-action"
+                    type="button"
+                    title={folderStatus === "unlinked" ? "关联本机文件夹" : "重新关联文件夹"}
+                    onClick={() => onAttachProjectFolder(project.localProjectId)}
+                  >
+                    <FolderPlus size={13} />
+                  </button>
+                )}
+                <button className="rm-rail-project-action danger" type="button" title="删除项目" onClick={() => onDeleteProject(project.localProjectId)}>
+                  <Trash2 size={13} />
+                </button>
+              </div>
+            );
+          })}
           {state.projects.length === 0 && (
             <button className="empty" type="button" onClick={onCreateProject}>
               <FolderPlus size={16} />

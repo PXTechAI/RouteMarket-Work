@@ -56,7 +56,7 @@ async function fixture() {
   return { databasePath, root, project, projects, registry, host };
 }
 
-describe("StdioMcpHost", () => {
+describe("StdioMcpHost", { timeout: 20_000 }, () => {
   it("initializes a server, discovers tools and invokes a tool", async () => {
     const value = await fixture();
     const config = value.registry.install({

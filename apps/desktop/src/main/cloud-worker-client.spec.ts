@@ -278,6 +278,15 @@ describe("CloudWorkerClient", () => {
           rootFingerprint: "sha256:test",
           createdAt: "2026-07-17T00:00:00.000Z",
           updatedAt: "2026-07-17T00:00:00.000Z"
+        },
+        {
+          localProjectId: "project_missing_1",
+          displayName: "Moved Project",
+          hasFolder: true,
+          folderStatus: "missing" as const,
+          rootFingerprint: "sha256:missing",
+          createdAt: "2026-07-17T00:00:00.000Z",
+          updatedAt: "2026-07-17T00:00:00.000Z"
         }
       ]),
       pendingEvents: vi.fn(async () => [pendingEvent]),

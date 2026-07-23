@@ -595,6 +595,16 @@
   font-size: 8px;
 }
 
+.rm-rail-project-main small.folder-status.missing,
+.rm-rail-project-main small.folder-status.unavailable {
+  color: #d97706;
+}
+
+[data-theme="dark"] .rm-rail-project-main small.folder-status.missing,
+[data-theme="dark"] .rm-rail-project-main small.folder-status.unavailable {
+  color: #fbbf24;
+}
+
 .rm-rail-project-action {
   display: grid;
   flex: 0 0 auto;

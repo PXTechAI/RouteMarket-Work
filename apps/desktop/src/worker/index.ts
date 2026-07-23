@@ -204,6 +204,7 @@ function summarizeProject(project: {
   localProjectId: string;
   displayName: string;
   hasFolder: boolean;
+  folderStatus: "unlinked" | "available" | "missing" | "unavailable";
   rootFingerprint: string;
   createdAt: string;
   updatedAt: string;
@@ -212,6 +213,7 @@ function summarizeProject(project: {
     localProjectId: project.localProjectId,
     displayName: project.displayName,
     hasFolder: project.hasFolder,
+    folderStatus: project.folderStatus,
     rootFingerprint: project.rootFingerprint,
     createdAt: project.createdAt,
     updatedAt: project.updatedAt
