@@ -10,10 +10,12 @@ import {
   Wrench,
   X
 } from "lucide-react";
+import { useEffect, useRef } from "react";
 import { resolveDesktopAgentSkillAvailability } from "../../../../shared/agent-skill-availability";
 import type { AgentLocalToolGroup } from "../../../../shared/desktop-api";
 import { ChatMessageRow } from "../chat/components/ChatMessageRow";
 import { ModelPicker } from "../chat/components/ModelPicker";
+import { VirtualMessageList } from "../chat/VirtualMessageList";
 import { AgentSkillStatusList } from "./AgentSkillStatusList";
 import type { AgentPageActions, AgentPageModel } from "./types";
 
@@ -35,6 +37,43 @@ export function AgentPage({
   model: AgentPageModel;
   actions: AgentPageActions;
 }) {
+  const chatScrollRef = useRef<HTMLDivElement>(null);
+  const stickToBottomRef = useRef(true);
+  const latestMessage = model.messages.at(-1);
+
+  useEffect(() => {
+    const scroller = chatScrollRef.current;
+    if (!scroller) return;
+    stickToBottomRef.current = true;
+    const updateStickiness = () => {
+      stickToBottomRef.current =
+        scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 120;
+    };
+    scroller.addEventListener("scroll", updateStickiness, { passive: true });
+    return () => scroller.removeEventListener("scroll", updateStickiness);
+  }, [model.selectedProject?.localProjectId]);
+
+  useEffect(() => {
+    if (!stickToBottomRef.current) return;
+    const scroller = chatScrollRef.current;
+    if (!scroller) return;
+    const frame = window.requestAnimationFrame(() => {
+      scroller.scrollTop = scroller.scrollHeight;
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [
+    model.messages.length,
+    latestMessage?.content,
+    latestMessage?.tools?.length,
+    latestMessage?.tools?.at(-1)?.status,
+    model.activeRequestId
+  ]);
+
+  function sendFromComposer() {
+    stickToBottomRef.current = true;
+    actions.onSend();
+  }
+
   if (!model.selectedProject) {
     return (
       <section className="agent-pane agent-blank">
@@ -167,10 +206,13 @@ export function AgentPage({
               </label>
             </div>
 
-            <div className="agent-chat-scroll">
+            <div className="agent-chat-scroll" ref={chatScrollRef}>
               {model.messages.length ? (
-                <div className="message-list">
-                  {model.messages.map((message) => (
+                <VirtualMessageList
+                  messages={model.messages}
+                  scrollerRef={chatScrollRef}
+                  gap={0}
+                  renderMessage={(message) => (
                     <ChatMessageRow
                       key={message.id}
                       message={message}
@@ -179,8 +221,8 @@ export function AgentPage({
                         !message.content
                       }
                     />
-                  ))}
-                </div>
+                  )}
+                />
               ) : (
                 <div className="agent-start">
                   <Bot size={27} />
@@ -213,7 +255,7 @@ export function AgentPage({
                   onKeyDown={(event) => {
                     if (event.key === "Enter" && !event.shiftKey) {
                       event.preventDefault();
-                      actions.onSend();
+                      sendFromComposer();
                     }
                   }}
                 />
@@ -240,7 +282,7 @@ export function AgentPage({
                         !model.selectedModelCode ||
                         model.authStatus !== "signed_in"
                       }
-                      onClick={actions.onSend}
+                      onClick={sendFromComposer}
                     >
                       <Send size={15} />
                     </button>

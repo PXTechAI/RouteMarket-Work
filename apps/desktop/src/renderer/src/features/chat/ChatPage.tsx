@@ -26,6 +26,7 @@ import { AgentSkillStatusList } from "../agent/AgentSkillStatusList";
 import { AgentAvatar } from "./components/AgentAvatar";
 import { ChatAgentPicker } from "./components/ChatAgentPicker";
 import { ModelPicker } from "./components/ModelPicker";
+import { VirtualMessageList } from "./VirtualMessageList";
 import type { ChatMessage } from "./types";
 import {
   projectFolderAvailable,
@@ -119,11 +120,25 @@ export function ChatPage({
 }: ChatPageProps) {
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const composerInputRef = useRef<HTMLTextAreaElement>(null);
+  const stickToBottomRef = useRef(true);
   const latestMessage = messages.at(-1);
   const folderAvailable = projectFolderAvailable(selectedProject);
   const folderStatus = projectFolderStatus(selectedProject);
 
   useEffect(() => {
+    const scroller = chatScrollRef.current;
+    if (!scroller) return;
+    stickToBottomRef.current = true;
+    const updateStickiness = () => {
+      stickToBottomRef.current =
+        scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 120;
+    };
+    scroller.addEventListener("scroll", updateStickiness, { passive: true });
+    return () => scroller.removeEventListener("scroll", updateStickiness);
+  }, [selectedProject?.localProjectId]);
+
+  useEffect(() => {
+    if (!stickToBottomRef.current) return;
     const scroller = chatScrollRef.current;
     if (!scroller) return;
     const frame = window.requestAnimationFrame(() => {
@@ -146,6 +161,11 @@ export function ChatPage({
       composerInputRef.current.value.length
     );
   }, [editingMessageId]);
+
+  function sendFromComposer() {
+    stickToBottomRef.current = true;
+    onSend();
+  }
 
   return (
     <section className="chat-pane">
@@ -201,8 +221,10 @@ export function ChatPage({
           </div>
         )}
         {selectedProject && messages.length > 0 && (
-          <div className="message-list">
-            {messages.map((message) => (
+          <VirtualMessageList
+            messages={messages}
+            scrollerRef={chatScrollRef}
+            renderMessage={(message) => (
               <ChatMessageRow
                 key={message.id}
                 message={message}
@@ -214,7 +236,10 @@ export function ChatPage({
                   message.role === "assistant" &&
                   !activeRequestId &&
                   !editingMessageId
-                    ? () => onRetry(message.id)
+                    ? () => {
+                        stickToBottomRef.current = true;
+                        onRetry(message.id);
+                      }
                     : undefined
                 }
                 onEdit={
@@ -223,8 +248,8 @@ export function ChatPage({
                     : undefined
                 }
               />
-            ))}
-          </div>
+            )}
+          />
         )}
       </div>
 
@@ -300,7 +325,7 @@ export function ChatPage({
               onKeyDown={(event) => {
                 if (event.key === "Enter" && !event.shiftKey) {
                   event.preventDefault();
-                  onSend();
+                  sendFromComposer();
                 }
               }}
             />
@@ -386,7 +411,7 @@ export function ChatPage({
                     !selectedAgent ||
                     authStatus !== "signed_in"
                   }
-                  onClick={onSend}
+                  onClick={sendFromComposer}
                 >
                   <Send size={14} />
                   <span>发送</span>

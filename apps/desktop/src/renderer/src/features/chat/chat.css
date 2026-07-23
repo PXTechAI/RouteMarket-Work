@@ -195,6 +195,29 @@
   padding: 28px 20px 54px;
 }
 
+.virtual-message-list {
+  position: relative;
+  width: min(100%, 920px);
+  min-height: 100%;
+  margin: 0 auto;
+}
+
+.virtual-message-row {
+  position: absolute;
+  top: 0;
+  right: 20px;
+  left: 20px;
+  overflow-anchor: none;
+}
+
+.agent-chat-scroll .virtual-message-row .chat-message:last-child {
+  border-bottom: 1px solid var(--rm-border);
+}
+
+.agent-chat-scroll .virtual-message-row.is-last .chat-message:last-child {
+  border-bottom: 0;
+}
+
 .chat-pane .chat-message {
   border: 0;
 }
