@@ -50,6 +50,7 @@ import { LocalWorkflowRuntime } from "./local-workflow-runtime";
 import { WorkflowDraftStore } from "./workflow-draft-store";
 import { WorkflowRunStore } from "./workflow-run-store";
 import { WorkerClient } from "./worker-client";
+import { DESKTOP_APP_ID, desktopWindowIconPath } from "./desktop-brand";
 
 declare const __ROUTEMARKET_WORK_DEFAULT_API_URL__: string;
 declare const __ROUTEMARKET_WORK_DEFAULT_WEB_URL__: string;
@@ -159,7 +160,7 @@ function createWindow(): void {
     minHeight: 680,
     backgroundColor: "#f4f3ef",
     title: "RouteMarket Work",
-    icon: join(__dirname, "../../build/icon.png"),
+    icon: desktopWindowIconPath(__dirname),
     show: false,
     webPreferences: {
       preload: join(__dirname, "../preload/index.cjs"),
@@ -1673,6 +1674,7 @@ if (!hasSingleInstanceLock) {
   });
 
   void app.whenReady().then(async () => {
+    app.setAppUserModelId(DESKTOP_APP_ID);
     registerProtocolClient();
     const workDataPath = join(app.getPath("userData"), "worker");
     await mkdir(workDataPath, { recursive: true });

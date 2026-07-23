@@ -8,20 +8,22 @@ const clickTitle = process.argv[5] ?? "";
 const createProjectName = process.argv[6] ?? "";
 const chatMessage = process.argv[7] ?? "";
 
-let targets;
+let target;
 for (let attempt = 0; attempt < 100; attempt += 1) {
   try {
-    targets = await fetch(`http://127.0.0.1:${port}/json/list`).then((response) => {
+    const targets = await fetch(`http://127.0.0.1:${port}/json/list`).then((response) => {
       if (!response.ok) throw new Error(`DevTools target request failed: ${response.status}`);
       return response.json();
     });
-    break;
+    target = targets.find((candidate) => candidate.type === "page");
+    if (target?.webSocketDebuggerUrl) break;
   } catch (error) {
     if (attempt === 99) throw error;
+  }
+  if (attempt < 99) {
     await new Promise((resolveWait) => setTimeout(resolveWait, 100));
   }
 }
-const target = targets.find((candidate) => candidate.type === "page");
 if (!target?.webSocketDebuggerUrl) throw new Error("No Electron page target found.");
 
 const socket = new WebSocket(target.webSocketDebuggerUrl);
@@ -56,7 +58,7 @@ await call("Runtime.enable");
 
 for (let attempt = 0; attempt < 50; attempt += 1) {
   const ready = await call("Runtime.evaluate", {
-    expression: "Boolean(document.querySelector('.app-shell'))",
+    expression: "Boolean(document.querySelector('.app-shell, .auth-gate'))",
     returnByValue: true
   });
   if (ready.result.value === true) break;
@@ -121,6 +123,8 @@ const stateResult = await call("Runtime.evaluate", {
     const body = document.body;
     const shell = document.querySelector('.app-shell');
     const workspace = document.querySelector('.workspace');
+    const authGate = document.querySelector('.auth-gate');
+    const images = [...document.images];
     const styles = [...document.styleSheets].map((sheet) => sheet.href || 'inline');
     return {
       title: document.title,
@@ -130,8 +134,12 @@ const stateResult = await call("Runtime.evaluate", {
       bodySize: { width: body.scrollWidth, height: body.scrollHeight },
       hasAppShell: Boolean(shell),
       hasWorkspace: Boolean(workspace),
+      hasAuthGate: Boolean(authGate),
       shellDisplay: shell ? getComputedStyle(shell).display : null,
       workspaceDisplay: workspace ? getComputedStyle(workspace).display : null,
+      authGateDisplay: authGate ? getComputedStyle(authGate).display : null,
+      imageCount: images.length,
+      brokenImageCount: images.filter((image) => !image.complete || image.naturalWidth === 0).length,
       bodyBackground: getComputedStyle(body).backgroundColor,
       accent: getComputedStyle(root).getPropertyValue('--rm-accent').trim(),
       styles,
@@ -153,10 +161,16 @@ socket.close();
 const state = stateResult.result.value;
 const failures = [
   state.readyState !== "complete" && "document did not finish loading",
-  !state.hasAppShell && "app shell is missing",
-  !state.hasWorkspace && "workspace is missing",
-  state.shellDisplay !== "grid" && `app shell display is ${state.shellDisplay}`,
-  state.workspaceDisplay !== "grid" && `workspace display is ${state.workspaceDisplay}`,
+  !state.hasAppShell && !state.hasAuthGate && "neither app shell nor auth gate is present",
+  state.hasAppShell && !state.hasWorkspace && "workspace is missing",
+  state.hasAppShell && state.shellDisplay !== "grid" && `app shell display is ${state.shellDisplay}`,
+  state.hasAppShell &&
+    state.workspaceDisplay !== "grid" &&
+    `workspace display is ${state.workspaceDisplay}`,
+  state.hasAuthGate &&
+    state.authGateDisplay !== "grid" &&
+    `auth gate display is ${state.authGateDisplay}`,
+  state.brokenImageCount > 0 && `${state.brokenImageCount} image(s) failed to load`,
   state.bodySize.width !== state.viewport.width && "page overflows horizontally",
   state.bodySize.height !== state.viewport.height && "page overflows vertically",
   state.containsLegacyStylesheet && "legacy styles.css is still loaded",
