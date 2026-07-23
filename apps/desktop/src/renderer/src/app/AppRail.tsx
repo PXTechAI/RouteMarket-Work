@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import brandIcon from "../../../../build/icon.png";
-import type { WorkState } from "../../../shared/desktop-api";
+import type { RouteMarketWorkApi, WorkState } from "../../../shared/desktop-api";
 import {
   projectFolderAvailable,
   projectFolderLabel,
@@ -28,6 +28,7 @@ const railExpandedKey = "routemarket-work:rail-expanded";
 export function AppRail({
   activeView,
   state,
+  dataApi,
   selectedProjectId,
   authBusy,
   onSelect,
@@ -42,6 +43,10 @@ export function AppRail({
 }: {
   activeView: string;
   state: WorkState;
+  dataApi: Pick<
+    RouteMarketWorkApi,
+    "getLocalDataInfo" | "showLocalData" | "exportLocalData" | "clearLocalData"
+  >;
   selectedProjectId: string | null;
   authBusy: boolean;
   onSelect(view: RailView): void;
@@ -181,6 +186,7 @@ export function AppRail({
       </RailButton>
       <AccountMenu
         state={state}
+        dataApi={dataApi}
         busy={authBusy}
         expanded={expanded}
         onSignIn={onSignIn}

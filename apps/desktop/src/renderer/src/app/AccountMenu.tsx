@@ -1,16 +1,24 @@
 import {
   Check,
   Crown,
+  Database,
+  Download,
+  FolderOpen,
   LoaderCircle,
   LogIn,
   LogOut,
   Moon,
   Sun,
+  Trash2,
   UserRound,
   UsersRound
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import type { WorkState } from "../../../shared/desktop-api";
+import type {
+  LocalDataInfo,
+  RouteMarketWorkApi,
+  WorkState
+} from "../../../shared/desktop-api";
 import {
   applyThemePreference,
   getStoredThemePreference,
@@ -20,6 +28,7 @@ import {
 
 export function AccountMenu({
   state,
+  dataApi,
   busy,
   expanded,
   onSignIn,
@@ -27,6 +36,10 @@ export function AccountMenu({
   onSwitchSpace
 }: {
   state: WorkState;
+  dataApi: Pick<
+    RouteMarketWorkApi,
+    "getLocalDataInfo" | "showLocalData" | "exportLocalData" | "clearLocalData"
+  >;
   busy: boolean;
   expanded: boolean;
   onSignIn(): void;
@@ -36,6 +49,9 @@ export function AccountMenu({
   const [open, setOpen] = useState(false);
   const [theme, setTheme] = useState(getStoredThemePreference);
   const [systemDark, setSystemDark] = useState(() => window.matchMedia("(prefers-color-scheme: dark)").matches);
+  const [localData, setLocalData] = useState<LocalDataInfo | null>(null);
+  const [localDataBusy, setLocalDataBusy] = useState(false);
+  const [localDataError, setLocalDataError] = useState<string | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const account = state.account;
   const spaces = account?.spaces ?? [];
@@ -70,11 +86,38 @@ export function AccountMenu({
     };
   }, [open]);
 
+  useEffect(() => {
+    if (!open) return;
+    setLocalDataError(null);
+    void dataApi.getLocalDataInfo()
+      .then(setLocalData)
+      .catch((error: unknown) => {
+        setLocalDataError(error instanceof Error ? error.message : "无法读取本地数据");
+      });
+  }, [dataApi, open]);
+
   const darkMode = theme === "dark" || (theme === "system" && systemDark);
 
   function selectTheme(nextTheme: "light" | "dark") {
     setTheme(nextTheme);
     setThemePreference(nextTheme);
+  }
+
+  async function runLocalDataAction(
+    action: "show" | "export" | "clear"
+  ) {
+    setLocalDataBusy(true);
+    setLocalDataError(null);
+    try {
+      if (action === "show") await dataApi.showLocalData();
+      if (action === "export") await dataApi.exportLocalData();
+      if (action === "clear") await dataApi.clearLocalData();
+      setLocalData(await dataApi.getLocalDataInfo());
+    } catch (error) {
+      setLocalDataError(error instanceof Error ? error.message : "本地数据操作失败");
+    } finally {
+      setLocalDataBusy(false);
+    }
   }
 
   return (
@@ -152,6 +195,64 @@ export function AccountMenu({
               </div>
             </div>
           )}
+
+          <div className="rm-account-menu-section rm-local-data-section">
+            <span className="rm-account-menu-label">本地数据</span>
+            <div className="rm-local-data-summary">
+              <Database size={16} />
+              <div>
+                <strong>
+                  {localData ? formatBytes(localData.totalBytes) : "正在计算占用空间"}
+                </strong>
+                <span title={localData?.dataPath}>
+                  {localData
+                    ? localData.databaseHealth === "healthy"
+                      ? "数据库正常"
+                      : localData.databaseHealth === "empty"
+                        ? "暂无本地数据"
+                        : "数据库需要恢复"
+                    : "本机项目、对话与运行记录"}
+                </span>
+                {localData?.lastRecoveredAt && (
+                  <small>
+                    已于 {new Date(localData.lastRecoveredAt).toLocaleString("zh-CN")} 自动保留损坏副本
+                  </small>
+                )}
+              </div>
+            </div>
+            {localDataError && (
+              <div className="rm-account-sync-alert" role="alert">
+                {localDataError}
+              </div>
+            )}
+            <div className="rm-local-data-actions">
+              <button
+                type="button"
+                disabled={localDataBusy}
+                onClick={() => void runLocalDataAction("show")}
+              >
+                <FolderOpen size={14} />打开目录
+              </button>
+              <button
+                type="button"
+                disabled={localDataBusy}
+                onClick={() => void runLocalDataAction("export")}
+              >
+                <Download size={14} />导出
+              </button>
+              <button
+                className="danger"
+                type="button"
+                disabled={localDataBusy}
+                onClick={() => void runLocalDataAction("clear")}
+              >
+                <Trash2 size={14} />清空
+              </button>
+            </div>
+            <small className="rm-local-data-note">
+              导出不包含登录令牌；清空不会删除已关联文件夹中的文件。
+            </small>
+          </div>
 
           <button
             className="rm-account-session-action"
@@ -257,4 +358,16 @@ function getInitials(displayName: string) {
     .map((word) => word[0])
     .join("")
     .toUpperCase() || "RM";
+}
+
+function formatBytes(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ["KB", "MB", "GB", "TB"];
+  let value = bytes / 1024;
+  let index = 0;
+  while (value >= 1024 && index < units.length - 1) {
+    value /= 1024;
+    index += 1;
+  }
+  return `${value >= 10 ? value.toFixed(1) : value.toFixed(2)} ${units[index]}`;
 }

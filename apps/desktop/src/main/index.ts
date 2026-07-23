@@ -27,6 +27,12 @@ import {
 import { ApprovalStore } from "./approval-store";
 import { ActivityStore } from "./activity-store";
 import { LocalChatStore } from "./local-chat-store";
+import {
+  clearLocalDataOnStartup,
+  exportLocalDatabase,
+  inspectLocalData,
+  recoverLocalDatabase
+} from "./local-data-manager";
 import { DesktopAuthManager } from "./desktop-auth-manager";
 import { DeviceCredentialStore } from "./device-credential-store";
 import { ProjectChatClient } from "./project-chat-client";
@@ -88,6 +94,7 @@ let localTriggerManager: LocalTriggerManager | null = null;
 let workflowDraftStore: WorkflowDraftStore | null = null;
 let workflowRunStore: WorkflowRunStore | null = null;
 let localWorkflowRuntime: LocalWorkflowRuntime | null = null;
+let localDataPath: string | null = null;
 const attachedBrowser = new AttachedBrowserManager();
 const nativeAppConnectors = new NativeAppConnectorManager();
 let pendingDeepLink: string | null = null;
@@ -613,6 +620,56 @@ async function getWorkState(): Promise<WorkState> {
 
 function registerIpc(): void {
   ipcMain.handle("work:get-state", getWorkState);
+
+  ipcMain.handle("work:local-data-info", async () => {
+    if (!localDataPath) throw new Error("本地数据目录尚未就绪。");
+    return inspectLocalData(localDataPath);
+  });
+
+  ipcMain.handle("work:local-data-show", async () => {
+    if (!localDataPath) throw new Error("本地数据目录尚未就绪。");
+    const error = await shell.openPath(localDataPath);
+    if (error) throw new Error(error);
+  });
+
+  ipcMain.handle("work:local-data-export", async () => {
+    if (!localDataPath) throw new Error("本地数据目录尚未就绪。");
+    const timestamp = new Date().toISOString().slice(0, 10);
+    const selection = await dialog.showSaveDialog(mainWindow!, {
+      title: "导出 RouteMarket Work 本地数据",
+      defaultPath: `RouteMarket-Work-Backup-${timestamp}.sqlite`,
+      filters: [{ name: "SQLite 数据库", extensions: ["sqlite"] }]
+    });
+    if (selection.canceled || !selection.filePath) return null;
+    await exportLocalDatabase(localDataPath, selection.filePath);
+    return { exportedPath: selection.filePath };
+  });
+
+  ipcMain.handle("work:local-data-clear", async () => {
+    if (!localDataPath || !mainWindow) return false;
+    const confirmation = await dialog.showMessageBox(mainWindow, {
+      type: "warning",
+      title: "清空 RouteMarket Work 本地数据",
+      message: "确定清空这台设备上的 RouteMarket Work 数据吗？",
+      detail:
+        "项目记录、对话、工作流、审批、Agent 快照和登录信息会被移除，应用随后重启。已关联文件夹及其中的文件不会被删除。",
+      buttons: ["取消", "清空并重启"],
+      defaultId: 0,
+      cancelId: 0,
+      noLink: true
+    });
+    if (confirmation.response !== 1) return false;
+    await writeFile(
+      join(app.getPath("userData"), ".clear-local-data-on-restart"),
+      new Date().toISOString(),
+      "utf8"
+    );
+    setTimeout(() => {
+      app.relaunch();
+      app.exit(0);
+    }, 100);
+    return true;
+  });
 
   ipcMain.handle("work:activities-clear", async (): Promise<WorkState> => {
     activityStore?.clear();
@@ -1692,8 +1749,15 @@ if (!hasSingleInstanceLock) {
   void app.whenReady().then(async () => {
     app.setAppUserModelId(DESKTOP_APP_ID);
     registerProtocolClient();
-    const workDataPath = join(app.getPath("userData"), "worker");
+    const userDataPath = app.getPath("userData");
+    const workDataPath = join(userDataPath, "worker");
+    await clearLocalDataOnStartup(
+      workDataPath,
+      join(userDataPath, ".clear-local-data-on-restart")
+    );
     await mkdir(workDataPath, { recursive: true });
+    await recoverLocalDatabase(workDataPath);
+    localDataPath = workDataPath;
     workerClient = new WorkerClient(workDataPath);
     workerClient.start();
     approvalStore = new ApprovalStore(join(workDataPath, "work.db"));

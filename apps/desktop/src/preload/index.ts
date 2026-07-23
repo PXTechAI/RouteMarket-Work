@@ -7,6 +7,10 @@ import type {
 
 const api: RouteMarketWorkApi = {
   getState: () => ipcRenderer.invoke("work:get-state"),
+  getLocalDataInfo: () => ipcRenderer.invoke("work:local-data-info"),
+  showLocalData: () => ipcRenderer.invoke("work:local-data-show"),
+  exportLocalData: () => ipcRenderer.invoke("work:local-data-export"),
+  clearLocalData: () => ipcRenderer.invoke("work:local-data-clear"),
   clearActivities: () => ipcRenderer.invoke("work:activities-clear"),
   signIn: () => ipcRenderer.invoke("work:sign-in"),
   signOut: () => ipcRenderer.invoke("work:sign-out"),

@@ -479,6 +479,14 @@ export type WorkState = {
   approvalPolicies: ApprovalPolicy[];
 };
 
+export type LocalDataInfo = {
+  dataPath: string;
+  totalBytes: number;
+  databaseBytes: number;
+  databaseHealth: "empty" | "healthy" | "corrupt";
+  lastRecoveredAt: string | null;
+};
+
 export type AccountSpace = {
   id: string;
   name: string;
@@ -683,6 +691,10 @@ export type ProjectChatEvent =
 
 export type RouteMarketWorkApi = {
   getState(): Promise<WorkState>;
+  getLocalDataInfo(): Promise<LocalDataInfo>;
+  showLocalData(): Promise<void>;
+  exportLocalData(): Promise<{ exportedPath: string } | null>;
+  clearLocalData(): Promise<boolean>;
   clearActivities(): Promise<WorkState>;
   signIn(): Promise<WorkState>;
   signOut(): Promise<WorkState>;

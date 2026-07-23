@@ -308,6 +308,22 @@ const previewApi: RouteMarketWorkApi = {
   async getState() {
     return previewCurrentState;
   },
+  async getLocalDataInfo() {
+    return {
+      dataPath: "C:\\Users\\Preview\\AppData\\Roaming\\RouteMarket Work\\worker",
+      totalBytes: 12_845_056,
+      databaseBytes: 9_437_184,
+      databaseHealth: "healthy",
+      lastRecoveredAt: null
+    };
+  },
+  async showLocalData() {},
+  async exportLocalData() {
+    return { exportedPath: "RouteMarket-Work-Backup.sqlite" };
+  },
+  async clearLocalData() {
+    return false;
+  },
   async clearActivities() {
     previewCurrentState = { ...previewCurrentState, activities: [] };
     return previewCurrentState;
@@ -1017,6 +1033,10 @@ function desktopBridgeUnavailable(): never {
 
 const unavailableApi: RouteMarketWorkApi = {
   getState: async () => desktopBridgeUnavailable(),
+  getLocalDataInfo: async () => desktopBridgeUnavailable(),
+  showLocalData: async () => desktopBridgeUnavailable(),
+  exportLocalData: async () => desktopBridgeUnavailable(),
+  clearLocalData: async () => desktopBridgeUnavailable(),
   clearActivities: async () => desktopBridgeUnavailable(),
   signIn: async () => desktopBridgeUnavailable(),
   signOut: async () => desktopBridgeUnavailable(),
@@ -2836,6 +2856,7 @@ export function App() {
       <AppRail
         activeView={workspaceView}
         state={state}
+        dataApi={api}
         selectedProjectId={selectedProjectId}
         authBusy={authAction !== null}
         onSelect={(view) => {
