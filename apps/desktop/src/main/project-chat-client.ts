@@ -5,6 +5,7 @@ import type {
   ProjectChatEvent,
   ProjectChatRequest
 } from "../shared/desktop-api";
+import { resolveDesktopAgentSkillAvailability } from "../shared/agent-skill-availability";
 import { readProjectChatStream } from "./project-chat-stream";
 import type { RouteMarketApiClient } from "./routemarket-api-client";
 import type { ProjectChatToolRunner } from "./project-chat-tool-runner";
@@ -245,7 +246,11 @@ export class ProjectChatClient {
         session_id: input.sessionId,
         request_id: input.requestId,
         model: input.model,
-        system_prompt: buildSystemPrompt(input, agent),
+        system_prompt: buildSystemPrompt(
+          input,
+          agent,
+          tools.some((tool) => tool.function.name.startsWith("skill_local_"))
+        ),
         messages: [
           ...(input.history ?? []),
           { role: "user", content: buildMessageContent(input) },
@@ -499,7 +504,8 @@ function normalizeStringArray(value: unknown): string[] {
 
 function buildSystemPrompt(
   input: ProjectChatRequest,
-  agent: DesktopAgentProfile | null = null
+  agent: DesktopAgentProfile | null = null,
+  localSkillToolsEnabled = true
 ) {
   const hasFolder = input.project.hasFolder !== false;
   const executionEnvironment = resolveExecutionEnvironment(input);
@@ -530,6 +536,32 @@ function buildSystemPrompt(
     if (agent.tools.length) {
       lines.push(
         `The Agent profile also has ${agent.tools.length} RouteMarket cloud tool configuration(s). Only tools explicitly supplied in this request are callable from the desktop runtime.`
+      );
+    }
+    const agentSkills = resolveDesktopAgentSkillAvailability(
+      agent.skills,
+      input.projectContext ?? null,
+      {
+        executionEnvironment: resolveExecutionEnvironment(input),
+        localSkillToolsEnabled
+      }
+    );
+    const availableAgentSkills = agentSkills.filter((item) => item.available);
+    if (availableAgentSkills.length) {
+      lines.push(
+        "The Agent profile explicitly enables these project-local Skills. Invoke their matching local Skill tools when the current task calls for them:",
+        ...availableAgentSkills.map((item) =>
+          `- ${item.skill.name || item.skill.skillId} (${item.skill.skillId})`
+        )
+      );
+    }
+    const unavailableAgentSkills = agentSkills.filter((item) => !item.available);
+    if (unavailableAgentSkills.length) {
+      lines.push(
+        "These Agent profile Skills are not callable in the current Desktop runtime. Do not claim to have used them:",
+        ...unavailableAgentSkills.map((item) =>
+          `- ${item.skill.name || item.skill.skillId} (${item.skill.skillId}): ${item.reason}`
+        )
       );
     }
   }

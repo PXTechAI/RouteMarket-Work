@@ -1621,8 +1621,10 @@ function registerIpc(): void {
           ? { agentAvatarUrl: input.agent.agentAvatarUrl }
           : {})
       });
+      const trustedInput = { ...input };
+      delete trustedInput.projectContext;
       void projectChatClient.send({
-        ...input,
+        ...trustedInput,
         sessionId: thread.sessionId,
         history,
         project: {

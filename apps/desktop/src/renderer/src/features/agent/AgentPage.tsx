@@ -10,9 +10,11 @@ import {
   Wrench,
   X
 } from "lucide-react";
+import { resolveDesktopAgentSkillAvailability } from "../../../../shared/agent-skill-availability";
 import type { AgentLocalToolGroup } from "../../../../shared/desktop-api";
 import { ChatMessageRow } from "../chat/components/ChatMessageRow";
 import { ModelPicker } from "../chat/components/ModelPicker";
+import { AgentSkillStatusList } from "./AgentSkillStatusList";
 import type { AgentPageActions, AgentPageModel } from "./types";
 
 const LOCAL_TOOL_GROUPS: Array<{
@@ -45,6 +47,17 @@ export function AgentPage({
       </section>
     );
   }
+  const agentSkills = resolveDesktopAgentSkillAvailability(
+    model.selectedAgent?.skills ?? [],
+    model.projectContext,
+    {
+      executionEnvironment:
+        model.selectedAgent?.executionPolicy.environment === "cloud"
+          ? "cloud"
+          : "local",
+      localSkillToolsEnabled: model.localToolGroups.includes("skills")
+    }
+  );
 
   return (
     <section className="agent-pane">
@@ -121,6 +134,8 @@ export function AgentPage({
                 onChange={actions.onModelChange}
               />
             </header>
+
+            <AgentSkillStatusList items={agentSkills} />
 
             <div className="agent-policy-bar">
               <div className="agent-tool-policy">

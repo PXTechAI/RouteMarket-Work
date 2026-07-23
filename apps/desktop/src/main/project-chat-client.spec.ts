@@ -352,6 +352,20 @@ describe("ProjectChatClient", () => {
             starterQuestions: ["Run the tests", "Inspect the project"],
             tags: ["development"],
             defaultModelCode: "model_chat",
+            skills: [
+              {
+                skillId: "review",
+                name: "Code review",
+                source: "local",
+                enabled: true
+              },
+              {
+                skillId: "research",
+                name: "Cloud research",
+                source: "cloud",
+                enabled: true
+              }
+            ],
             tools: [{ type: "mcp", serverId: "server_cloud" }]
           }
         });
@@ -391,6 +405,13 @@ describe("ProjectChatClient", () => {
     );
     expect(modelBody.system_prompt).toContain(
       "Complete the requested project task and verify the result."
+    );
+    expect(modelBody.system_prompt).toContain(
+      "Agent profile explicitly enables these project-local Skills"
+    );
+    expect(modelBody.system_prompt).toContain("Code review (review)");
+    expect(modelBody.system_prompt).toContain(
+      "Cloud research (research): 云端 Skill 尚未接入 Desktop 本地运行时"
     );
     const toolNames = modelBody.tools.map(
       (tool: { function: { name: string } }) => tool.function.name

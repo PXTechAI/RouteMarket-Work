@@ -355,6 +355,7 @@ export function useAgentWorkspace({
       agentsLoading,
       selectedAgentId,
       selectedAgent,
+      projectContext,
       models,
       selectedModelCode,
       modelsLoading,

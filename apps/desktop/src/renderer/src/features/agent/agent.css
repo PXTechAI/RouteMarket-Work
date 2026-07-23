@@ -227,6 +227,98 @@
   gap: 4px;
 }
 
+.agent-skill-status-list {
+  position: relative;
+  margin: 10px 20px;
+}
+
+.agent-skill-status-list.compact {
+  margin: 0;
+}
+
+.agent-skill-status-list summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 8px;
+  color: var(--rm-text-muted);
+  background: var(--rm-surface-muted);
+  border: 1px solid var(--rm-border);
+  border-radius: 7px;
+  font-size: 10px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.agent-skill-status-list summary::-webkit-details-marker {
+  display: none;
+}
+
+.agent-skill-status-list[open] summary {
+  color: var(--rm-accent);
+  border-color: var(--rm-accent-soft-strong);
+}
+
+.agent-skill-status-list[open] summary > svg {
+  transform: rotate(180deg);
+}
+
+.agent-skill-status-menu {
+  position: absolute;
+  z-index: 60;
+  display: grid;
+  width: min(360px, calc(100vw - 48px));
+  max-height: 240px;
+  margin-top: 5px;
+  padding: 6px;
+  overflow-y: auto;
+  background: var(--rm-surface);
+  border: 1px solid var(--rm-border);
+  border-radius: 9px;
+  box-shadow: var(--rm-shadow-menu);
+}
+
+.agent-skill-status-menu > div {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  gap: 7px;
+  padding: 7px;
+  color: var(--rm-warning);
+  border-radius: 7px;
+}
+
+.agent-skill-status-menu > div.available {
+  color: var(--rm-success);
+}
+
+.agent-skill-status-menu > div.disabled {
+  color: var(--rm-text-weak);
+}
+
+.agent-skill-status-menu > div > svg {
+  margin-top: 1px;
+}
+
+.agent-skill-status-menu span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.agent-skill-status-menu strong {
+  overflow: hidden;
+  color: var(--rm-text);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-skill-status-menu small {
+  color: var(--rm-text-muted);
+  font-size: 9px;
+  line-height: 1.4;
+}
+
 .agent-policy-bar {
   display: flex;
   align-items: center;

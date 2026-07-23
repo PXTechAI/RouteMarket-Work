@@ -12,6 +12,7 @@ import {
   X
 } from "lucide-react";
 import { useEffect, useRef } from "react";
+import type { DesktopAgentSkillAvailability } from "../../../../shared/agent-skill-availability";
 import type {
   ChatModel,
   DesktopAgentProfile,
@@ -21,6 +22,7 @@ import type {
   WorkState
 } from "../../../../shared/desktop-api";
 import { ChatMessageRow } from "./components/ChatMessageRow";
+import { AgentSkillStatusList } from "../agent/AgentSkillStatusList";
 import { AgentAvatar } from "./components/AgentAvatar";
 import { ChatAgentPicker } from "./components/ChatAgentPicker";
 import { ModelPicker } from "./components/ModelPicker";
@@ -54,6 +56,7 @@ type ChatPageProps = {
     currentRevision: number;
     updateAvailable: boolean;
   } | null;
+  agentSkills: DesktopAgentSkillAvailability[];
   projectContext: ProjectContext | null;
   selectedProjectSkillId: string;
   editingMessageId: string | null;
@@ -93,6 +96,7 @@ export function ChatPage({
   selectedAgentId,
   selectedAgent,
   agentVersion,
+  agentSkills,
   projectContext,
   selectedProjectSkillId,
   editingMessageId,
@@ -342,11 +346,7 @@ export function ChatPage({
                     <ChevronDown size={12} />
                   </label>
                 ) : null}
-                {selectedAgent?.skills.filter((skill) => skill.enabled).length ? (
-                  <span className="composer-location">
-                    Agent Skills · {selectedAgent.skills.filter((skill) => skill.enabled).length}
-                  </span>
-                ) : null}
+                <AgentSkillStatusList items={agentSkills} compact />
                 {selectedAgent?.toolPermissions.length ? (
                   <span className="composer-location">
                     工具权限 · {selectedAgent.toolPermissions.length}

@@ -2,6 +2,7 @@ import type {
   AgentLocalToolGroup,
   ChatModel,
   DesktopAgentProfile,
+  ProjectContext,
   ProjectSummary,
   WorkState
 } from "../../../../shared/desktop-api";
@@ -14,6 +15,7 @@ export type AgentPageModel = {
   agentsLoading: boolean;
   selectedAgentId: string;
   selectedAgent: DesktopAgentProfile | null;
+  projectContext: ProjectContext | null;
   models: ChatModel[];
   selectedModelCode: string;
   modelsLoading: boolean;

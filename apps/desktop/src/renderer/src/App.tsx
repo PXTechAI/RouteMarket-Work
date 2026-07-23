@@ -51,6 +51,7 @@ import type {
   RouteMarketWorkApi,
   WorkState
 } from "../../shared/desktop-api";
+import { resolveDesktopAgentSkillAvailability } from "../../shared/agent-skill-availability";
 import { createDiffPreview } from "./diff";
 import { parseCommandLine } from "./command-line";
 import { AppRail } from "./app/AppRail";
@@ -161,7 +162,29 @@ const previewAgents = [
     ],
     tags: ["project", "development"],
     defaultModelCode: "gpt-5",
-    skills: [],
+    skills: [
+      {
+        skillId: "review",
+        name: "Code review",
+        version: 2,
+        source: "local" as const,
+        enabled: true
+      },
+      {
+        skillId: "research",
+        name: "Cloud research",
+        version: 1,
+        source: "cloud" as const,
+        enabled: true
+      },
+      {
+        skillId: "legacy",
+        name: "Legacy formatter",
+        version: 1,
+        source: "local" as const,
+        enabled: false
+      }
+    ],
     toolPermissions: [],
     executionPolicy: { environment: "local" as const, approvalMode: "risky_only" as const },
     tools: [],
@@ -1225,6 +1248,29 @@ export function App() {
       agentVersionKey,
       chatMessages,
       selectedChatAgent
+    ]
+  );
+  const chatAgentSkills = useMemo(
+    () =>
+      resolveDesktopAgentSkillAvailability(
+        selectedChatAgent?.skills ?? [],
+        projectContext,
+        {
+          executionEnvironment:
+            executionEnvironment === "cloud" ||
+            (executionEnvironment === "auto" && !selectedFolderAvailable)
+              ? "cloud"
+              : "local",
+          localSkillToolsEnabled:
+            agentWorkspace.model.localToolGroups.includes("skills")
+        }
+      ),
+    [
+      agentWorkspace.model.localToolGroups,
+      executionEnvironment,
+      projectContext,
+      selectedChatAgent,
+      selectedFolderAvailable
     ]
   );
 
@@ -3210,6 +3256,7 @@ export function App() {
               selectedAgentId={agentWorkspace.model.selectedAgentId}
               selectedAgent={agentWorkspace.model.selectedAgent}
               agentVersion={conversationAgentVersion}
+              agentSkills={chatAgentSkills}
               projectContext={projectContext}
               selectedProjectSkillId={selectedProjectSkillId}
               editingMessageId={editingMessageId}
