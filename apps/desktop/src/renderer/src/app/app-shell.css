@@ -108,6 +108,38 @@
   height: 100%;
 }
 
+.workspace-offline-banner {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100% - 32px);
+  padding: 8px 10px;
+  color: var(--rm-danger);
+  background: color-mix(in srgb, var(--rm-danger-soft) 92%, var(--rm-surface));
+  border: 1px solid color-mix(in srgb, var(--rm-danger) 24%, transparent);
+  border-radius: 8px;
+  box-shadow: var(--rm-shadow-menu);
+  transform: translateX(-50%);
+  font-size: 10px;
+}
+
+.workspace-offline-banner button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 7px;
+  color: inherit;
+  background: transparent;
+  border: 1px solid currentColor;
+  border-radius: 5px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
 .chat-pane,
 .document-pane {
   background: var(--rm-surface);

@@ -108,6 +108,99 @@
   font-weight: 650;
 }
 
+.rm-workspace-state {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  width: 100%;
+  height: 100%;
+  min-height: 220px;
+  gap: 9px;
+  padding: 28px;
+  color: var(--rm-text-muted);
+  text-align: center;
+}
+
+.rm-workspace-state.compact {
+  min-height: 150px;
+}
+
+.rm-workspace-state-icon {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  color: var(--rm-accent);
+  background: var(--rm-accent-soft);
+  border: 1px solid color-mix(in srgb, var(--rm-accent) 18%, transparent);
+  border-radius: 10px;
+}
+
+.rm-workspace-state h2,
+.rm-workspace-state p {
+  max-width: 520px;
+  margin: 0;
+}
+
+.rm-workspace-state h2 {
+  color: var(--rm-text);
+  font-size: 16px;
+  font-weight: 650;
+}
+
+.rm-workspace-state p,
+.rm-workspace-state.loading > span {
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.rm-workspace-state.loading {
+  gap: 10px;
+}
+
+.rm-state-skeleton-icon,
+.rm-state-skeleton-line {
+  overflow: hidden;
+  background: var(--rm-surface-strong);
+  position: relative;
+}
+
+.rm-state-skeleton-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 10px;
+}
+
+.rm-state-skeleton-line {
+  width: min(210px, 70%);
+  height: 10px;
+  border-radius: 5px;
+}
+
+.rm-state-skeleton-line.wide {
+  width: min(300px, 85%);
+  height: 14px;
+}
+
+.rm-state-skeleton-icon::after,
+.rm-state-skeleton-line::after {
+  position: absolute;
+  inset: 0;
+  content: "";
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--rm-surface) 72%, transparent),
+    transparent
+  );
+  transform: translateX(-100%);
+  animation: rm-skeleton-shimmer 1.2s ease-in-out infinite;
+}
+
+@keyframes rm-skeleton-shimmer {
+  to { transform: translateX(100%); }
+}
+
 .blank-icon {
   display: grid;
   place-items: center;
@@ -161,6 +254,28 @@
 
 .spin {
   animation: rm-spin 800ms linear infinite;
+}
+
+.rm-status-dot {
+  width: 7px;
+  height: 7px;
+  background: var(--rm-text-weak);
+  border-radius: 50%;
+}
+
+.rm-status-dot.starting {
+  background: var(--rm-warning);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--rm-warning) 14%, transparent);
+}
+
+.rm-status-dot.online {
+  background: var(--rm-success);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--rm-success) 14%, transparent);
+}
+
+.rm-status-dot.offline {
+  background: var(--rm-danger);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--rm-danger) 12%, transparent);
 }
 
 @keyframes rm-spin {

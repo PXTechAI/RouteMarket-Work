@@ -19,6 +19,7 @@ import { BrowserProfilePanel } from "./BrowserProfilePanel";
 import { BrowserDownloadPanel } from "./BrowserDownloadPanel";
 import { BrowserOperationPanel } from "./BrowserOperationPanel";
 import { BrowserTabStrip } from "./BrowserTabStrip";
+import { WorkspaceState } from "../../app/WorkspaceState";
 import type { BrowserPageProps } from "./types";
 
 export function BrowserPage({ model, actions, viewportRef, addressRef }: BrowserPageProps) {
@@ -174,10 +175,20 @@ export function BrowserPage({ model, actions, viewportRef, addressRef }: Browser
           )}
 
           {!model.screenshot && model.mode === "managed" && !model.localProjectId && (
-            <div className="browser-empty"><Globe2 size={30} /><h2>选择一个项目</h2><p>浏览器页面、登录状态和自动化操作都归属于项目。</p></div>
+            <WorkspaceState
+              kind="empty"
+              icon={<Globe2 size={24} />}
+              title="选择一个项目"
+              description="浏览器页面、登录状态和自动化操作都归属于项目。"
+            />
           )}
           {!model.screenshot && model.mode === "managed" && model.localProjectId && model.state?.url === "about:blank" && (
-            <div className="browser-empty"><Globe2 size={30} /><h2>Managed Browser</h2><p>输入网址开始浏览；Agent 可以在当前项目页面中继续操作。</p></div>
+            <WorkspaceState
+              kind="empty"
+              icon={<Globe2 size={24} />}
+              title="Managed Browser"
+              description="输入网址开始浏览；Agent 可以在当前项目页面中继续操作。"
+            />
           )}
         </div>
 

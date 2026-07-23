@@ -16,6 +16,7 @@ import type { AgentLocalToolGroup } from "../../../../shared/desktop-api";
 import { ChatMessageRow } from "../chat/components/ChatMessageRow";
 import { ModelPicker } from "../chat/components/ModelPicker";
 import { VirtualMessageList } from "../chat/VirtualMessageList";
+import { WorkspaceState } from "../../app/WorkspaceState";
 import { AgentSkillStatusList } from "./AgentSkillStatusList";
 import type { AgentPageActions, AgentPageModel } from "./types";
 
@@ -77,12 +78,18 @@ export function AgentPage({
   if (!model.selectedProject) {
     return (
       <section className="agent-pane agent-blank">
-        <FolderPlus size={30} />
-        <h2>选择项目后使用 Agent</h2>
-        <button className="primary-button" type="button" onClick={actions.onChooseProject}>
-          <FolderPlus size={15} />
-          选择文件夹
-        </button>
+        <WorkspaceState
+          kind="empty"
+          icon={<FolderPlus size={24} />}
+          title="选择项目后使用 Agent"
+          description="Agent 的对话、工具权限和运行记录都归属于项目。"
+          action={(
+            <button className="primary-button" type="button" onClick={actions.onChooseProject}>
+              <FolderPlus size={15} />
+              选择文件夹
+            </button>
+          )}
+        />
       </section>
     );
   }

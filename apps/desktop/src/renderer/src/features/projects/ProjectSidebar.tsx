@@ -7,6 +7,10 @@ import {
 import type {
   WorkState
 } from "../../../../shared/desktop-api";
+import {
+  cloudStatusLabel,
+  workerStatusLabel
+} from "../../app/connection-status";
 
 export function ProjectSidebar({
   state,
@@ -67,7 +71,7 @@ export function ProjectSidebar({
         <div>
           <strong>Local Worker</strong>
           <span>
-            {state.workerStatus === "online" ? "本地已连接" : "正在启动"}
+            {workerStatusLabel(state.workerStatus)}
             {" · "}
             {cloudStatusLabel(state.cloudStatus)}
           </span>
@@ -83,13 +87,4 @@ export function ProjectSidebar({
       </div>
     </aside>
   );
-}
-
-function cloudStatusLabel(status: WorkState["cloudStatus"]) {
-  if (status === "online") return "云端已连接";
-  if (status === "connecting") return "云端连接中";
-  if (status === "degraded") return "云端连接不稳定";
-  if (status === "access_required") return "云端需要重新授权";
-  if (status === "error") return "云端异常";
-  return "云端未登录";
 }

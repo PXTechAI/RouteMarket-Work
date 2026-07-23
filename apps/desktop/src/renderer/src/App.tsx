@@ -57,6 +57,10 @@ import { parseCommandLine } from "./command-line";
 import { AppRail } from "./app/AppRail";
 import { AuthGate } from "./app/AuthGate";
 import { GlobalHeader } from "./app/GlobalHeader";
+import {
+  withWorkerOffline,
+  workerStatusLabel
+} from "./app/connection-status";
 import { AgentPage } from "./features/agent/AgentPage";
 import { useAgentWorkspace } from "./features/agent/useAgentWorkspace";
 import { ApprovalPage } from "./features/approvals/ApprovalPage";
@@ -1210,6 +1214,7 @@ export function App() {
   const [authAction, setAuthAction] = useState<"sign-in" | "sign-out" | "switch-space" | null>(null);
   const [busyApprovalPolicyId, setBusyApprovalPolicyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
   const [models, setModels] = useState<ChatModel[]>([]);
   const [selectedModelCode, setSelectedModelCode] = useState("");
   const [executionEnvironment, setExecutionEnvironment] = useState<"auto" | "local" | "cloud">("auto");
@@ -1361,6 +1366,7 @@ export function App() {
   const refreshState = useCallback(async () => {
     const nextState = await api.getState();
     setState(nextState);
+    setConnectionError(null);
     setStateLoaded(true);
     setSelectedProjectId((current) =>
       current && nextState.projects.some((project) => project.localProjectId === current)
@@ -1370,17 +1376,22 @@ export function App() {
     return nextState;
   }, []);
 
+  const handleConnectionError = useCallback((nextError: unknown) => {
+    const message = nextError instanceof Error
+      ? nextError.message
+      : "无法连接 RouteMarket Worker";
+    setState((current) => withWorkerOffline(current, message));
+    setStateLoaded(true);
+    setConnectionError(message);
+  }, []);
+
   useEffect(() => {
-    void refreshState().catch((nextError) => {
-      setError(nextError instanceof Error ? nextError.message : "无法连接 RouteMarket Worker");
-    });
+    void refreshState().catch(handleConnectionError);
     const timer = window.setInterval(() => {
-      void refreshState().catch((nextError) => {
-        setError(nextError instanceof Error ? nextError.message : "无法连接 RouteMarket Worker");
-      });
+      void refreshState().catch(handleConnectionError);
     }, 2_000);
     return () => window.clearInterval(timer);
-  }, [refreshState]);
+  }, [handleConnectionError, refreshState]);
 
   useEffect(() => {
     const unsubscribe = api.onProjectChatEvent((event) => {
@@ -2844,7 +2855,7 @@ export function App() {
         loading={!stateLoaded}
         state={state}
         busy={authAction !== null}
-        connectionError={error}
+        connectionError={connectionError ?? error}
         onSignIn={() => void signIn()}
         onCancel={() => void signOut()}
       />
@@ -2925,7 +2936,7 @@ export function App() {
             <span className="rm-worker-pill">
               <span className={`rm-status-dot ${state.workerStatus}`} />
               <strong>本机 Worker</strong>
-              {state.workerStatus === "online" ? "已连接" : "启动中"}
+              {workerStatusLabel(state.workerStatus, true)}
             </span>
             <button
               className="primary-button"
@@ -2981,6 +2992,19 @@ export function App() {
         </div>
 
         <div className="workspace-body">
+          {state.workerStatus === "offline" && (
+            <div className="workspace-offline-banner" role="status">
+              <CircleAlert size={15} />
+              <span>本机 Worker 已离线，本地操作暂不可用。</span>
+              <button
+                type="button"
+                onClick={() => void refreshState().catch(handleConnectionError)}
+              >
+                <RefreshCw size={13} />
+                重新连接
+              </button>
+            </div>
+          )}
           {workspaceView === "agent" ? (
             <AgentPage
               model={agentWorkspace.model}

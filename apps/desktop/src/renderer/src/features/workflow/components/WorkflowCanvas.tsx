@@ -8,6 +8,7 @@ import {
   X
 } from "lucide-react";
 import type { WorkflowPageActions, WorkflowPageModel } from "../types";
+import { WorkspaceState } from "../../../app/WorkspaceState";
 import { WorkflowRunPanel } from "./WorkflowRunPanel";
 
 export function WorkflowCanvas({
@@ -189,17 +190,20 @@ export function WorkflowCanvas({
             </article>
           ))}
           {!model.draftBusy && model.draft?.nodes.length === 0 && (
-            <div className="workflow-canvas-empty">
-              <Workflow size={30} />
-              <h3>搭建第一个混合工作流</h3>
-              <p>从上方选择一个当前设备可用的节点并添加到画布。</p>
-            </div>
+            <WorkspaceState
+              kind="empty"
+              compact
+              icon={<Workflow size={24} />}
+              title="搭建第一个混合工作流"
+              description="从上方选择一个当前设备可用的节点并添加到画布。"
+            />
           )}
           {model.draftBusy && (
-            <div className="workflow-canvas-empty">
-              <LoaderCircle className="spin" size={28} />
-              <p>正在加载本地草稿…</p>
-            </div>
+            <WorkspaceState
+              kind="loading"
+              compact
+              title="正在加载本地草稿…"
+            />
           )}
         </div>
       </div>

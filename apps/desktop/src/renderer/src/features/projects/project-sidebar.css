@@ -353,15 +353,3 @@
 .rm-worker-status .rm-cloud-error {
   color: var(--rm-danger);
 }
-
-.rm-status-dot {
-  width: 7px;
-  height: 7px;
-  background: var(--rm-text-weak);
-  border-radius: 50%;
-}
-
-.rm-status-dot.online {
-  background: var(--rm-success);
-  box-shadow: 0 0 0 3px rgb(34 197 94 / 12%);
-}

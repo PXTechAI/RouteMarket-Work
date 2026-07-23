@@ -62,26 +62,6 @@
   justify-content: center;
 }
 
-.rm-rail-theme-toggle {
-  display: grid;
-  flex: 0 0 auto;
-  place-items: center;
-  width: 32px;
-  height: 32px;
-  padding: 0;
-  color: var(--rm-text-muted);
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: 7px;
-  cursor: pointer;
-}
-
-.rm-rail-theme-toggle:hover {
-  color: var(--rm-text);
-  background: var(--rm-surface-strong);
-  border-color: var(--rm-border);
-}
-
 .rm-rail-account-copy {
   display: grid;
   min-width: 0;
@@ -406,6 +386,10 @@
   color: var(--rm-accent);
   background: var(--rm-surface);
   box-shadow: 0 1px 4px rgb(17 24 39 / 10%);
+}
+
+.rm-theme-section {
+  border-bottom: 1px solid var(--rm-border);
 }
 
 .rm-account-session-action {

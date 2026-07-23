@@ -22,6 +22,7 @@ import type {
   ProjectSummary,
   ReadResult
 } from "../../../../shared/desktop-api";
+import { WorkspaceState } from "../../app/WorkspaceState";
 
 export interface FilesPageModel {
   selectedProject: ProjectSummary | null;
@@ -67,26 +68,31 @@ export function FilesPage({
       <ProjectFileNavigator model={model} actions={actions} />
       <div className="document-pane">
         {!model.selectedProject && (
-          <div className="blank-state">
-            <div className="blank-icon"><FolderPlus size={28} /></div>
-            <h2>选择一个已关联文件夹的项目</h2>
-            <button className="primary-button" type="button" onClick={actions.onChooseProject}>
-              <FolderPlus size={16} />
-              选择文件夹
-            </button>
-          </div>
+          <WorkspaceState
+            kind="empty"
+            icon={<FolderPlus size={24} />}
+            title="选择一个已关联文件夹的项目"
+            description="项目文件始终保留在原文件夹中。"
+            action={(
+              <button className="primary-button" type="button" onClick={actions.onChooseProject}>
+                <FolderPlus size={16} />
+                选择文件夹
+              </button>
+            )}
+          />
         )}
         {model.selectedProject && !model.readResult && !model.assetPreview && !model.loading && (
-          <div className="ready-state">
-            <FileText size={30} />
-            <h2>{model.selectedFilePath ?? "从左侧选择项目文件"}</h2>
-          </div>
+          <WorkspaceState
+            kind="empty"
+            icon={<FileText size={24} />}
+            title={model.selectedFilePath ?? "从左侧选择项目文件"}
+          />
         )}
         {model.loading && (
-          <div className="ready-state">
-            <LoaderCircle className="spin" size={30} />
-            <h2>正在读取 {model.selectedFilePath}</h2>
-          </div>
+          <WorkspaceState
+            kind="loading"
+            title={`正在读取 ${model.selectedFilePath ?? "项目文件"}`}
+          />
         )}
         {model.assetPreview && (
           <article className="asset-preview">

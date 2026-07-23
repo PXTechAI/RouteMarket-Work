@@ -21,9 +21,13 @@ import {
   projectFolderStatus
 } from "../features/projects/project-folder-status";
 import { AccountMenu } from "./AccountMenu";
+import { cloudStatusLabel, workerStatusLabel } from "./connection-status";
+import {
+  getRailExpandedPreference,
+  setRailExpandedPreference
+} from "./rail-preference";
 
 type RailView = "chat" | "files" | "workflow" | "agent" | "browser" | "mcp";
-const railExpandedKey = "routemarket-work:rail-expanded";
 
 export function AppRail({
   activeView,
@@ -60,13 +64,13 @@ export function AppRail({
   onSwitchSpace(spaceId: string): void;
 }) {
   const [expanded, setExpanded] = useState(
-    () => localStorage.getItem(railExpandedKey) === "true"
+    getRailExpandedPreference
   );
 
   function toggleExpanded() {
     setExpanded((current) => {
       const next = !current;
-      localStorage.setItem(railExpandedKey, String(next));
+      setRailExpandedPreference(next);
       return next;
     });
   }
@@ -171,7 +175,7 @@ export function AppRail({
         <span className={`rm-status-dot ${state.workerStatus}`} />
         <div>
           <strong>本机 Worker</strong>
-          <span>{state.workerStatus === "online" ? "本地已连接" : "正在启动"} · {cloudStatusLabel(state.cloudStatus)}</span>
+          <span>{workerStatusLabel(state.workerStatus)} · {cloudStatusLabel(state.cloudStatus)}</span>
         </div>
         <button type="button" title="刷新连接状态" onClick={onRefreshState}>
           <RefreshCw size={13} />
@@ -195,15 +199,6 @@ export function AppRail({
       />
     </nav>
   );
-}
-
-function cloudStatusLabel(status: WorkState["cloudStatus"]) {
-  if (status === "online") return "云端已连接";
-  if (status === "connecting") return "云端连接中";
-  if (status === "degraded") return "云端连接不稳定";
-  if (status === "access_required") return "需要重新授权";
-  if (status === "error") return "云端异常";
-  return "云端未登录";
 }
 
 function RailButton({

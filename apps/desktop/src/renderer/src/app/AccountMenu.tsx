@@ -7,6 +7,7 @@ import {
   LoaderCircle,
   LogIn,
   LogOut,
+  Monitor,
   Moon,
   Sun,
   Trash2,
@@ -23,7 +24,8 @@ import {
   applyThemePreference,
   getStoredThemePreference,
   setThemePreference,
-  watchSystemTheme
+  watchSystemTheme,
+  type ThemePreference
 } from "./theme";
 
 export function AccountMenu({
@@ -48,7 +50,6 @@ export function AccountMenu({
 }) {
   const [open, setOpen] = useState(false);
   const [theme, setTheme] = useState(getStoredThemePreference);
-  const [systemDark, setSystemDark] = useState(() => window.matchMedia("(prefers-color-scheme: dark)").matches);
   const [localData, setLocalData] = useState<LocalDataInfo | null>(null);
   const [localDataBusy, setLocalDataBusy] = useState(false);
   const [localDataError, setLocalDataError] = useState<string | null>(null);
@@ -62,7 +63,6 @@ export function AccountMenu({
   useEffect(() => {
     applyThemePreference(theme);
     return watchSystemTheme(theme, () => {
-      setSystemDark(window.matchMedia("(prefers-color-scheme: dark)").matches);
       applyThemePreference(theme);
     });
   }, [theme]);
@@ -96,9 +96,7 @@ export function AccountMenu({
       });
   }, [dataApi, open]);
 
-  const darkMode = theme === "dark" || (theme === "system" && systemDark);
-
-  function selectTheme(nextTheme: "light" | "dark") {
+  function selectTheme(nextTheme: ThemePreference) {
     setTheme(nextTheme);
     setThemePreference(nextTheme);
   }
@@ -195,6 +193,33 @@ export function AccountMenu({
               </div>
             </div>
           )}
+
+          <div className="rm-account-menu-section rm-theme-section">
+            <span className="rm-account-menu-label">外观</span>
+            <div className="rm-theme-control" role="group" aria-label="主题">
+              <ThemeButton
+                active={theme === "light"}
+                label="浅色"
+                onClick={() => selectTheme("light")}
+              >
+                <Sun size={13} />
+              </ThemeButton>
+              <ThemeButton
+                active={theme === "dark"}
+                label="深色"
+                onClick={() => selectTheme("dark")}
+              >
+                <Moon size={13} />
+              </ThemeButton>
+              <ThemeButton
+                active={theme === "system"}
+                label="系统"
+                onClick={() => selectTheme("system")}
+              >
+                <Monitor size={13} />
+              </ThemeButton>
+            </div>
+          </div>
 
           <div className="rm-account-menu-section rm-local-data-section">
             <span className="rm-account-menu-label">本地数据</span>
@@ -303,19 +328,32 @@ export function AccountMenu({
             </span>
           )}
         </button>
-        {expanded && (
-          <button
-            className="rm-rail-theme-toggle"
-            type="button"
-            title={darkMode ? "切换到浅色模式" : "切换到深色模式"}
-            aria-label={darkMode ? "切换到浅色模式" : "切换到深色模式"}
-            onClick={() => selectTheme(darkMode ? "light" : "dark")}
-          >
-            {darkMode ? <Sun size={16} /> : <Moon size={16} />}
-          </button>
-        )}
       </div>
     </div>
+  );
+}
+
+function ThemeButton({
+  active,
+  label,
+  onClick,
+  children
+}: {
+  active: boolean;
+  label: string;
+  onClick(): void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      className={active ? "active" : ""}
+      type="button"
+      aria-pressed={active}
+      onClick={onClick}
+    >
+      {children}
+      {label}
+    </button>
   );
 }
 
