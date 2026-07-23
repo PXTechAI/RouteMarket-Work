@@ -58,19 +58,28 @@ import { WorkflowDraftStore } from "./workflow-draft-store";
 import { WorkflowRunStore } from "./workflow-run-store";
 import { WorkerClient } from "./worker-client";
 import { DESKTOP_APP_ID, desktopWindowIconPath } from "./desktop-brand";
+import { resolveRuntimeEndpoint } from "./runtime-endpoints";
+import { DesktopUpdateManager } from "./desktop-update-manager";
 
+declare const __ROUTEMARKET_WORK_BUILD_ENVIRONMENT__:
+  "development" | "test" | "production";
+declare const __ROUTEMARKET_WORK_DEFAULT_UPDATE_URL__: string | null;
 declare const __ROUTEMARKET_WORK_DEFAULT_API_URL__: string;
 declare const __ROUTEMARKET_WORK_DEFAULT_WEB_URL__: string;
 
 const PROTOCOL = "routemarket-work";
-const API_BASE_URL = (
-  process.env.ROUTEMARKET_WORK_API_URL ??
-  __ROUTEMARKET_WORK_DEFAULT_API_URL__
-).replace(/\/+$/, "");
-const WEB_BASE_URL = (
-  process.env.ROUTEMARKET_WORK_WEB_URL ??
-  __ROUTEMARKET_WORK_DEFAULT_WEB_URL__
-).replace(/\/+$/, "");
+const API_BASE_URL = resolveRuntimeEndpoint({
+  defaultUrl: __ROUTEMARKET_WORK_DEFAULT_API_URL__,
+  overrideUrl: process.env.ROUTEMARKET_WORK_API_URL,
+  buildEnvironment: __ROUTEMARKET_WORK_BUILD_ENVIRONMENT__,
+  name: "ROUTEMARKET_WORK_API_URL"
+});
+const WEB_BASE_URL = resolveRuntimeEndpoint({
+  defaultUrl: __ROUTEMARKET_WORK_DEFAULT_WEB_URL__,
+  overrideUrl: process.env.ROUTEMARKET_WORK_WEB_URL,
+  buildEnvironment: __ROUTEMARKET_WORK_BUILD_ENVIRONMENT__,
+  name: "ROUTEMARKET_WORK_WEB_URL"
+});
 
 let mainWindow: BrowserWindow | null = null;
 let workerClient: WorkerClient | null = null;
@@ -96,6 +105,7 @@ let workflowDraftStore: WorkflowDraftStore | null = null;
 let workflowRunStore: WorkflowRunStore | null = null;
 let localWorkflowRuntime: LocalWorkflowRuntime | null = null;
 let localDataPath: string | null = null;
+let desktopUpdateManager: DesktopUpdateManager | null = null;
 const attachedBrowser = new AttachedBrowserManager();
 const nativeAppConnectors = new NativeAppConnectorManager();
 let pendingDeepLink: string | null = null;
@@ -1900,6 +1910,13 @@ if (!hasSingleInstanceLock) {
     });
     registerIpc();
     createWindow();
+    desktopUpdateManager = new DesktopUpdateManager(
+      __ROUTEMARKET_WORK_BUILD_ENVIRONMENT__,
+      __ROUTEMARKET_WORK_DEFAULT_UPDATE_URL__,
+      () => mainWindow,
+      addActivity
+    );
+    desktopUpdateManager.start();
     await localTriggerManager.startAll();
 
     await desktopAuthManager.initialize();
@@ -1928,6 +1945,8 @@ app.on("window-all-closed", () => {
 });
 
 app.on("before-quit", () => {
+  desktopUpdateManager?.stop();
+  desktopUpdateManager = null;
   if (accountSyncTimer) clearInterval(accountSyncTimer);
   accountSyncTimer = null;
   void attachedBrowser.disconnect();

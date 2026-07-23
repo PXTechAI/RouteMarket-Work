@@ -14,6 +14,13 @@
       "output": "../../release",
       "buildResources": "build"
     },
+    "publish": [
+      {
+        "provider": "generic",
+        "url": "${env.ROUTEMARKET_WORK_UPDATE_URL}",
+        "channel": "latest"
+      }
+    ],
     "files": [
       "out/**/*",
       "build/icon.png",
@@ -47,7 +54,9 @@
       "createDesktopShortcut": "always",
       "createStartMenuShortcut": true,
       "shortcutName": "RouteMarket Work",
-      "runAfterFinish": true
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false,
+      "differentialPackage": true
     },
     "mac": {
       "target": [
@@ -60,7 +69,9 @@
   },
   "scripts": {
     "prebuild": "corepack pnpm --filter @routemarket/work-protocol build && corepack pnpm --filter @routemarket/work-worker-core build",
-    "build": "electron-vite build",
+    "build": "electron-vite build && node ../../scripts/verify-production-bundle.mjs out/main/index.js",
+    "build:release": "electron-vite build --mode desktop-release && node ../../scripts/verify-production-bundle.mjs out/main/index.js",
+    "build:test": "electron-vite build --mode desktop-test && node ../../scripts/verify-production-bundle.mjs out/main/index.js",
     "build:local": "electron-vite build --mode desktop-local",
     "predev": "corepack pnpm --filter @routemarket/work-protocol build && corepack pnpm --filter @routemarket/work-worker-core build",
     "predev:web": "corepack pnpm --filter @routemarket/work-protocol build && corepack pnpm --filter @routemarket/work-worker-core build",
@@ -68,7 +79,7 @@
     "pretypecheck": "corepack pnpm --filter @routemarket/work-protocol build && corepack pnpm --filter @routemarket/work-worker-core build",
     "dev": "electron-vite dev",
     "dev:web": "vite --config vite.renderer.config.ts",
-    "dist:win": "node ../../scripts/write-release-manifest.mjs --check-source --artifact-dir ../../release && corepack pnpm run build && electron-builder --win nsis --x64 && node ../../scripts/write-release-manifest.mjs --artifact-dir ../../release --platform win32 --arch x64",
+    "dist:win": "node ../../scripts/check-release-environment.mjs --platform win32 && node ../../scripts/write-release-manifest.mjs --check-source --artifact-dir ../../release && corepack pnpm run build:release && electron-builder --win nsis --x64 --publish never && powershell.exe -NoProfile -ExecutionPolicy Bypass -File ../../scripts/verify-windows-signature.ps1 -ArtifactDirectory ../../release -Arch x64 && node ../../scripts/prepare-update-metadata.mjs --artifact-dir ../../release && node ../../scripts/write-release-manifest.mjs --artifact-dir ../../release --platform win32 --arch x64",
     "dist:win:dir": "corepack pnpm run build:local && electron-builder --win dir --x64",
     "dist:mac": "corepack pnpm run build && electron-builder --mac dmg",
     "lint": "tsc -p tsconfig.json --noEmit",
@@ -79,6 +90,7 @@
   "dependencies": {
     "@routemarket/work-protocol": "workspace:*",
     "@routemarket/work-worker-core": "workspace:*",
+    "electron-updater": "6.6.2",
     "lucide-react": "^0.468.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",

@@ -1,22 +1,24 @@
 import { resolve } from "node:path";
 import { defineConfig } from "electron-vite";
 import react from "@vitejs/plugin-react";
+import {
+  resolveBuildEndpoints,
+  resolveBuildUpdateFeed
+} from "./build-endpoints";
 
 export default defineConfig(({ mode }) => {
-  const defaultApiBaseUrl =
-    mode === "production"
-      ? "https://console.routemarket.ai"
-      : "http://127.0.0.1:3001";
-  const defaultWebBaseUrl =
-    mode === "production"
-      ? "https://console.routemarket.ai"
-      : "http://localhost:3000";
+  const endpoints = resolveBuildEndpoints(mode);
+  const updateFeed = resolveBuildUpdateFeed(mode);
 
   return {
     main: {
       define: {
-        __ROUTEMARKET_WORK_DEFAULT_API_URL__: JSON.stringify(defaultApiBaseUrl),
-        __ROUTEMARKET_WORK_DEFAULT_WEB_URL__: JSON.stringify(defaultWebBaseUrl)
+        __ROUTEMARKET_WORK_BUILD_ENVIRONMENT__: JSON.stringify(
+          endpoints.buildEnvironment
+        ),
+        __ROUTEMARKET_WORK_DEFAULT_UPDATE_URL__: JSON.stringify(updateFeed),
+        __ROUTEMARKET_WORK_DEFAULT_API_URL__: JSON.stringify(endpoints.apiBaseUrl),
+        __ROUTEMARKET_WORK_DEFAULT_WEB_URL__: JSON.stringify(endpoints.webBaseUrl)
       },
       build: {
         rollupOptions: {

@@ -7,7 +7,8 @@ import {
   assertArtifactBuiltAfterCheck,
   assertCleanSource,
   createArtifactRecord,
-  manifestPathForArtifact
+  manifestPathForArtifact,
+  releaseUpdateRecord
 } from "./write-release-manifest.mjs";
 
 test("creates an exact artifact hash and adjacent manifest path", async () => {
@@ -52,4 +53,17 @@ test("rejects an artifact that predates the release source check", () => {
     Date.parse("2026-07-24T04:02:00.000Z"),
     Date.parse("2026-07-24T04:01:00.000Z")
   ));
+});
+
+test("records the update channel, rollout and feed origin without paths", () => {
+  assert.deepEqual(releaseUpdateRecord({
+    ROUTEMARKET_WORK_UPDATE_URL:
+      "https://downloads.example.com/private/work",
+    ROUTEMARKET_WORK_UPDATE_CHANNEL: "beta",
+    ROUTEMARKET_WORK_ROLLOUT_PERCENT: "20"
+  }), {
+    channel: "beta",
+    rolloutPercentage: 20,
+    feedOrigin: "https://downloads.example.com"
+  });
 });

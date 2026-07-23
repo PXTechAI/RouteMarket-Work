@@ -4,6 +4,11 @@ import { createReadStream } from "node:fs";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  releaseChannel,
+  rollout,
+  secureRemoteUrl
+} from "./check-release-environment.mjs";
 
 const scriptsDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptsDirectory, "..");
@@ -101,6 +106,7 @@ export async function writeReleaseManifest({
     );
   }
   const artifact = await createArtifactRecord(artifactPath);
+  const update = releaseUpdateRecord(process.env);
   const manifest = {
     schemaVersion: 1,
     productName: desktopPackage.build?.productName ?? desktopPackage.name,
@@ -110,7 +116,8 @@ export async function writeReleaseManifest({
     arch,
     createdAt,
     source,
-    artifact
+    artifact,
+    update
   };
   const outputPath = manifestPathForArtifact(artifactPath);
   await writeFile(outputPath, `${JSON.stringify(manifest, null, 2)}\n`, {
@@ -118,6 +125,19 @@ export async function writeReleaseManifest({
     mode: 0o600
   });
   return { outputPath, manifest };
+}
+
+export function releaseUpdateRecord(environment) {
+  const updateUrl = environment.ROUTEMARKET_WORK_UPDATE_URL
+    ? secureRemoteUrl(environment.ROUTEMARKET_WORK_UPDATE_URL)
+    : null;
+  return {
+    channel: releaseChannel(environment.ROUTEMARKET_WORK_UPDATE_CHANNEL),
+    rolloutPercentage: rollout(
+      environment.ROUTEMARKET_WORK_ROLLOUT_PERCENT
+    ),
+    feedOrigin: updateUrl ? new URL(updateUrl).origin : null
+  };
 }
 
 export async function resolveWindowsArtifact(artifactDirectory, arch) {
