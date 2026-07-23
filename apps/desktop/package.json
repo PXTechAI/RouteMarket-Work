@@ -67,7 +67,7 @@
     "pretypecheck": "corepack pnpm --filter @routemarket/work-protocol build && corepack pnpm --filter @routemarket/work-worker-core build",
     "dev": "electron-vite dev",
     "dev:web": "vite --config vite.renderer.config.ts",
-    "dist:win": "corepack pnpm run build && electron-builder --win nsis --x64",
+    "dist:win": "node ../../scripts/write-release-manifest.mjs --check-source && corepack pnpm run build && electron-builder --win nsis --x64 && node ../../scripts/write-release-manifest.mjs --artifact-dir ../../release --platform win32 --arch x64",
     "dist:win:dir": "corepack pnpm run build:local && electron-builder --win dir --x64",
     "dist:mac": "corepack pnpm run build && electron-builder --mac dmg",
     "lint": "tsc -p tsconfig.json --noEmit",

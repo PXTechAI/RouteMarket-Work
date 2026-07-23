@@ -14,6 +14,7 @@
     "test": "corepack pnpm -r run test",
     "test:chat-smoke": "corepack pnpm --filter @routemarket/work-desktop run test:chat-smoke",
     "test:core-e2e": "node scripts/run-core-work-e2e.mjs",
+    "test:release-manifest": "node --test scripts/write-release-manifest.test.mjs",
     "typecheck": "corepack pnpm -r run typecheck"
   }
 }
