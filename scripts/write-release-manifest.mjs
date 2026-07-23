@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { createReadStream } from "node:fs";
-import { readFile, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -49,6 +49,32 @@ export function assertCleanSource(sourceState) {
   }
 }
 
+export function assertArtifactBuiltAfterCheck(artifactModifiedAt, checkedAt) {
+  if (!Number.isFinite(artifactModifiedAt) || !Number.isFinite(checkedAt)) {
+    throw new Error("Release source check contains an invalid timestamp.");
+  }
+  if (artifactModifiedAt < checkedAt) {
+    throw new Error(
+      "Release artifact predates the source check. Run the complete dist:win command to rebuild it."
+    );
+  }
+}
+
+export async function writeSourceCheck(artifactDirectory, sourceState, checkedAt = new Date()) {
+  assertCleanSource(sourceState);
+  const directory = resolve(artifactDirectory);
+  await mkdir(directory, { recursive: true });
+  const check = {
+    commit: sourceState.commit,
+    checkedAt: checkedAt.toISOString()
+  };
+  await writeFile(join(directory, ".release-source.json"), `${JSON.stringify(check, null, 2)}\n`, {
+    encoding: "utf8",
+    mode: 0o600
+  });
+  return check;
+}
+
 export async function writeReleaseManifest({
   artifactPath,
   platform,
@@ -59,7 +85,21 @@ export async function writeReleaseManifest({
   if (!platform || !arch) throw new Error("Both platform and arch are required.");
   const desktopPackage = JSON.parse(await readFile(desktopPackagePath, "utf8"));
   const source = readSourceState();
-  if (!allowDirty) assertCleanSource(source);
+  if (!allowDirty) {
+    assertCleanSource(source);
+    const checkPath = join(dirname(resolve(artifactPath)), ".release-source.json");
+    const check = JSON.parse(await readFile(checkPath, "utf8").catch(() => {
+      throw new Error("Release source check is missing. Run the complete dist:win command.");
+    }));
+    if (check.commit !== source.commit) {
+      throw new Error("Git commit changed after the release source check. Restart the release build.");
+    }
+    const artifactStat = await stat(resolve(artifactPath));
+    assertArtifactBuiltAfterCheck(
+      artifactStat.mtimeMs,
+      typeof check.checkedAt === "string" ? Date.parse(check.checkedAt) : Number.NaN
+    );
+  }
   const artifact = await createArtifactRecord(artifactPath);
   const manifest = {
     schemaVersion: 1,
@@ -120,8 +160,13 @@ async function main() {
   const { values, flags } = parseArguments(process.argv.slice(2));
   const source = readSourceState();
   if (flags.has("--check-source")) {
-    assertCleanSource(source);
-    process.stdout.write(`${JSON.stringify({ ok: true, source })}\n`);
+    const artifactDirectory = values.get("--artifact-dir");
+    if (!artifactDirectory) throw new Error("--check-source requires --artifact-dir.");
+    const directory = isAbsolute(artifactDirectory)
+      ? artifactDirectory
+      : resolve(process.cwd(), artifactDirectory);
+    const check = await writeSourceCheck(directory, source);
+    process.stdout.write(`${JSON.stringify({ ok: true, source, check })}\n`);
     return;
   }
 

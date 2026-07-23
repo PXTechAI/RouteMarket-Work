@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import {
+  assertArtifactBuiltAfterCheck,
   assertCleanSource,
   createArtifactRecord,
   manifestPathForArtifact
@@ -37,4 +38,18 @@ test("rejects release candidates from a dirty source tree", () => {
     /clean Git worktree/
   );
   assert.doesNotThrow(() => assertCleanSource({ commit: "abc123", dirty: false }));
+});
+
+test("rejects an artifact that predates the release source check", () => {
+  assert.throws(
+    () => assertArtifactBuiltAfterCheck(
+      Date.parse("2026-07-24T04:00:00.000Z"),
+      Date.parse("2026-07-24T04:01:00.000Z")
+    ),
+    /predates the source check/
+  );
+  assert.doesNotThrow(() => assertArtifactBuiltAfterCheck(
+    Date.parse("2026-07-24T04:02:00.000Z"),
+    Date.parse("2026-07-24T04:01:00.000Z")
+  ));
 });
