@@ -95,6 +95,12 @@ export function AccountMenu({
             </div>
           </div>
 
+          {account && state.authError && (
+            <div className="rm-account-sync-alert" role="alert">
+              {state.authError}
+            </div>
+          )}
+
           {account && (
             <div className="rm-membership-summary">
               <Crown size={15} />

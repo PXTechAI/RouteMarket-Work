@@ -278,7 +278,71 @@ describe("DesktopAuthManager", () => {
     expect(onAccessToken).toHaveBeenLastCalledWith(undefined);
     expect(manager.getState()).toEqual({
       authStatus: "signed_out",
-      authError: "账户状态或登录授权已变更，请重新登录。"
+      authError: "登录已失效或已在其他设备退出，请重新登录。"
+    });
+  });
+
+  it("explains when the account is restricted by the server", async () => {
+    const { manager, credentialStore, onAccessToken } = createManager();
+    credentialStore.payload = {
+      credentials: {
+        accessToken: `rmw_dt_${"a".repeat(43)}`,
+        expiresAt: "2027-01-13T00:00:00.000Z",
+        scopes: ["work:runtime", "work:projects", "work:jobs", "work:chat"],
+        account: { id: "account_test", displayName: "RouteMarket User", email: null }
+      }
+    };
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>(async () =>
+      jsonResponse({ message: "Account suspended" }, 403)
+    ));
+
+    await manager.initialize();
+    await manager.syncAccount();
+
+    expect(credentialStore.payload).toEqual({});
+    expect(onAccessToken).toHaveBeenLastCalledWith(undefined);
+    expect(manager.getState()).toEqual({
+      authStatus: "signed_out",
+      authError: "当前账户暂时无法使用 RouteMarket，请前往网页端查看账户状态后重新登录。"
+    });
+  });
+
+  it.each([
+    {
+      name: "offline",
+      response: () => Promise.reject(new TypeError("fetch failed")),
+      message: "当前网络不可用，已保留本地登录状态；联网后会自动恢复同步。"
+    },
+    {
+      name: "service unavailable",
+      response: () => Promise.resolve(jsonResponse({ message: "Unavailable" }, 503)),
+      message: "RouteMarket 服务暂时不可用，账户信息将在服务恢复后自动同步。"
+    }
+  ])("keeps the local session available while $name", async ({ response, message }) => {
+    const { manager, credentialStore, onAccessToken } = createManager();
+    credentialStore.payload = {
+      credentials: {
+        accessToken: `rmw_dt_${"a".repeat(43)}`,
+        expiresAt: "2027-01-13T00:00:00.000Z",
+        scopes: ["work:runtime", "work:projects", "work:jobs", "work:chat"],
+        account: { id: "account_test", displayName: "RouteMarket User", email: null }
+      }
+    };
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>(response));
+
+    await manager.initialize();
+    await manager.syncAccount();
+
+    expect(credentialStore.payload.credentials).toBeDefined();
+    expect(onAccessToken).toHaveBeenLastCalledWith(`rmw_dt_${"a".repeat(43)}`);
+    expect(manager.getState()).toEqual({
+      authStatus: "signed_in",
+      account: {
+        id: "account_test",
+        displayName: "RouteMarket User",
+        email: null
+      },
+      authError: message
     });
   });
 

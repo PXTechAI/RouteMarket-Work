@@ -183,6 +183,16 @@
   font-size: 10px;
 }
 
+.rm-account-sync-alert {
+  padding: 8px 9px;
+  color: var(--rm-text);
+  background: color-mix(in srgb, var(--rm-warning) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--rm-warning) 35%, transparent);
+  border-radius: 7px;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
 .rm-membership-summary {
   display: grid;
   grid-template-columns: 20px minmax(0, 1fr);

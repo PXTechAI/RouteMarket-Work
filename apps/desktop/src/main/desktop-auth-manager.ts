@@ -273,15 +273,33 @@ export class DesktopAuthManager {
         { method: "GET" },
         "required"
       );
-      if (response.status === 401 || response.status === 403) {
+      if (response.status === 401) {
         await this.signOut();
         this.state = {
           authStatus: "signed_out",
-          authError: "账户状态或登录授权已变更，请重新登录。"
+          authError: "登录已失效或已在其他设备退出，请重新登录。"
         };
         return;
       }
-      if (!response.ok) return;
+      if (response.status === 403) {
+        await this.signOut();
+        this.state = {
+          authStatus: "signed_out",
+          authError: "当前账户暂时无法使用 RouteMarket，请前往网页端查看账户状态后重新登录。"
+        };
+        return;
+      }
+      if (!response.ok) {
+        this.state = {
+          authStatus: "signed_in",
+          account: credentials.account,
+          authError:
+            response.status >= 500
+              ? "RouteMarket 服务暂时不可用，账户信息将在服务恢复后自动同步。"
+              : "暂时无法同步账户状态，请稍后重试。"
+        };
+        return;
+      }
 
       const result = (await response.json().catch(() => null)) as unknown;
       if (!isAccountSnapshotResponse(result) || this.credentials !== credentials) return;
@@ -301,7 +319,12 @@ export class DesktopAuthManager {
       this.state = { authStatus: "signed_in", account: nextCredentials.account, authError: null };
       this.applyActiveSpace(nextCredentials.account);
     } catch {
-      // Keep the encrypted local session available during temporary network failures.
+      if (this.credentials !== credentials) return;
+      this.state = {
+        authStatus: "signed_in",
+        account: credentials.account,
+        authError: "当前网络不可用，已保留本地登录状态；联网后会自动恢复同步。"
+      };
     }
   }
 
