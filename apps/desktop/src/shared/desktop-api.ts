@@ -836,6 +836,7 @@ export type RouteMarketWorkApi = {
   listAgentProfiles(): Promise<DesktopAgentProfile[]>;
   listChatModels(): Promise<ChatModel[]>;
   getLocalProjectChat(localProjectId: string): Promise<LocalProjectChat | null>;
+  truncateLocalProjectChat(localProjectId: string, messageId: string): Promise<number>;
   sendProjectMessage(input: ProjectChatRequest): Promise<void>;
   stopProjectMessage(requestId: string): Promise<void>;
   onProjectChatEvent(listener: (event: ProjectChatEvent) => void): () => void;

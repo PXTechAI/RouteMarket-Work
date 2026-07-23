@@ -462,6 +462,46 @@
   border-color: var(--rm-accent);
 }
 
+.message-edit-banner {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: min(100%, 920px);
+  margin: 0 auto 9px;
+  padding: 8px 10px;
+  color: var(--rm-text-muted);
+  background: var(--rm-surface-muted);
+  border: 1px solid var(--rm-border);
+  border-radius: 9px;
+  font-size: 10px;
+}
+
+.message-edit-banner > svg {
+  flex: none;
+  color: var(--rm-accent);
+}
+
+.message-edit-banner span {
+  flex: 1;
+}
+
+.message-edit-banner button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 7px;
+  color: var(--rm-text-muted);
+  background: var(--rm-surface);
+  border: 1px solid var(--rm-border);
+  border-radius: 7px;
+  font-size: 10px;
+}
+
+.message-edit-banner button:hover {
+  color: var(--rm-text);
+  border-color: var(--rm-border-strong);
+}
+
 .chat-pane .composer {
   position: relative;
   width: min(100%, 920px);

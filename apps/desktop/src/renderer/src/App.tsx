@@ -62,6 +62,7 @@ import { ApprovalPage } from "./features/approvals/ApprovalPage";
 import { BrowserPage } from "./features/browser/BrowserPage";
 import { ChatPage } from "./features/chat/ChatPage";
 import { resolveConversationAgentVersion } from "./features/chat/agent-version";
+import { messagesBeforeEditedUser } from "./features/chat/chat-edit";
 import type { ChatMessage } from "./features/chat/types";
 import { FilesPage } from "./features/files/FilesPage";
 import { ProjectCreateDialog } from "./features/projects/ProjectCreateDialog";
@@ -891,6 +892,9 @@ const previewApi: RouteMarketWorkApi = {
   async getLocalProjectChat() {
     return null;
   },
+  async truncateLocalProjectChat() {
+    return 0;
+  },
   async listAgentProfiles() {
     return previewAgents;
   },
@@ -1069,6 +1073,7 @@ const unavailableApi: RouteMarketWorkApi = {
   listAgentProfiles: async () => desktopBridgeUnavailable(),
   listChatModels: async () => desktopBridgeUnavailable(),
   getLocalProjectChat: async () => desktopBridgeUnavailable(),
+  truncateLocalProjectChat: async () => desktopBridgeUnavailable(),
   sendProjectMessage: async () => desktopBridgeUnavailable(),
   stopProjectMessage: async () => desktopBridgeUnavailable(),
   onProjectChatEvent: () => () => undefined
@@ -1168,6 +1173,7 @@ export function App() {
   const [selectedProjectSkillId, setSelectedProjectSkillId] = useState("");
   const [modelsLoading, setModelsLoading] = useState(false);
   const [draft, setDraft] = useState("");
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [chatMessagesByProject, setChatMessagesByProject] = useState<
     Record<string, ChatMessage[]>
   >({});
@@ -1221,6 +1227,10 @@ export function App() {
       selectedChatAgent
     ]
   );
+
+  useEffect(() => {
+    setEditingMessageId(null);
+  }, [selectedProjectId]);
 
   useEffect(() => {
     if (!selectedProjectId) return;
@@ -2579,13 +2589,11 @@ export function App() {
   async function sendMessage(messageOverride?: string) {
     const message = (messageOverride ?? draft).trim();
     const selectedAgent = agentWorkspace.model.selectedAgent;
-    const activeAgentVersion = conversationAgentVersion;
     if (
       !message ||
       !selectedProject ||
       !selectedModelCode ||
       !selectedAgent ||
-      !activeAgentVersion ||
       activeRequestId
     ) return;
     if (state.authStatus !== "signed_in") {
@@ -2613,6 +2621,44 @@ export function App() {
         return;
       }
     }
+
+    let requestMessages = chatMessages;
+    if (editingMessageId) {
+      try {
+        requestMessages = messagesBeforeEditedUser(
+          requestMessages,
+          editingMessageId
+        );
+      } catch {
+        setEditingMessageId(null);
+        setError("要编辑的消息已不存在，请重新选择。");
+        return;
+      }
+      try {
+        await api.truncateLocalProjectChat(
+          selectedProject.localProjectId,
+          editingMessageId
+        );
+      } catch (nextError) {
+        setError(
+          nextError instanceof Error
+            ? nextError.message
+            : "无法回溯本地对话，请稍后重试"
+        );
+        return;
+      }
+      setChatMessagesByProject((current) => ({
+        ...current,
+        [selectedProject.localProjectId]: requestMessages
+      }));
+      setEditingMessageId(null);
+    }
+    const activeAgentVersion = resolveConversationAgentVersion(
+      requestMessages,
+      selectedAgent,
+      agentVersionKey ? adoptedAgentRevisions[agentVersionKey] : undefined
+    );
+    if (!activeAgentVersion) return;
 
     const requestId = `work_chat_${crypto.randomUUID().replaceAll("-", "")}`;
     const sessionId =
@@ -2643,7 +2689,7 @@ export function App() {
     setChatMessagesByProject((current) => ({
       ...current,
       [selectedProject.localProjectId]: [
-        ...(current[selectedProject.localProjectId] ?? []),
+        ...requestMessages,
         userMessage,
         assistantMessage
       ]
@@ -3166,6 +3212,7 @@ export function App() {
               agentVersion={conversationAgentVersion}
               projectContext={projectContext}
               selectedProjectSkillId={selectedProjectSkillId}
+              editingMessageId={editingMessageId}
               error={error}
               onChooseProject={() => void chooseProject()}
               onAttachProjectFolder={() => {
@@ -3174,6 +3221,20 @@ export function App() {
               onDraftChange={setDraft}
               onSend={() => void sendMessage()}
               onRetry={retryMessage}
+              onEditMessage={(messageId) => {
+                const message = chatMessages.find(
+                  (candidate) =>
+                    candidate.id === messageId && candidate.role === "user"
+                );
+                if (!message) return;
+                setEditingMessageId(message.id);
+                setDraft(message.content);
+                setError(null);
+              }}
+              onCancelEdit={() => {
+                setEditingMessageId(null);
+                setDraft("");
+              }}
               onStop={() => void stopMessage()}
               onModelChange={setSelectedModelCode}
               onExecutionEnvironmentChange={setExecutionEnvironment}

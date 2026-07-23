@@ -1562,6 +1562,20 @@ function registerIpc(): void {
     return localChatStore.get(localProjectId);
   });
 
+  ipcMain.handle(
+    "work:truncate-local-project-chat",
+    (_event, localProjectId: string, messageId: string) => {
+      if (!localChatStore) throw new Error("Local chat storage is unavailable.");
+      const hasActiveRequest = [...activeLocalChats.values()].some(
+        (chat) => chat.localProjectId === localProjectId
+      );
+      if (hasActiveRequest) {
+        throw new Error("Stop the active response before editing this conversation.");
+      }
+      return localChatStore.truncateFrom(localProjectId, messageId);
+    }
+  );
+
   ipcMain.handle("work:list-agent-profiles", async () => {
     if (!projectChatClient) {
       throw new Error("RouteMarket Agent profiles are unavailable.");

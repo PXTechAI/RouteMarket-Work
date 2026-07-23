@@ -4,6 +4,7 @@ import {
   CircleAlert,
   FolderPlus,
   Paperclip,
+  Pencil,
   RefreshCw,
   Send,
   Square,
@@ -55,12 +56,15 @@ type ChatPageProps = {
   } | null;
   projectContext: ProjectContext | null;
   selectedProjectSkillId: string;
+  editingMessageId: string | null;
   error: string | null;
   onChooseProject(): void;
   onAttachProjectFolder(): void;
   onDraftChange(value: string): void;
   onSend(): void;
   onRetry(messageId: string): void;
+  onEditMessage(messageId: string): void;
+  onCancelEdit(): void;
   onStop(): void;
   onModelChange(value: string): void;
   onExecutionEnvironmentChange(value: "auto" | "local" | "cloud"): void;
@@ -91,12 +95,15 @@ export function ChatPage({
   agentVersion,
   projectContext,
   selectedProjectSkillId,
+  editingMessageId,
   error,
   onChooseProject,
   onAttachProjectFolder,
   onDraftChange,
   onSend,
   onRetry,
+  onEditMessage,
+  onCancelEdit,
   onStop,
   onModelChange,
   onExecutionEnvironmentChange,
@@ -107,6 +114,7 @@ export function ChatPage({
   onDismissError
 }: ChatPageProps) {
   const chatScrollRef = useRef<HTMLDivElement>(null);
+  const composerInputRef = useRef<HTMLTextAreaElement>(null);
   const latestMessage = messages.at(-1);
   const folderAvailable = projectFolderAvailable(selectedProject);
   const folderStatus = projectFolderStatus(selectedProject);
@@ -125,6 +133,15 @@ export function ChatPage({
     latestMessage?.tools?.at(-1)?.status,
     activeRequestId
   ]);
+
+  useEffect(() => {
+    if (!editingMessageId) return;
+    composerInputRef.current?.focus();
+    composerInputRef.current?.setSelectionRange(
+      composerInputRef.current.value.length,
+      composerInputRef.current.value.length
+    );
+  }, [editingMessageId]);
 
   return (
     <section className="chat-pane">
@@ -190,8 +207,15 @@ export function ChatPage({
                   !message.content
                 }
                 onRetry={
-                  message.role === "assistant" && !activeRequestId
+                  message.role === "assistant" &&
+                  !activeRequestId &&
+                  !editingMessageId
                     ? () => onRetry(message.id)
+                    : undefined
+                }
+                onEdit={
+                  message.role === "user" && !activeRequestId
+                    ? () => onEditMessage(message.id)
                     : undefined
                 }
               />
@@ -202,6 +226,16 @@ export function ChatPage({
 
       {selectedProject && (
         <div className="composer-shell">
+          {editingMessageId && (
+            <div className="message-edit-banner" role="status">
+              <Pencil size={13} />
+              <span>正在编辑较早消息。发送后，这条消息及其后的回复会被新对话替换。</span>
+              <button type="button" onClick={onCancelEdit}>
+                <X size={12} />
+                取消
+              </button>
+            </div>
+          )}
           {agentVersion?.updateAvailable && (
             <div className="agent-version-banner" role="status">
               <div>
@@ -249,6 +283,7 @@ export function ChatPage({
               </div>
             </div>
             <textarea
+              ref={composerInputRef}
               value={draft}
               placeholder={
                 authStatus === "signed_in"

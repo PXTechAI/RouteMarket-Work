@@ -124,6 +124,42 @@ export class LocalChatStore {
     `).run(message.sentAt, message.sessionId);
   }
 
+  truncateFrom(localProjectId: string, messageId: string): number {
+    const target = this.db.prepare(`
+      SELECT rowid AS message_rowid, session_id, role
+      FROM local_chat_messages
+      WHERE local_project_id = ? AND id = ?
+      LIMIT 1
+    `).get(localProjectId, messageId) as {
+      message_rowid: number;
+      session_id: string;
+      role: LocalProjectChatMessage["role"];
+    } | undefined;
+    if (!target) throw new Error("The chat message no longer exists.");
+    if (target.role !== "user") throw new Error("Only user messages can be edited.");
+
+    this.db.exec("BEGIN");
+    try {
+      const result = this.db.prepare(`
+        DELETE FROM local_chat_messages
+        WHERE session_id = ? AND rowid >= ?
+      `).run(target.session_id, target.message_rowid);
+      this.db.prepare(`
+        UPDATE local_chat_threads
+        SET updated_at = COALESCE(
+          (SELECT MAX(sent_at) FROM local_chat_messages WHERE session_id = ?),
+          created_at
+        )
+        WHERE session_id = ?
+      `).run(target.session_id, target.session_id);
+      this.db.exec("COMMIT");
+      return Number(result.changes);
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
   deleteProject(localProjectId: string): void {
     this.db.exec("BEGIN");
     try {

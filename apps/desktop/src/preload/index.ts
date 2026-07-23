@@ -152,6 +152,8 @@ const api: RouteMarketWorkApi = {
   listChatModels: () => ipcRenderer.invoke("work:list-chat-models"),
   getLocalProjectChat: (localProjectId) =>
     ipcRenderer.invoke("work:get-local-project-chat", localProjectId),
+  truncateLocalProjectChat: (localProjectId, messageId) =>
+    ipcRenderer.invoke("work:truncate-local-project-chat", localProjectId, messageId),
   sendProjectMessage: (input) =>
     ipcRenderer.invoke("work:send-project-message", input),
   stopProjectMessage: (requestId) =>

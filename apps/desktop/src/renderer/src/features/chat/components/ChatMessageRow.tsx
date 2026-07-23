@@ -4,6 +4,7 @@ import {
   Copy,
   LoaderCircle,
   Paperclip,
+  Pencil,
   RotateCcw
 } from "lucide-react";
 import { useState } from "react";
@@ -14,11 +15,13 @@ import { MessageMarkdown } from "./MessageMarkdown";
 export function ChatMessageRow({
   message,
   streaming,
-  onRetry
+  onRetry,
+  onEdit
 }: {
   message: ChatMessage;
   streaming: boolean;
   onRetry?: () => void;
+  onEdit?: () => void;
 }) {
   const [copied, setCopied] = useState(false);
   const isError = message.role === "assistant" && message.content.startsWith("请求失败：");
@@ -94,8 +97,13 @@ export function ChatMessageRow({
             ) : null}
           </div>
         )}
-        {message.role === "assistant" && (message.content || isError) ? (
+        {(message.content || isError) && (message.role === "assistant" || onEdit) ? (
           <div className="message-actions">
+            {onEdit ? (
+              <button type="button" onClick={onEdit} title="编辑消息" aria-label="编辑消息">
+                <Pencil size={14} />
+              </button>
+            ) : null}
             {onRetry ? (
               <button type="button" onClick={onRetry} title="重新生成" aria-label="重新生成">
                 <RotateCcw size={14} />

@@ -65,6 +65,38 @@ describe("LocalChatStore", () => {
     store.close();
   });
 
+  it("rewinds a conversation from an edited user message", async () => {
+    temporaryDirectory = await mkdtemp(join(tmpdir(), "routemarket-local-chat-"));
+    const store = new LocalChatStore(join(temporaryDirectory, "work.db"));
+    const thread = store.getOrCreate("project_1", "First");
+    for (const [id, role, content] of [
+      ["user:request_1", "user", "First question"],
+      ["assistant:request_1", "assistant", "First answer"],
+      ["user:request_2", "user", "Original second question"],
+      ["assistant:request_2", "assistant", "Original second answer"]
+    ] as const) {
+      store.append({
+        id,
+        sessionId: thread.sessionId,
+        localProjectId: "project_1",
+        role,
+        content,
+        sentAt: `2026-07-23T04:00:0${store.get("project_1")!.messages.length}.000Z`
+      });
+    }
+
+    expect(store.truncateFrom("project_1", "user:request_2")).toBe(2);
+    expect(store.get("project_1")?.messages.map(({ id, content }) => ({ id, content })))
+      .toEqual([
+        { id: "user:request_1", content: "First question" },
+        { id: "assistant:request_1", content: "First answer" }
+      ]);
+    expect(() =>
+      store.truncateFrom("project_1", "assistant:request_1")
+    ).toThrow("Only user messages can be edited.");
+    store.close();
+  });
+
   it("deletes project chat data without affecting other projects", async () => {
     temporaryDirectory = await mkdtemp(join(tmpdir(), "routemarket-local-chat-"));
     const store = new LocalChatStore(join(temporaryDirectory, "work.db"));
