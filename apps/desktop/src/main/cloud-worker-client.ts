@@ -12,9 +12,10 @@ import WebSocket, { type RawData } from "ws";
 import type { ActivityItem, CloudWorkerStatus, ProjectSummary } from "../shared/desktop-api";
 import type { WorkerClient } from "./worker-client";
 import { redactCloudData } from "./cloud-redaction";
+import type { RouteMarketApiClient } from "./routemarket-api-client";
 
 const INITIAL_RECONNECT_DELAY_MS = 1_000;
-const MAX_RECONNECT_DELAY_MS = 30_000;
+const MAX_RECONNECT_DELAY_MS = 5 * 60_000;
 
 export type CloudWorkerTransport = Pick<
   WorkerClient,
@@ -29,7 +30,7 @@ export type CloudWorkerTransport = Pick<
 >;
 
 type CloudWorkerOptions = {
-  apiBaseUrl: string;
+  apiClient: RouteMarketApiClient;
   installationId: string;
   deviceName: string;
   platform: "windows" | "macos";
@@ -128,6 +129,7 @@ export class CloudWorkerClient {
 
     this.generation += 1;
     this.accessToken = token;
+    this.options.apiClient.setAccessToken(token);
     this.disconnect();
 
     if (!token) {
@@ -139,6 +141,14 @@ export class CloudWorkerClient {
     if (this.started) {
       void this.connect(this.generation);
     }
+  }
+
+  refreshWorkspace(): void {
+    if (this.stopped || !this.accessToken) return;
+    this.generation += 1;
+    this.disconnect();
+    this.status = "connecting";
+    if (this.started) void this.connect(this.generation);
   }
 
   stop(): void {
@@ -226,7 +236,7 @@ export class CloudWorkerClient {
     const mcpServers = await this.options.workerClient.listMcpServers();
     this.assertActive(generation);
     const revision = this.manifestRevision + 1;
-    const bindings = projects.map((project) => ({
+    const bindings = projects.filter((project) => project.hasFolder !== false).map((project) => ({
       project,
       bindingId: projectBindingIdFor(project.localProjectId)
     }));
@@ -467,12 +477,13 @@ export class CloudWorkerClient {
   private openRuntimeChannel(generation: number): void {
     if (!this.runtimeId || !this.accessToken || !this.isActive(generation)) return;
     if (this.options.socketFactory === false) return;
-    const socketUrl = new URL(`${this.options.apiBaseUrl}/api/app/v1/work/runtime-channel`);
-    socketUrl.protocol = socketUrl.protocol === "https:" ? "wss:" : "ws:";
+    const socketUrl = this.options.apiClient.resolveWebSocket(
+      "/api/app/v1/work/runtime-channel"
+    );
     const factory = this.options.socketFactory ?? ((url: string, token: string) => new WebSocket(url, {
-      headers: { Authorization: `Bearer ${token}` }
+      headers: this.options.apiClient.getWebSocketHeaders(token)
     }));
-    const socket = factory(socketUrl.toString(), this.accessToken);
+    const socket = factory(socketUrl, this.accessToken);
     this.socket = socket;
     socket.on("open", () => void this.onSocketOpen(socket, generation));
     socket.on("message", (data) => void this.onSocketMessage(socket, generation, data));
@@ -682,14 +693,15 @@ export class CloudWorkerClient {
     const accessToken = this.accessToken;
     if (!accessToken) throw new StaleConnectionError();
 
-    const response = await fetch(`${this.options.apiBaseUrl}/api/app/v1/work${path}`, {
-      method: options.method ?? "GET",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        ...(options.body === undefined ? {} : { "Content-Type": "application/json" })
+    const response = await this.options.apiClient.request(
+      `/api/app/v1/work${path}`,
+      {
+        method: options.method ?? "GET",
+        headers: options.body === undefined ? {} : { "Content-Type": "application/json" },
+        body: options.body === undefined ? undefined : JSON.stringify(options.body)
       },
-      body: options.body === undefined ? undefined : JSON.stringify(options.body)
-    });
+      "required"
+    );
     this.assertActive(generation);
     const payload = await response.json().catch(() => null);
     this.assertActive(generation);

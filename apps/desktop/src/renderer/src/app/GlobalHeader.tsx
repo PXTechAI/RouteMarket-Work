@@ -1,23 +1,33 @@
 import { ChevronRight } from "lucide-react";
 import type { ActivityItem } from "../../../shared/desktop-api";
 import { ActivityMenu } from "./ActivityMenu";
+import { resolveBuildEnvironment } from "./build-environment";
 
 export function GlobalHeader({
   activeView,
-  activities
+  activities,
+  onClearActivities
 }: {
   activeView: string;
   activities: ActivityItem[];
+  onClearActivities(): void;
 }) {
+  const buildEnvironment = resolveBuildEnvironment(import.meta.env.MODE, import.meta.env.DEV);
+
   return (
     <header className="rm-global-header">
       <div className="rm-global-context">
         <span className="rm-global-app-name">RouteMarket Work</span>
+        {buildEnvironment ? (
+          <span className={`rm-build-environment rm-build-environment--${buildEnvironment.kind}`}>
+            {buildEnvironment.label}
+          </span>
+        ) : null}
         <ChevronRight size={13} />
         <strong>{viewLabel(activeView)}</strong>
       </div>
       <div className="rm-global-spacer" />
-      <ActivityMenu activities={activities} />
+      <ActivityMenu activities={activities} onClear={onClearActivities} />
     </header>
   );
 }

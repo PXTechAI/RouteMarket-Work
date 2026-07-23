@@ -6,6 +6,7 @@ import type {
 import { ProjectChatClient } from "./project-chat-client";
 import type { ProjectChatToolRunner } from "./project-chat-tool-runner";
 import { PROJECT_CHAT_TOOLS } from "./project-chat-tools";
+import { RouteMarketApiClient } from "./routemarket-api-client";
 
 const request: ProjectChatRequest = {
   requestId: "request_1",
@@ -73,6 +74,8 @@ const agentRequest: ProjectChatRequest = {
   message: "Inspect the project.",
   agent: {
     agentId: "agent_builder",
+    agentRevision: 1,
+    executionEnvironment: "local",
     localToolGroups: ["files", "skills"],
     maxToolRounds: 4
   }
@@ -107,9 +110,13 @@ function createClient(
     listTools?: ProjectChatToolRunner["listTools"];
   }
 ) {
+  const apiClient = new RouteMarketApiClient({
+    baseUrl: "https://api.example.test",
+    appVersion: "0.1.0"
+  });
+  apiClient.setAccessToken("rmw_dt_test");
   return new ProjectChatClient({
-    apiBaseUrl: "https://api.example.test",
-    getAccessToken: () => "rmw_dt_test",
+    apiClient,
     onEvent: (event) => events.push(event),
     toolRunner
   });
@@ -201,6 +208,7 @@ describe("ProjectChatClient", () => {
 
     await expect(createClient().listAgents()).resolves.toEqual([{
       id: "agent_builder",
+      revision: 1,
       name: "Project Builder",
       description: "Build and verify project changes.",
       avatarUrl: "https://assets.example.test/agent.png",
@@ -209,6 +217,12 @@ describe("ProjectChatClient", () => {
       starterQuestions: ["Run the tests", "Inspect the project"],
       tags: ["development"],
       defaultModelCode: "model_chat",
+      skills: [],
+      toolPermissions: [{ type: "mcp", serverId: "server_cloud" }],
+      executionPolicy: {
+        environment: "auto",
+        approvalMode: "risky_only"
+      },
       tools: [{ type: "mcp", serverId: "server_cloud" }],
       updatedAt: "2026-07-18T00:00:00.000Z"
     }]);
@@ -240,39 +254,43 @@ describe("ProjectChatClient", () => {
       { requestId: "request_1", type: "delta", content: "Hello world" },
       { requestId: "request_1", type: "complete", content: "Hello world" }
     ]);
-    expect(fetchMock).toHaveBeenCalledTimes(3);
-    const prepareBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
-    expect(prepareBody).toMatchObject({
-      session_id: "session_1",
-      title: "Example Project",
-      model_code: "model_chat"
-    });
-    expect(prepareBody.system_prompt).toContain("Always run tests.");
-    expect(prepareBody.system_prompt).toContain("Code review (review)");
-    expect(prepareBody.system_prompt).toContain("<project-skill id=\"review\"");
-    expect(prepareBody.system_prompt).toContain("Inspect the diff and report findings by severity.");
-    const body = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toMatch(/\/api\/app\/v1\/work\/chat\/local$/);
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
     expect(body).toMatchObject({
       session_id: "session_1",
       request_id: "request_1",
       model: "model_chat",
       stream: true
     });
-    expect(body.message.content).toContain("src/index.ts");
-    expect(body.message.content).toContain("export const answer = 42;");
-    const persisted = JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body));
-    expect(persisted).toMatchObject({
-      user_message: {
-        id: "user:request_1",
-        role: "user",
-        sentAt: "2026-07-17T12:00:00.000Z"
-      },
-      assistant_message: {
-        id: "assistant:request_1",
-        role: "assistant",
-        content: "Hello world"
-      }
+    expect(body.system_prompt).toContain("Always run tests.");
+    expect(body.system_prompt).toContain("Code review (review)");
+    expect(body.system_prompt).toContain("<project-skill id=\"review\"");
+    expect(body.system_prompt).toContain("Inspect the diff and report findings by severity.");
+    expect(body.messages[0].content).toContain("src/index.ts");
+    expect(body.messages[0].content).toContain("export const answer = 42;");
+  });
+
+  it("keeps folder tools unavailable for a project without a linked folder", async () => {
+    const fetchMock = chatFetch(sseResponse("data: [DONE]\n\n"));
+    const listTools = vi.fn(async () => PROJECT_CHAT_TOOLS);
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createClient([], {
+      listTools,
+      execute: vi.fn()
+    }).send({
+      ...request,
+      project: { ...request.project, hasFolder: false },
+      contextFile: undefined,
+      projectContext: undefined,
+      projectSkill: undefined
     });
+
+    expect(listTools).not.toHaveBeenCalled();
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(body.tools).toEqual([]);
+    expect(body.system_prompt).toContain("not linked to a local folder");
   });
 
   it("streams Responses API output text deltas", async () => {
@@ -320,8 +338,26 @@ describe("ProjectChatClient", () => {
     };
     const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
       const url = String(input);
+      if (url.endsWith("/agents/agent_builder/versions/1")) {
+        return jsonResponse({
+          revision: 1,
+          source: "create",
+          created_at: "2026-07-18T00:00:00.000Z",
+          snapshot: {
+            name: "Project Builder",
+            description: "Build and verify project changes.",
+            avatarUrl: "https://assets.example.test/agent.png",
+            systemPrompt: "Complete the requested project task and verify the result.",
+            greeting: "What should we build?",
+            starterQuestions: ["Run the tests", "Inspect the project"],
+            tags: ["development"],
+            defaultModelCode: "model_chat",
+            tools: [{ type: "mcp", serverId: "server_cloud" }]
+          }
+        });
+      }
       if (url.endsWith("/agents/agent_builder")) {
-        return jsonResponse(agentProfilePayload);
+        return jsonResponse({ ...agentProfilePayload, revision: 2 });
       }
       if (url.endsWith("/sessions")) {
         return jsonResponse({ session: { id: agentRequest.sessionId } });
@@ -346,16 +382,16 @@ describe("ProjectChatClient", () => {
     expect(fetchMock.mock.calls[0]?.[1]?.headers).toMatchObject({
       Authorization: "Bearer rmw_dt_test"
     });
-    const prepareBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body));
-    expect(prepareBody.title).toContain("Project Builder");
-    expect(prepareBody.system_prompt).toContain(
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain(
+      "/agents/agent_builder/versions/1"
+    );
+    const modelBody = JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body));
+    expect(modelBody.system_prompt).toContain(
       'RouteMarket Agent profile "Project Builder"'
     );
-    expect(prepareBody.system_prompt).toContain(
+    expect(modelBody.system_prompt).toContain(
       "Complete the requested project task and verify the result."
     );
-
-    const modelBody = JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body));
     const toolNames = modelBody.tools.map(
       (tool: { function: { name: string } }) => tool.function.name
     );
@@ -384,7 +420,15 @@ describe("ProjectChatClient", () => {
     let modelRound = 0;
     const fetchMock = vi.fn<typeof fetch>(async (input) => {
       const url = String(input);
-      if (url.endsWith("/agents/agent_builder")) return jsonResponse(agentProfilePayload);
+      if (url.endsWith("/agents/agent_builder")) {
+        return jsonResponse({
+          ...agentProfilePayload,
+          execution_policy: {
+            environment: "local",
+            approvalMode: "never_ask"
+          }
+        });
+      }
       if (url.endsWith("/sessions")) {
         return jsonResponse({ session: { id: agentRequest.sessionId } });
       }
@@ -415,7 +459,7 @@ describe("ProjectChatClient", () => {
         arguments: '{"path":"src/index.ts"}'
       },
       expect.any(AbortSignal),
-      { source: "agent" }
+      { source: "agent", approvalMode: "never_ask" }
     );
   });
 
@@ -482,6 +526,8 @@ describe("ProjectChatClient", () => {
       ...agentRequest,
       agent: {
         agentId: "agent_builder",
+        agentRevision: 1,
+        executionEnvironment: "local",
         localToolGroups: ["browser"],
         maxToolRounds: 2
       }
@@ -561,7 +607,7 @@ describe("ProjectChatClient", () => {
         arguments: '{"path":"src/index.ts"}'
       },
       expect.any(AbortSignal),
-      { source: "chat" }
+      { source: "chat", approvalMode: "risky_only" }
     );
     expect(events).toContainEqual({
       requestId: "request_1",
@@ -584,7 +630,7 @@ describe("ProjectChatClient", () => {
       content: "The answer is 42."
     });
 
-    const firstRound = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body));
+    const firstRound = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
     expect(firstRound.tools).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -600,9 +646,9 @@ describe("ProjectChatClient", () => {
         })
       ])
     );
-    const secondRound = JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body));
+    const secondRound = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body));
     expect(secondRound.tools).toEqual(firstRound.tools);
-    expect(secondRound.extra_messages).toEqual([
+    expect(secondRound.messages.slice(1)).toEqual([
       {
         role: "assistant",
         content: null,
@@ -621,7 +667,7 @@ describe("ProjectChatClient", () => {
         content: expect.stringContaining('"sha256"')
       }
     ]);
-    expect(fetchMock.mock.calls[2]?.[1]?.headers).toMatchObject({
+    expect(fetchMock.mock.calls[1]?.[1]?.headers).toMatchObject({
       "x-request-id": "request_1_tool_round_1"
     });
   });
@@ -688,7 +734,7 @@ describe("ProjectChatClient", () => {
         arguments: '{"task":"Review the current changes."}'
       },
       expect.any(AbortSignal),
-      { source: "chat" }
+      { source: "chat", approvalMode: "risky_only" }
     );
     expect(events).toContainEqual({
       requestId: "request_1",
@@ -706,7 +752,7 @@ describe("ProjectChatClient", () => {
       summary: "Code review · 49 characters"
     });
 
-    const firstRound = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body));
+    const firstRound = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
     expect(firstRound.tools).toEqual(expect.arrayContaining([
       expect.objectContaining({
         function: expect.objectContaining({
@@ -717,8 +763,8 @@ describe("ProjectChatClient", () => {
     expect(firstRound.system_prompt).toContain(
       "Project-local Skills available through the local Skill Runtime."
     );
-    const secondRound = JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body));
-    expect(secondRound.extra_messages.at(-1)).toEqual({
+    const secondRound = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body));
+    expect(secondRound.messages.at(-1)).toEqual({
       role: "tool",
       tool_call_id: "call_skill_1",
       content: expect.stringContaining("report findings by severity")
@@ -752,7 +798,7 @@ describe("ProjectChatClient", () => {
     const client = createClient(events);
 
     const pending = client.send(request);
-    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     client.stop(request.requestId);
     await pending;
 

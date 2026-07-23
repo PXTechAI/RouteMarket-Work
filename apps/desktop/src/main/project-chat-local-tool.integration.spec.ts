@@ -14,6 +14,7 @@ import type {
 import { LocalToolBroker } from "./tool-broker";
 import { ProjectChatClient } from "./project-chat-client";
 import { ProjectChatToolRunner } from "./project-chat-tool-runner";
+import { RouteMarketApiClient } from "./routemarket-api-client";
 
 let registry: ProjectRegistry | null = null;
 let tempRoot: string | null = null;
@@ -141,9 +142,13 @@ describe("Project chat local Tool integration", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
+    const apiClient = new RouteMarketApiClient({
+      baseUrl: "https://api.example.test",
+      appVersion: "0.1.0"
+    });
+    apiClient.setAccessToken("rmw_dt_test");
     await new ProjectChatClient({
-      apiBaseUrl: "https://api.example.test",
-      getAccessToken: () => "rmw_dt_test",
+      apiClient,
       onEvent: (event) => events.push(event),
       toolRunner
     }).send(request);
@@ -152,8 +157,8 @@ describe("Project chat local Tool integration", () => {
       project.localProjectId,
       "src/answer.ts"
     );
-    const secondRound = JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body));
-    expect(secondRound.extra_messages).toEqual([
+    const secondRound = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body));
+    expect(secondRound.messages.slice(1)).toEqual([
       {
         role: "assistant",
         content: null,

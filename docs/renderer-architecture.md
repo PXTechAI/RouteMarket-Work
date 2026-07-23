@@ -161,6 +161,24 @@ MCP processes, managed or attached browser automation, operating-system
 dialogs, protocol login callbacks, local triggers, and IPC behavior. Web
 preview must never be treated as verification of those capabilities.
 
+Electron development connects to the local services by default:
+
+- RouteMarket Core API: `http://127.0.0.1:3001`
+- RouteMarket Web login flow: `http://localhost:3000` (keep this hostname aligned with
+  the local browser session so its authentication cookie remains available)
+
+Use `ROUTEMARKET_WORK_API_URL` and `ROUTEMARKET_WORK_WEB_URL` only when a
+different local stack is intentional. Production builds default both origins
+to `https://console.routemarket.ai`.
+
+All first-party HTTP and WebSocket traffic from the Electron main process must
+go through `RouteMarketApiClient`. Authentication, project chat, Cloud Worker,
+and cloud Workflow execution share that client for URL resolution, access-token
+injection, and desktop identity headers. Feature clients must not call `fetch`
+against RouteMarket origins or assemble a RouteMarket WebSocket URL directly.
+The client deliberately has no alternate origin or automatic online fallback:
+if the local API is unavailable in development, the request fails locally.
+
 The renderer preview owns port `5175`. Desktop development must not start,
 stop, inspect, or occupy RouteMarket Core port `3001`.
 

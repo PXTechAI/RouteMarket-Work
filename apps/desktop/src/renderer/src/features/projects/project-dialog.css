@@ -1,0 +1,65 @@
+.project-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgb(15 23 42 / 34%);
+  backdrop-filter: blur(4px);
+}
+
+.project-dialog {
+  display: grid;
+  width: min(100%, 460px);
+  gap: 22px;
+  padding: 24px;
+  color: var(--rm-text);
+  background: var(--rm-surface);
+  border: 1px solid var(--rm-border);
+  border-radius: 18px;
+  box-shadow: 0 24px 70px rgb(15 23 42 / 22%);
+}
+
+.project-dialog header,
+.project-dialog footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.project-dialog h2,
+.project-dialog p {
+  margin: 0;
+}
+
+.project-dialog h2 { font-size: 18px; }
+.project-dialog p { margin-top: 5px; color: var(--rm-text-muted); font-size: 12px; }
+
+.project-dialog header > button {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  color: var(--rm-text-muted);
+  background: transparent;
+  border: 0;
+  border-radius: 9px;
+  cursor: pointer;
+}
+
+.project-dialog label { display: grid; gap: 8px; font-size: 12px; font-weight: 650; }
+.project-dialog input {
+  width: 100%;
+  height: 44px;
+  padding: 0 13px;
+  color: var(--rm-text);
+  background: var(--rm-surface-muted);
+  border: 1px solid var(--rm-border);
+  border-radius: 11px;
+  outline: none;
+}
+.project-dialog input:focus { border-color: var(--rm-accent); box-shadow: var(--rm-focus-ring); }
+.project-dialog footer { justify-content: flex-end; }
+.project-dialog footer button { display: inline-flex; align-items: center; gap: 7px; }

@@ -69,7 +69,7 @@ export function FilesPage({
         {!model.selectedProject && (
           <div className="blank-state">
             <div className="blank-icon"><FolderPlus size={28} /></div>
-            <h2>打开一个本地项目</h2>
+            <h2>选择一个已关联文件夹的项目</h2>
             <button className="primary-button" type="button" onClick={actions.onChooseProject}>
               <FolderPlus size={16} />
               选择文件夹

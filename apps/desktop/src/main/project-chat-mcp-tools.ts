@@ -7,6 +7,7 @@ import type {
   ProjectChatToolDefinition,
   ProjectChatToolExecution
 } from "./project-chat-tools";
+import type { ToolApprovalMode } from "./tool-broker";
 
 const MCP_TOOL_PREFIX = "mcp_local_";
 const MAX_DYNAMIC_MCP_TOOLS = 128;
@@ -68,7 +69,8 @@ export class ProjectChatMcpToolRuntime {
   async execute(
     localProjectId: string,
     call: ProjectChatToolCall,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    approvalMode: ToolApprovalMode = "risky_only"
   ): Promise<ProjectChatToolExecution> {
     try {
       throwIfAborted(signal);
@@ -85,7 +87,8 @@ export class ProjectChatMcpToolRuntime {
             detail,
             auditDetail: `${resolved.server.serverId} · ${resolved.tool.name}`,
             approvalKey: `${resolved.server.serverId}:${resolved.tool.name}:${sha256(JSON.stringify(args))}`,
-            projectId: localProjectId
+            projectId: localProjectId,
+            approvalMode
           },
           async () => {
             throwIfAborted(signal);

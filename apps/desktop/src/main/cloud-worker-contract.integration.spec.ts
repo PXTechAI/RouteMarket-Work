@@ -13,6 +13,7 @@ import {
   CloudWorkerClient,
   type CloudWorkerTransport
 } from "./cloud-worker-client";
+import { RouteMarketApiClient } from "./routemarket-api-client";
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -123,7 +124,10 @@ describe("Core to Work Desktop Job contract", () => {
     }));
 
     client = new CloudWorkerClient({
-      apiBaseUrl: "https://core.example.test",
+      apiClient: new RouteMarketApiClient({
+        baseUrl: "https://core.example.test",
+        appVersion: "0.1.0"
+      }),
       installationId: "install_contract_1",
       deviceName: "Contract Workstation",
       platform: "windows",

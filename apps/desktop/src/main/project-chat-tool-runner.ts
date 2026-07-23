@@ -9,7 +9,7 @@ import type {
 import type { ManagedBrowserManager } from "./managed-browser-manager";
 import { ProjectChatMcpToolRuntime } from "./project-chat-mcp-tools";
 import { ProjectChatSkillRuntime } from "./project-chat-skill-tools";
-import type { LocalToolBroker } from "./tool-broker";
+import type { LocalToolBroker, ToolApprovalMode } from "./tool-broker";
 import type { WorkerClient } from "./worker-client";
 import type {
   ProjectChatToolCall,
@@ -124,10 +124,14 @@ export class ProjectChatToolRunner {
     localProjectId: string,
     call: ProjectChatToolCall,
     signal?: AbortSignal,
-    context: { source: "chat" | "agent" } = { source: "chat" }
+    context: {
+      source: "chat" | "agent";
+      approvalMode?: ToolApprovalMode;
+    } = { source: "chat" }
   ): Promise<ProjectChatToolExecution> {
+    const approvalMode = context.approvalMode ?? "risky_only";
     if (this.mcpRuntime?.isDynamicToolName(call.name)) {
-      return this.mcpRuntime.execute(localProjectId, call, signal);
+      return this.mcpRuntime.execute(localProjectId, call, signal, approvalMode);
     }
     if (this.skillRuntime?.isDynamicToolName(call.name)) {
       return this.skillRuntime.execute(localProjectId, call, signal);
@@ -152,7 +156,8 @@ export class ProjectChatToolRunner {
               }),
               summary: `${paths.length} 个路径`
             };
-          }
+          },
+          approvalMode
         );
       }
 
@@ -177,7 +182,8 @@ export class ProjectChatToolRunner {
               }),
               summary: `${result.matches.length} 个结果`
             };
-          }
+          },
+          approvalMode
         );
       }
 
@@ -197,7 +203,8 @@ export class ProjectChatToolRunner {
               content: stringifyToolResult(sanitizeReadResult(path, result)),
               summary: `${path} · ${result.bytesRead} bytes`
             };
-          }
+          },
+          approvalMode
         );
       }
 
@@ -236,7 +243,8 @@ export class ProjectChatToolRunner {
               }),
               summary: result.changed ? `已修改 ${path}` : `${path} 没有变化`
             };
-          }
+          },
+          approvalMode
         );
       }
 
@@ -269,7 +277,8 @@ export class ProjectChatToolRunner {
               }),
               summary: `已创建 ${path}`
             };
-          }
+          },
+          approvalMode
         );
       }
 
@@ -321,13 +330,16 @@ export class ProjectChatToolRunner {
               content: stringifyToolResult(sanitizeProcess(result)),
               summary: processSummary(result)
             };
-          }
+          },
+          approvalMode
         );
       }
 
       if (call.name === "project_list_processes") {
         assertNoUnexpectedKeys(args, []);
-        return await this.runWithActivity(
+        return await this.runPassive(
+          localProjectId,
+          "local.process.list",
           "查看项目进程",
           localProjectId,
           async () => {
@@ -338,7 +350,8 @@ export class ProjectChatToolRunner {
               content: stringifyToolResult({ processes }),
               summary: `${processes.length} 个项目进程`
             };
-          }
+          },
+          approvalMode
         );
       }
 
@@ -364,13 +377,16 @@ export class ProjectChatToolRunner {
               content: stringifyToolResult(sanitizeProcess(result)),
               summary: `已停止 ${result.executable} · ${result.processId}`
             };
-          }
+          },
+          approvalMode
         );
       }
 
       if (call.name === "browser_get_state") {
         assertNoUnexpectedKeys(args, []);
-        return await this.runWithActivity(
+        return await this.runPassive(
+          localProjectId,
+          "local.browser.read",
           "查看浏览器页面",
           localProjectId,
           async () => {
@@ -379,7 +395,8 @@ export class ProjectChatToolRunner {
               content: stringifyToolResult(sanitizeBrowserState(state)),
               summary: `${state.pages.length} 个浏览器页面`
             };
-          }
+          },
+          approvalMode
         );
       }
 
@@ -426,7 +443,8 @@ export class ProjectChatToolRunner {
               content: stringifyToolResult(sanitizeBrowserState(state)),
               summary: browserPageSummary(state)
             };
-          }
+          },
+          approvalMode
         );
       }
 
@@ -456,7 +474,8 @@ export class ProjectChatToolRunner {
               content: stringifyToolResult(sanitizeBrowserState(state)),
               summary: browserPageSummary(state)
             };
-          }
+          },
+          approvalMode
         );
       }
 
@@ -494,7 +513,8 @@ export class ProjectChatToolRunner {
               }),
               summary: `已点击 ${selector}`
             };
-          }
+          },
+          approvalMode
         );
       }
 
@@ -534,7 +554,8 @@ export class ProjectChatToolRunner {
               }),
               summary: `已填写 ${text.length} 个字符`
             };
-          }
+          },
+          approvalMode
         );
       }
 
@@ -576,7 +597,8 @@ export class ProjectChatToolRunner {
               }),
               summary: `已选择 ${result.relativePaths.length} 个项目文件`
             };
-          }
+          },
+          approvalMode
         );
       }
 
@@ -618,7 +640,8 @@ export class ProjectChatToolRunner {
               }),
               summary: `读取 ${extracted.text.length} 个字符`
             };
-          }
+          },
+          approvalMode
         );
       }
 
@@ -642,7 +665,8 @@ export class ProjectChatToolRunner {
     localProjectId: string,
     title: string,
     detail: string,
-    operation: () => Promise<Omit<ProjectChatToolExecution, "isError">>
+    operation: () => Promise<Omit<ProjectChatToolExecution, "isError">>,
+    approvalMode: ToolApprovalMode
   ): Promise<ProjectChatToolExecution> {
     return this.runWithActivity(title, detail, () =>
       this.options.toolBroker.run(
@@ -651,7 +675,31 @@ export class ProjectChatToolRunner {
           risk: "R0",
           title,
           detail,
-          projectId: localProjectId
+          projectId: localProjectId,
+          approvalMode
+        },
+        operation
+      )
+    );
+  }
+
+  private async runPassive(
+    localProjectId: string,
+    capability: string,
+    title: string,
+    detail: string,
+    operation: () => Promise<Omit<ProjectChatToolExecution, "isError">>,
+    approvalMode: ToolApprovalMode
+  ): Promise<ProjectChatToolExecution> {
+    return this.runWithActivity(title, detail, () =>
+      this.options.toolBroker.run(
+        {
+          capability,
+          risk: "R0",
+          title,
+          detail,
+          projectId: localProjectId,
+          approvalMode
         },
         operation
       )
@@ -668,14 +716,16 @@ export class ProjectChatToolRunner {
     },
     activityTitle: string,
     activityDetail: string,
-    operation: () => Promise<Omit<ProjectChatToolExecution, "isError">>
+    operation: () => Promise<Omit<ProjectChatToolExecution, "isError">>,
+    approvalMode: ToolApprovalMode
   ): Promise<ProjectChatToolExecution> {
     return this.runAuthorized(
       localProjectId,
       { ...authorization, risk: "R1" },
       activityTitle,
       activityDetail,
-      operation
+      operation,
+      approvalMode
     );
   }
 
@@ -691,13 +741,15 @@ export class ProjectChatToolRunner {
     },
     activityTitle: string,
     activityDetail: string,
-    operation: () => Promise<Omit<ProjectChatToolExecution, "isError">>
+    operation: () => Promise<Omit<ProjectChatToolExecution, "isError">>,
+    approvalMode: ToolApprovalMode
   ): Promise<ProjectChatToolExecution> {
     return this.runWithActivity(activityTitle, activityDetail, () =>
       this.options.toolBroker.run(
         {
           ...authorization,
-          projectId: localProjectId
+          projectId: localProjectId,
+          approvalMode
         },
         operation
       )

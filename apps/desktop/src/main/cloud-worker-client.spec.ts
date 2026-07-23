@@ -6,6 +6,7 @@ import {
   CloudWorkerClient,
   type CloudWorkerTransport
 } from "./cloud-worker-client";
+import { RouteMarketApiClient } from "./routemarket-api-client";
 
 const runtimeResponse = {
   runtime_id: "runtime_test",
@@ -76,7 +77,10 @@ function createClient(
   ) => Promise<JobEvent[]>
 ): CloudWorkerClient {
   return new CloudWorkerClient({
-    apiBaseUrl: "https://api.example.test",
+    apiClient: new RouteMarketApiClient({
+      baseUrl: "https://api.example.test",
+      appVersion: "0.1.0"
+    }),
     installationId: "install_test",
     deviceName: "Test Workstation",
     platform: "windows",
@@ -167,7 +171,10 @@ describe("CloudWorkerClient", () => {
       throw new Error(`Unexpected request: ${url}`);
     }));
     const client = new CloudWorkerClient({
-      apiBaseUrl: "https://api.example.test",
+      apiClient: new RouteMarketApiClient({
+        baseUrl: "https://api.example.test",
+        appVersion: "0.1.0"
+      }),
       installationId: "install_test",
       deviceName: "Test Workstation",
       platform: "windows",
@@ -690,7 +697,10 @@ describe("CloudWorkerClient", () => {
       throw new Error(`Unexpected request: ${url}`);
     }));
     const client = new CloudWorkerClient({
-      apiBaseUrl: "https://api.example.test",
+      apiClient: new RouteMarketApiClient({
+        baseUrl: "https://api.example.test",
+        appVersion: "0.1.0"
+      }),
       installationId: "install_test",
       deviceName: "Test Workstation",
       platform: "windows",
@@ -792,7 +802,10 @@ describe("CloudWorkerClient", () => {
       throw new Error(`Unexpected request: ${url}`);
     }));
     const client = new CloudWorkerClient({
-      apiBaseUrl: "https://api.example.test",
+      apiClient: new RouteMarketApiClient({
+        baseUrl: "https://api.example.test",
+        appVersion: "0.1.0"
+      }),
       installationId: "install_test",
       deviceName: "Test Workstation",
       platform: "windows",

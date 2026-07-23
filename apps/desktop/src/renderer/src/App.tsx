@@ -54,6 +54,7 @@ import type {
 import { createDiffPreview } from "./diff";
 import { parseCommandLine } from "./command-line";
 import { AppRail } from "./app/AppRail";
+import { AuthGate } from "./app/AuthGate";
 import { GlobalHeader } from "./app/GlobalHeader";
 import { AgentPage } from "./features/agent/AgentPage";
 import { useAgentWorkspace } from "./features/agent/useAgentWorkspace";
@@ -62,7 +63,7 @@ import { BrowserPage } from "./features/browser/BrowserPage";
 import { ChatPage } from "./features/chat/ChatPage";
 import type { ChatMessage } from "./features/chat/types";
 import { FilesPage } from "./features/files/FilesPage";
-import { ProjectSidebar } from "./features/projects/ProjectSidebar";
+import { ProjectCreateDialog } from "./features/projects/ProjectCreateDialog";
 import { WorkflowPage } from "./features/workflow/WorkflowPage";
 import type { WorkflowPanel } from "./features/workflow/types";
 
@@ -90,6 +91,7 @@ const previewState: WorkState = {
     {
       localProjectId: "project_preview",
       displayName: "RouteMarket-Desktop",
+      hasFolder: true,
       rootFingerprint: "sha256:preview",
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
@@ -139,9 +141,10 @@ const previewModels: ChatModel[] = [
 const previewAgents = [
   {
     id: "agent_project_builder",
+    revision: 1,
     name: "Project Builder",
     description: "读取项目、调用本地能力并持续完成开发任务。",
-    avatarUrl: null,
+    avatarUrl: "emoji:🛠️|bg:#4f46e5",
     systemPrompt: "Work through the project task carefully and verify every concrete change.",
     greeting: "今天要在这个项目里完成什么？",
     starterQuestions: [
@@ -151,19 +154,26 @@ const previewAgents = [
     ],
     tags: ["project", "development"],
     defaultModelCode: "gpt-5",
+    skills: [],
+    toolPermissions: [],
+    executionPolicy: { environment: "local" as const, approvalMode: "risky_only" as const },
     tools: [],
     updatedAt: "2026-07-18T00:00:00.000Z"
   },
   {
     id: "agent_browser_operator",
+    revision: 1,
     name: "Browser Operator",
     description: "使用内置浏览器处理网页操作和信息采集。",
-    avatarUrl: null,
+    avatarUrl: "emoji:🌐|bg:#0ea5e9",
     systemPrompt: "Use browser tools deliberately and report what was actually observed.",
     greeting: "告诉我需要在浏览器里完成的目标。",
     starterQuestions: ["打开网站并检查当前页面", "整理页面中的关键信息"],
     tags: ["browser"],
     defaultModelCode: "claude-sonnet",
+    skills: [],
+    toolPermissions: [{ type: "browser" }],
+    executionPolicy: { environment: "local" as const, approvalMode: "risky_only" as const },
     tools: [{ type: "browser" }],
     updatedAt: "2026-07-18T00:00:00.000Z"
   }
@@ -268,6 +278,10 @@ const previewApi: RouteMarketWorkApi = {
   async getState() {
     return previewCurrentState;
   },
+  async clearActivities() {
+    previewCurrentState = { ...previewCurrentState, activities: [] };
+    return previewCurrentState;
+  },
   async signIn() {
     previewCurrentState = previewState;
     return previewCurrentState;
@@ -282,6 +296,15 @@ const previewApi: RouteMarketWorkApi = {
     };
     return previewCurrentState;
   },
+  async switchSpace(spaceId) {
+    if (previewCurrentState.account) {
+      previewCurrentState = {
+        ...previewCurrentState,
+        account: { ...previewCurrentState.account, activeSpaceId: spaceId }
+      };
+    }
+    return previewCurrentState;
+  },
   async removeApprovalPolicy(policyId) {
     const before = previewCurrentState.approvalPolicies.length;
     previewCurrentState = {
@@ -294,6 +317,35 @@ const previewApi: RouteMarketWorkApi = {
   },
   async chooseProject() {
     return null;
+  },
+  async createProject(displayName) {
+    const project: ProjectSummary = {
+      localProjectId: `project_preview_${Date.now()}`,
+      displayName,
+      hasFolder: false,
+      rootFingerprint: "",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    previewCurrentState = { ...previewCurrentState, projects: [project, ...previewCurrentState.projects] };
+    return project;
+  },
+  async attachProjectFolder(localProjectId) {
+    const project = previewCurrentState.projects.find((item) => item.localProjectId === localProjectId);
+    if (!project) return null;
+    const linked = { ...project, hasFolder: true, rootFingerprint: "sha256:preview" };
+    previewCurrentState = {
+      ...previewCurrentState,
+      projects: previewCurrentState.projects.map((item) => item.localProjectId === localProjectId ? linked : item)
+    };
+    return linked;
+  },
+  async deleteProject(localProjectId) {
+    previewCurrentState = {
+      ...previewCurrentState,
+      projects: previewCurrentState.projects.filter((item) => item.localProjectId !== localProjectId)
+    };
+    return true;
   },
   async getProjectContext() {
     return {
@@ -830,13 +882,72 @@ const previewApi: RouteMarketWorkApi = {
   async listChatModels() {
     return previewModels;
   },
+  async getLocalProjectChat() {
+    return null;
+  },
   async listAgentProfiles() {
     return previewAgents;
   },
   async sendProjectMessage(input) {
+    if (input.message.includes("模拟失败")) {
+      window.setTimeout(() => {
+        for (const listener of previewChatListeners) {
+          listener({
+            requestId: input.requestId,
+            type: "error",
+            message: "预览模式：模型服务暂时不可用。"
+          });
+        }
+      }, 350);
+      return;
+    }
     const reply = input.contextFile
-      ? `我已经收到问题，并会结合 \`${input.contextFile.relativePath}\` 的内容来分析。`
-      : "我已经收到问题。这个项目对话会保持当前项目上下文，并通过 RouteMarket 模型流式回复。";
+      ? [
+          "## 分析完成",
+          "",
+          `我已经结合 \`${input.contextFile.relativePath}\` 的内容完成分析：`,
+          "",
+          "- 保留当前项目上下文",
+          "- 按 Agent 的 Skill 与工具权限执行",
+          "- 本机改动仍受本机审批策略保护"
+        ].join("\n")
+      : [
+          "## 项目检查完成",
+          "",
+          "当前对话已经固定到所选 Agent 版本，并在 **本机环境** 中运行。",
+          "",
+          "- Agent 的 system prompt 已生效",
+          "- Skills 与工具权限彼此独立",
+          "- 对话记录仅保存在本机",
+          "",
+          "```text",
+          "pnpm test",
+          "✓ preview checks passed",
+          "```"
+        ].join("\n");
+    window.setTimeout(() => {
+      for (const listener of previewChatListeners) {
+        listener({
+          requestId: input.requestId,
+          type: "tool_started",
+          toolCallId: "preview_project_read",
+          toolName: "project_read_file",
+          title: "读取项目文件"
+        });
+      }
+    }, 120);
+    window.setTimeout(() => {
+      for (const listener of previewChatListeners) {
+        listener({
+          requestId: input.requestId,
+          type: "tool_completed",
+          toolCallId: "preview_project_read",
+          toolName: "project_read_file",
+          title: "读取项目文件",
+          summary: "已读取 AGENTS.md"
+        });
+      }
+    }, 220);
     window.setTimeout(() => {
       for (const listener of previewChatListeners) {
         listener({
@@ -873,10 +984,15 @@ function desktopBridgeUnavailable(): never {
 
 const unavailableApi: RouteMarketWorkApi = {
   getState: async () => desktopBridgeUnavailable(),
+  clearActivities: async () => desktopBridgeUnavailable(),
   signIn: async () => desktopBridgeUnavailable(),
   signOut: async () => desktopBridgeUnavailable(),
+  switchSpace: async () => desktopBridgeUnavailable(),
   removeApprovalPolicy: async () => desktopBridgeUnavailable(),
   chooseProject: async () => desktopBridgeUnavailable(),
+  createProject: async () => desktopBridgeUnavailable(),
+  attachProjectFolder: async () => desktopBridgeUnavailable(),
+  deleteProject: async () => desktopBridgeUnavailable(),
   getProjectContext: async () => desktopBridgeUnavailable(),
   getWorkflowNodeRegistry: async () => desktopBridgeUnavailable(),
   listProjectFiles: async () => desktopBridgeUnavailable(),
@@ -946,6 +1062,7 @@ const unavailableApi: RouteMarketWorkApi = {
   callMcpTool: async () => desktopBridgeUnavailable(),
   listAgentProfiles: async () => desktopBridgeUnavailable(),
   listChatModels: async () => desktopBridgeUnavailable(),
+  getLocalProjectChat: async () => desktopBridgeUnavailable(),
   sendProjectMessage: async () => desktopBridgeUnavailable(),
   stopProjectMessage: async () => desktopBridgeUnavailable(),
   onProjectChatEvent: () => () => undefined
@@ -955,6 +1072,7 @@ const api =
   window.routeMarketWork ?? (import.meta.env.DEV ? previewApi : unavailableApi);
 
 export function App() {
+  const [stateLoaded, setStateLoaded] = useState(false);
   const [state, setState] = useState<WorkState>({
     workerStatus: "starting",
     cloudStatus: "disabled",
@@ -969,6 +1087,8 @@ export function App() {
   });
   const [workspaceView, setWorkspaceView] = useState<WorkspaceView>("chat");
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const [projectDialogOpen, setProjectDialogOpen] = useState(false);
+  const [projectActionBusy, setProjectActionBusy] = useState(false);
   const [projectFiles, setProjectFiles] = useState<ProjectFileTree | null>(null);
   const [projectContext, setProjectContext] = useState<ProjectContext | null>(null);
   const [workflowRegistry, setWorkflowRegistry] = useState<DesktopWorkflowNodeRegistry | null>(null);
@@ -1033,11 +1153,12 @@ export function App() {
   const [includeFileContext, setIncludeFileContext] = useState(true);
   const [loading, setLoading] = useState(false);
   const [treeLoading, setTreeLoading] = useState(false);
-  const [authAction, setAuthAction] = useState<"sign-in" | "sign-out" | null>(null);
+  const [authAction, setAuthAction] = useState<"sign-in" | "sign-out" | "switch-space" | null>(null);
   const [busyApprovalPolicyId, setBusyApprovalPolicyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [models, setModels] = useState<ChatModel[]>([]);
   const [selectedModelCode, setSelectedModelCode] = useState("");
+  const [executionEnvironment, setExecutionEnvironment] = useState<"auto" | "local" | "cloud">("auto");
   const [selectedProjectSkillId, setSelectedProjectSkillId] = useState("");
   const [modelsLoading, setModelsLoading] = useState(false);
   const [draft, setDraft] = useState("");
@@ -1059,7 +1180,7 @@ export function App() {
   );
   const agentWorkspace = useAgentWorkspace({
     api,
-    active: workspaceView === "agent",
+    active: workspaceView === "agent" || workspaceView === "chat",
     authStatus: state.authStatus,
     selectedProject,
     projectContext,
@@ -1070,6 +1191,37 @@ export function App() {
   const chatMessages = selectedProjectId
     ? chatMessagesByProject[selectedProjectId] ?? []
     : [];
+
+  useEffect(() => {
+    if (!selectedProjectId) return;
+    let active = true;
+    void api.getLocalProjectChat(selectedProjectId)
+      .then((chat) => {
+        if (!active || !chat) return;
+        sessionIdsRef.current.set(selectedProjectId, chat.sessionId);
+        setChatMessagesByProject((current) => ({
+          ...current,
+          [selectedProjectId]: chat.messages.map((message) => ({
+            id: message.id,
+            role: message.role,
+            content: message.content,
+            sentAt: message.sentAt,
+            ...(message.contextFile ? { contextFile: message.contextFile } : {}),
+            ...(message.stopped ? { stopped: true } : {}),
+            ...(message.agentId ? { agentId: message.agentId } : {}),
+            ...(message.agentRevision ? { agentRevision: message.agentRevision } : {}),
+            ...(message.agentName ? { agentName: message.agentName } : {}),
+            ...("agentAvatarUrl" in message
+              ? { agentAvatarUrl: message.agentAvatarUrl }
+              : {})
+          }))
+        }));
+      })
+      .catch((nextError) => {
+        if (active) setError(nextError instanceof Error ? nextError.message : "本地对话加载失败");
+      });
+    return () => { active = false; };
+  }, [selectedProjectId]);
   const hasFileChanges = Boolean(
     readResult && (newFileDraft || fileDraft !== readResult.text)
   );
@@ -1103,11 +1255,13 @@ export function App() {
   const refreshState = useCallback(async () => {
     const nextState = await api.getState();
     setState(nextState);
+    setStateLoaded(true);
     setSelectedProjectId((current) =>
       current && nextState.projects.some((project) => project.localProjectId === current)
         ? current
         : nextState.projects[0]?.localProjectId ?? null
     );
+    return nextState;
   }, []);
 
   useEffect(() => {
@@ -1129,7 +1283,6 @@ export function App() {
       const projectId = activeRequest.projectId;
 
       if (event.type === "error") {
-        setError(event.message);
         setChatMessagesByProject((current) =>
           updateAssistantMessage(current, projectId, event.requestId, (message) => ({
             ...message,
@@ -1188,7 +1341,7 @@ export function App() {
     setFileDraft("");
     setNewFileDraft(false);
     setIncludeFileContext(true);
-    if (!selectedProjectId) {
+    if (!selectedProjectId || selectedProject?.hasFolder === false) {
       setTreeLoading(false);
       return () => {
         active = false;
@@ -1217,7 +1370,7 @@ export function App() {
     return () => {
       active = false;
     };
-  }, [selectedProjectId]);
+  }, [selectedProject?.hasFolder, selectedProjectId]);
 
   useEffect(() => {
     const preferred = projectContext?.settings.defaultModel;
@@ -1507,6 +1660,23 @@ export function App() {
     }
   }
 
+  async function switchSpace(spaceId: string) {
+    if (spaceId === state.account?.activeSpaceId) return;
+    if (activeRequestId) await api.stopProjectMessage(activeRequestId).catch(() => undefined);
+    await agentWorkspace.stopActive().catch(() => undefined);
+    setAuthAction("switch-space");
+    setError(null);
+    try {
+      setState(await api.switchSpace(spaceId));
+      activeRequestRef.current = null;
+      setActiveRequestId(null);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "空间切换失败");
+    } finally {
+      setAuthAction(null);
+    }
+  }
+
   async function revokeApprovalPolicy(policyId: string) {
     setBusyApprovalPolicyId(policyId);
     setError(null);
@@ -1520,12 +1690,57 @@ export function App() {
     }
   }
 
-  async function chooseProject() {
+  function chooseProject() {
     setError(null);
-    const project = await api.chooseProject();
-    if (!project) return;
-    await refreshState();
-    setSelectedProjectId(project.localProjectId);
+    setProjectDialogOpen(true);
+  }
+
+  async function createProject(displayName: string, attachFolder: boolean) {
+    setProjectActionBusy(true);
+    setError(null);
+    try {
+      const project = await api.createProject(displayName);
+      setSelectedProjectId(project.localProjectId);
+      setWorkspaceView("chat");
+      setProjectDialogOpen(false);
+      if (attachFolder) await api.attachProjectFolder(project.localProjectId);
+      await refreshState();
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "项目创建失败");
+    } finally {
+      setProjectActionBusy(false);
+    }
+  }
+
+  async function attachProjectFolder(localProjectId: string) {
+    setError(null);
+    try {
+      const project = await api.attachProjectFolder(localProjectId);
+      if (!project) return;
+      await refreshState();
+      setSelectedProjectId(localProjectId);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "关联文件夹失败");
+    }
+  }
+
+  async function deleteProject(localProjectId: string) {
+    setError(null);
+    try {
+      if (!await api.deleteProject(localProjectId)) return;
+      const nextState = await refreshState();
+      if (selectedProjectId === localProjectId) {
+        setSelectedProjectId(nextState.projects[0]?.localProjectId ?? null);
+      }
+      setChatMessagesByProject((current) => {
+        const next = { ...current };
+        delete next[localProjectId];
+        return next;
+      });
+      sessionIdsRef.current.delete(localProjectId);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "删除项目失败");
+    }
   }
 
   async function refreshProjectFiles() {
@@ -2331,9 +2546,16 @@ export function App() {
     }
   }
 
-  async function sendMessage() {
-    const message = draft.trim();
-    if (!message || !selectedProject || !selectedModelCode || activeRequestId) return;
+  async function sendMessage(messageOverride?: string) {
+    const message = (messageOverride ?? draft).trim();
+    const selectedAgent = agentWorkspace.model.selectedAgent;
+    if (
+      !message ||
+      !selectedProject ||
+      !selectedModelCode ||
+      !selectedAgent ||
+      activeRequestId
+    ) return;
     if (state.authStatus !== "signed_in") {
       setError("请先登录 RouteMarket 账户。");
       return;
@@ -2379,7 +2601,11 @@ export function App() {
       id: `assistant:${requestId}`,
       role: "assistant",
       content: "",
-      sentAt
+      sentAt,
+      agentId: selectedAgent.id,
+      agentRevision: selectedAgent.revision,
+      agentName: selectedAgent.name,
+      agentAvatarUrl: selectedAgent.avatarUrl
     };
 
     setChatMessagesByProject((current) => ({
@@ -2407,10 +2633,20 @@ export function App() {
         message,
         project: {
           localProjectId: selectedProject.localProjectId,
-          displayName: selectedProject.displayName
+          displayName: selectedProject.displayName,
+          hasFolder: selectedProject.hasFolder !== false
         },
         ...(projectContext ? { projectContext } : {}),
         ...(projectSkill ? { projectSkill } : {}),
+        agent: {
+          agentId: selectedAgent.id,
+          agentRevision: selectedAgent.revision,
+          executionEnvironment,
+          agentName: selectedAgent.name,
+          agentAvatarUrl: selectedAgent.avatarUrl,
+          localToolGroups: agentWorkspace.model.localToolGroups,
+          maxToolRounds: agentWorkspace.model.maxToolRounds
+        },
         ...(includeFileContext && selectedFilePath && readResult
           ? {
               contextFile: {
@@ -2425,7 +2661,6 @@ export function App() {
     } catch (nextError) {
       const messageText =
         nextError instanceof Error ? nextError.message : "对话请求发送失败";
-      setError(messageText);
       setChatMessagesByProject((current) =>
         updateAssistantMessage(
           current,
@@ -2442,9 +2677,34 @@ export function App() {
     }
   }
 
+  function retryMessage(messageId: string) {
+    const assistantIndex = chatMessages.findIndex((message) => message.id === messageId);
+    if (assistantIndex < 0) return;
+    for (let index = assistantIndex - 1; index >= 0; index -= 1) {
+      const prior = chatMessages[index];
+      if (prior?.role === "user" && prior.content.trim()) {
+        void sendMessage(prior.content);
+        return;
+      }
+    }
+  }
+
   async function stopMessage() {
     if (!activeRequestId) return;
     await api.stopProjectMessage(activeRequestId);
+  }
+
+  if (!stateLoaded || state.authStatus !== "signed_in") {
+    return (
+      <AuthGate
+        loading={!stateLoaded}
+        state={state}
+        busy={authAction !== null}
+        connectionError={error}
+        onSignIn={() => void signIn()}
+        onCancel={() => void signOut()}
+      />
+    );
   }
 
   return (
@@ -2452,29 +2712,34 @@ export function App() {
       <AppRail
         activeView={workspaceView}
         state={state}
+        selectedProjectId={selectedProjectId}
         authBusy={authAction !== null}
         onSelect={(view) => {
           if (view === "browser") setBrowserScreenshot(null);
           setWorkspaceView(view);
         }}
+        onCreateProject={chooseProject}
+        onSelectProject={(projectId) => {
+          setSelectedProjectId(projectId);
+          setWorkspaceView("chat");
+          setError(null);
+        }}
+        onAttachProjectFolder={(projectId) => void attachProjectFolder(projectId)}
+        onDeleteProject={(projectId) => void deleteProject(projectId)}
+        onRefreshState={() => void refreshState()}
         onSignIn={() => void signIn()}
         onSignOut={() => void signOut()}
+        onSwitchSpace={(spaceId) => void switchSpace(spaceId)}
       />
       <GlobalHeader
         activeView={workspaceView}
         activities={state.activities}
-      />
-      <ProjectSidebar
-        state={state}
-        selectedProjectId={selectedProjectId}
-        onChooseProject={() => void chooseProject()}
-        onSelectProject={(projectId) => {
-          setSelectedProjectId(projectId);
-          setError(null);
+        onClearActivities={() => {
+          void api.clearActivities().then(setState).catch((nextError) => {
+            setError(nextError instanceof Error ? nextError.message : "无法清除本机活动");
+          });
         }}
-        onRefreshState={() => void refreshState()}
       />
-
       <main className="workspace">
         <header className="workspace-header">
           <div className="project-heading">
@@ -2487,9 +2752,12 @@ export function App() {
                       projectContext.instructions ? "AGENTS.md" : null,
                       projectContext.skills.length
                         ? `${projectContext.skills.length} 个项目 Skill`
-                        : null
-                    ].filter(Boolean).join(" · ") || "本地项目"
-                  : "本地项目"
+                        : null,
+                      projectContext.settings.cloudProjectId ? "已关联云端项目" : null
+                    ].filter(Boolean).join(" · ") || (selectedProject?.hasFolder === false ? "未关联文件夹" : "已关联本机文件夹")
+                  : selectedProject
+                    ? selectedProject.hasFolder === false ? "未关联文件夹" : "已关联本机文件夹"
+                    : "项目可选关联文件夹"
               )}</span>
             </div>
             {selectedProject && (
@@ -2507,7 +2775,7 @@ export function App() {
             <button
               className="primary-button"
               type="button"
-              disabled={!selectedProject || treeLoading}
+              disabled={!selectedProject || selectedProject.hasFolder === false || treeLoading}
               onClick={() => void refreshProjectFiles()}
             >
               {treeLoading
@@ -2522,6 +2790,8 @@ export function App() {
           <button
             className={`tab ${workspaceView === "files" ? "active" : ""}`}
             type="button"
+            disabled={selectedProject?.hasFolder === false}
+            title={selectedProject?.hasFolder === false ? "请先关联项目文件夹" : undefined}
             onClick={() => setWorkspaceView("files")}
           >
             <FileText size={15} />文件
@@ -2529,6 +2799,8 @@ export function App() {
           <button
             className={`tab ${workspaceView === "terminal" ? "active" : ""}`}
             type="button"
+            disabled={selectedProject?.hasFolder === false}
+            title={selectedProject?.hasFolder === false ? "请先关联项目文件夹" : undefined}
             onClick={() => setWorkspaceView("terminal")}
           ><SquareTerminal size={15} />终端</button>
           <button
@@ -2843,15 +3115,38 @@ export function App() {
               authStatus={state.authStatus}
               models={models}
               selectedModelCode={selectedModelCode}
+              executionEnvironment={executionEnvironment}
               modelsLoading={modelsLoading}
+              agents={agentWorkspace.model.agents}
+              agentsLoading={agentWorkspace.model.agentsLoading}
+              selectedAgentId={agentWorkspace.model.selectedAgentId}
+              selectedAgent={agentWorkspace.model.selectedAgent}
               projectContext={projectContext}
               selectedProjectSkillId={selectedProjectSkillId}
               error={error}
               onChooseProject={() => void chooseProject()}
+              onAttachProjectFolder={() => {
+                if (selectedProject) void attachProjectFolder(selectedProject.localProjectId);
+              }}
               onDraftChange={setDraft}
               onSend={() => void sendMessage()}
+              onRetry={retryMessage}
               onStop={() => void stopMessage()}
               onModelChange={setSelectedModelCode}
+              onExecutionEnvironmentChange={setExecutionEnvironment}
+              onAgentChange={(agentId) => {
+                agentWorkspace.actions.onSelectAgent(agentId);
+                const nextAgent = agentWorkspace.model.agents.find(
+                  (agent) => agent.id === agentId
+                );
+                const preferredModel = nextAgent?.defaultModelCode;
+                if (preferredModel && models.some((model) => model.code === preferredModel)) {
+                  setSelectedModelCode(preferredModel);
+                }
+                if (nextAgent?.executionPolicy.environment) {
+                  setExecutionEnvironment(nextAgent.executionPolicy.environment);
+                }
+              }}
               onProjectSkillChange={setSelectedProjectSkillId}
               onIncludeFileContextChange={setIncludeFileContext}
               onDismissError={() => setError(null)}
@@ -3027,6 +3322,12 @@ export function App() {
 
         </div>
       </main>
+      <ProjectCreateDialog
+        open={projectDialogOpen}
+        busy={projectActionBusy}
+        onClose={() => { if (!projectActionBusy) setProjectDialogOpen(false); }}
+        onCreate={(name, attachFolder) => void createProject(name, attachFolder)}
+      />
     </div>
   );
 }

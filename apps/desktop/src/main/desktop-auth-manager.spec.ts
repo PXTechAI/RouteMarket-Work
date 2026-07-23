@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DesktopAuthManager } from "./desktop-auth-manager";
 import type { DeviceCredentialPayload } from "./device-credential-store";
+import { RouteMarketApiClient } from "./routemarket-api-client";
 
 class MemoryCredentialStore {
   payload: DeviceCredentialPayload = {};
@@ -25,12 +26,18 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
-function createManager() {
+function createManager(webBaseUrl?: string) {
   const credentialStore = new MemoryCredentialStore();
   const openExternal = vi.fn<(url: string) => Promise<void>>(async () => undefined);
-  const onAccessToken = vi.fn();
+  const apiClient = new RouteMarketApiClient({
+    baseUrl: "https://console.example.test",
+    appVersion: "0.1.0"
+  });
+  const onAccessToken = vi.fn((token: string | undefined) => apiClient.setAccessToken(token));
+  const onSpaceChanged = vi.fn();
   const manager = new DesktopAuthManager({
-    apiBaseUrl: "https://console.example.test",
+    apiClient,
+    ...(webBaseUrl ? { webBaseUrl } : {}),
     installationId: "install_test",
     deviceName: "Test Workstation",
     platform: "windows",
@@ -38,9 +45,10 @@ function createManager() {
     appVersion: "0.1.0",
     credentialStore,
     openExternal,
-    onAccessToken
+    onAccessToken,
+    onSpaceChanged
   });
-  return { manager, credentialStore, openExternal, onAccessToken };
+  return { manager, credentialStore, openExternal, onAccessToken, onSpaceChanged };
 }
 
 describe("DesktopAuthManager", () => {
@@ -76,6 +84,16 @@ describe("DesktopAuthManager", () => {
     );
   });
 
+  it("opens the web login origin while keeping API exchange separate", async () => {
+    const { manager, openExternal } = createManager("http://localhost:3000");
+
+    await manager.signIn();
+
+    const authorizationUrl = new URL(openExternal.mock.calls[0]![0]);
+    expect(authorizationUrl.origin).toBe("http://localhost:3000");
+    expect(authorizationUrl.pathname).toBe("/desktop-auth");
+  });
+
   it("rejects a callback whose state does not match", async () => {
     const { manager, credentialStore, onAccessToken } = createManager();
     await manager.signIn();
@@ -94,7 +112,7 @@ describe("DesktopAuthManager", () => {
   });
 
   it("exchanges a valid callback and stores the Device Token", async () => {
-    const { manager, credentialStore, onAccessToken } = createManager();
+    const { manager, credentialStore, onAccessToken, onSpaceChanged } = createManager();
     await manager.signIn();
     const pending = credentialStore.payload.pendingAuthorization!;
     const fetchMock = vi.fn<typeof fetch>(async () =>
@@ -106,13 +124,16 @@ describe("DesktopAuthManager", () => {
           id: "account_test",
           display_name: "RouteMarket User",
           email: "user@example.test",
+          avatar_url: "https://assets.example.test/user.png",
           membership: {
             plan_code: "pro",
             plan_name: "RouteMarket Pro",
             status: "active",
             expires_at: "2027-07-18T00:00:00.000Z"
           }
-        }
+        },
+        teams: [{ id: "team_design", name: "Design Team", role: "member" }],
+        active_team_id: "team_design"
       })
     );
     vi.stubGlobal("fetch", fetchMock);
@@ -135,6 +156,12 @@ describe("DesktopAuthManager", () => {
         id: "account_test",
         displayName: "RouteMarket User",
         email: "user@example.test",
+        avatarUrl: "https://assets.example.test/user.png",
+        activeSpaceId: "team_design",
+        spaces: expect.arrayContaining([
+          expect.objectContaining({ kind: "personal", teamId: null }),
+          expect.objectContaining({ id: "team_design", kind: "team", teamId: "team_design" })
+        ]),
         membership: {
           planCode: "pro",
           planName: "RouteMarket Pro",
@@ -144,6 +171,7 @@ describe("DesktopAuthManager", () => {
       }
     });
     expect(onAccessToken).toHaveBeenCalledWith(`rmw_dt_${"a".repeat(43)}`);
+    expect(onSpaceChanged).toHaveBeenCalledWith("team_design");
     expect(manager.getState()).toMatchObject({
       authStatus: "signed_in",
       account: {
@@ -152,6 +180,13 @@ describe("DesktopAuthManager", () => {
       },
       authError: null
     });
+
+    await manager.switchSpace("personal:account_test");
+    expect(manager.getState().account?.activeSpaceId).toBe("personal:account_test");
+    expect(credentialStore.payload.credentials?.account.activeSpaceId).toBe(
+      "personal:account_test"
+    );
+    expect(onSpaceChanged).toHaveBeenLastCalledWith(null);
   });
 
   it("clears credentials and disables cloud access on sign-out", async () => {
@@ -178,6 +213,72 @@ describe("DesktopAuthManager", () => {
     expect(manager.getState()).toEqual({
       authStatus: "signed_out",
       authError: null
+    });
+  });
+
+  it("refreshes account and membership details from the server", async () => {
+    const { manager, credentialStore } = createManager();
+    credentialStore.payload = {
+      credentials: {
+        accessToken: `rmw_dt_${"a".repeat(43)}`,
+        expiresAt: "2027-01-13T00:00:00.000Z",
+        scopes: ["work:runtime", "work:projects", "work:jobs", "work:chat"],
+        account: { id: "account_test", displayName: "Old Name", email: null }
+      }
+    };
+    const fetchMock = vi.fn<typeof fetch>(async () => jsonResponse({
+      account: {
+        id: "account_test",
+        display_name: "Updated User",
+        email: "updated@example.test",
+        membership: {
+          plan_code: "team",
+          plan_name: "Team 年度版",
+          status: "active",
+          expires_at: "2027-12-31T00:00:00.000Z"
+        }
+      },
+      teams: [{ id: "team_new", name: "New Team", role: "owner" }]
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await manager.initialize();
+    await manager.syncAccount();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://console.example.test/api/app/v1/work/account",
+      expect.objectContaining({
+        headers: expect.objectContaining({ Authorization: `Bearer rmw_dt_${"a".repeat(43)}` })
+      })
+    );
+    expect(manager.getState().account).toMatchObject({
+      displayName: "Updated User",
+      membership: { planCode: "team", planName: "Team 年度版" },
+      spaces: expect.arrayContaining([expect.objectContaining({ id: "team_new" })])
+    });
+    expect(credentialStore.payload.credentials?.account.displayName).toBe("Updated User");
+  });
+
+  it("returns to signed out when the server rejects the device session", async () => {
+    const { manager, credentialStore, onAccessToken } = createManager();
+    credentialStore.payload = {
+      credentials: {
+        accessToken: `rmw_dt_${"a".repeat(43)}`,
+        expiresAt: "2027-01-13T00:00:00.000Z",
+        scopes: ["work:runtime", "work:projects", "work:jobs", "work:chat"],
+        account: { id: "account_test", displayName: "RouteMarket User", email: null }
+      }
+    };
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>(async () => jsonResponse({ message: "Unauthorized" }, 401)));
+
+    await manager.initialize();
+    await manager.syncAccount();
+
+    expect(credentialStore.payload).toEqual({});
+    expect(onAccessToken).toHaveBeenLastCalledWith(undefined);
+    expect(manager.getState()).toEqual({
+      authStatus: "signed_out",
+      authError: "账户状态或登录授权已变更，请重新登录。"
     });
   });
 

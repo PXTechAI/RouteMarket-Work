@@ -6,15 +6,21 @@ export default defineConfig(({ mode }) => {
   const defaultApiBaseUrl =
     mode === "production"
       ? "https://console.routemarket.ai"
+      : "http://127.0.0.1:3001";
+  const defaultWebBaseUrl =
+    mode === "production"
+      ? "https://console.routemarket.ai"
       : "http://localhost:3000";
 
   return {
     main: {
       define: {
-        __ROUTEMARKET_WORK_DEFAULT_API_URL__: JSON.stringify(defaultApiBaseUrl)
+        __ROUTEMARKET_WORK_DEFAULT_API_URL__: JSON.stringify(defaultApiBaseUrl),
+        __ROUTEMARKET_WORK_DEFAULT_WEB_URL__: JSON.stringify(defaultWebBaseUrl)
       },
       build: {
         rollupOptions: {
+          external: ["ws"],
           input: {
             index: resolve(__dirname, "src/main/index.ts"),
             worker: resolve(__dirname, "src/worker/index.ts")

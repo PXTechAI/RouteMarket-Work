@@ -106,7 +106,7 @@ export function ApprovalPage({
                   <p>
                     {projectName
                       ? "敏感操作弹窗中可以选择项目内始终允许或始终拒绝。"
-                      : "项目策略只会作用于创建它的本地项目。"}
+                      : "项目策略只会作用于创建它的桌面项目。"}
                   </p>
                 </div>
               </div>

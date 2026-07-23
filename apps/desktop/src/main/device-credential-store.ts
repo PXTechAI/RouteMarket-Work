@@ -6,12 +6,24 @@ export type DeviceAccount = {
   id: string;
   displayName: string;
   email: string | null;
+  avatarUrl?: string | null;
+  spaces?: DeviceSpace[];
+  activeSpaceId?: string;
   membership?: {
     planCode: string;
     planName: string;
     status: string;
     expiresAt: string;
   } | null;
+};
+
+export type DeviceSpace = {
+  id: string;
+  name: string;
+  kind: "personal" | "team";
+  teamId: string | null;
+  avatarUrl: string | null;
+  role: string | null;
 };
 
 export type DeviceCredentials = {

@@ -10,7 +10,10 @@ describe("NativeAppConnectorManager", () => {
 
   beforeEach(async () => {
     directory = await mkdtemp(join(tmpdir(), "routemarket-connector-"));
-    executable = join(directory, "app.exe");
+    // A fake .exe can be held by Windows antivirus long enough to make
+    // recursive test cleanup time out. The manager only requires an existing
+    // executable path here, so use a neutral stub extension.
+    executable = join(directory, "app.stub");
     await writeFile(executable, "stub");
   });
 
@@ -25,12 +28,12 @@ describe("NativeAppConnectorManager", () => {
       name: "Excel",
       description: "test",
       executablePath: executable,
-      supportedExtensions: [".xlsx"]
+      supportedExtensions: [".rmwtest"]
     }], launch);
     await mkdir(join(directory, "docs"));
-    await writeFile(join(directory, "docs", "report.xlsx"), "data");
-    const result = await manager.open("excel", directory, "docs/report.xlsx");
-    expect(result.openedPath).toBe(join(directory, "docs", "report.xlsx"));
+    await writeFile(join(directory, "docs", "report.rmwtest"), "data");
+    const result = await manager.open("excel", directory, "docs/report.rmwtest");
+    expect(result.openedPath).toBe(join(directory, "docs", "report.rmwtest"));
     expect(launch).toHaveBeenCalledWith(executable, [result.openedPath]);
   });
 

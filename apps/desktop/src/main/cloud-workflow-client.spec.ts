@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { DesktopWorkflowDraftNode } from "../shared/desktop-api";
 import { CloudWorkflowClient } from "./cloud-workflow-client";
+import { RouteMarketApiClient } from "./routemarket-api-client";
 
 describe("CloudWorkflowClient", () => {
   it("submits one cloud node, polls it, and returns its native text output", async () => {
@@ -117,10 +118,13 @@ describe("CloudWorkflowClient", () => {
   });
 
   it("requires sign-in and canonical cloud runtime metadata", async () => {
-    const signedOut = new CloudWorkflowClient({
-      apiBaseUrl: "http://core.test",
-      getAccessToken: () => undefined,
+    const signedOutApiClient = new RouteMarketApiClient({
+      baseUrl: "http://core.test",
+      appVersion: "0.1.0",
       fetchImpl: vi.fn()
+    });
+    const signedOut = new CloudWorkflowClient({
+      apiClient: signedOutApiClient
     });
     await expect(
       signedOut.executeNode(
@@ -143,11 +147,15 @@ describe("CloudWorkflowClient", () => {
 });
 
 function createClient(fetchImpl: typeof fetch) {
-  return new CloudWorkflowClient({
-    apiBaseUrl: "http://core.test",
-    getAccessToken: () => "rmw_dt_test",
-    pollIntervalMs: 0,
+  const apiClient = new RouteMarketApiClient({
+    baseUrl: "http://core.test",
+    appVersion: "0.1.0",
     fetchImpl
+  });
+  apiClient.setAccessToken("rmw_dt_test");
+  return new CloudWorkflowClient({
+    apiClient,
+    pollIntervalMs: 0
   });
 }
 

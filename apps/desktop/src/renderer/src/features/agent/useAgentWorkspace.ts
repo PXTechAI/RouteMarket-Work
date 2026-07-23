@@ -239,7 +239,11 @@ export function useAgentWorkspace({
       id: `assistant:${requestId}`,
       role: "assistant",
       content: "",
-      sentAt
+      sentAt,
+      agentId: selectedAgent.id,
+      agentRevision: selectedAgent.revision,
+      agentName: selectedAgent.name,
+      agentAvatarUrl: selectedAgent.avatarUrl
     };
 
     setMessagesByConversation((current) => ({
@@ -265,6 +269,10 @@ export function useAgentWorkspace({
         ...(projectContext ? { projectContext } : {}),
         agent: {
           agentId: selectedAgent.id,
+          agentRevision: selectedAgent.revision,
+          executionEnvironment: selectedAgent.executionPolicy.environment,
+          agentName: selectedAgent.name,
+          agentAvatarUrl: selectedAgent.avatarUrl,
           localToolGroups,
           maxToolRounds
         }

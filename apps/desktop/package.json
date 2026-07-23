@@ -1,6 +1,6 @@
 {
   "name": "@routemarket/work-desktop",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Local-first desktop workspace for RouteMarket workflows, projects, agents and browser tasks.",
   "author": "PX Labs",
   "private": true,

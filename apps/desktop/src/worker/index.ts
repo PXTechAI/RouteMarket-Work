@@ -25,7 +25,10 @@ import { CloudJobRuntime } from "./cloud-job-runtime";
 
 type WorkerRequest =
   | { requestId: string; type: "projects.list" }
+  | { requestId: string; type: "projects.create"; payload: { displayName: string } }
   | { requestId: string; type: "projects.bind"; payload: { rootPath: string } }
+  | { requestId: string; type: "projects.attach"; payload: { localProjectId: string; rootPath: string } }
+  | { requestId: string; type: "projects.delete"; payload: { localProjectId: string } }
   | { requestId: string; type: "projects.root"; payload: { localProjectId: string } }
   | { requestId: string; type: "projects.files"; payload: { localProjectId: string } }
   | {
@@ -200,6 +203,7 @@ const mcpHost = new StdioMcpHost(mcpRegistry, registry, dataPath);
 function summarizeProject(project: {
   localProjectId: string;
   displayName: string;
+  hasFolder: boolean;
   rootFingerprint: string;
   createdAt: string;
   updatedAt: string;
@@ -207,6 +211,7 @@ function summarizeProject(project: {
   return {
     localProjectId: project.localProjectId,
     displayName: project.displayName,
+    hasFolder: project.hasFolder,
     rootFingerprint: project.rootFingerprint,
     createdAt: project.createdAt,
     updatedAt: project.updatedAt
@@ -248,8 +253,17 @@ parentPort.on("message", async ({ data: request }) => {
     let result: unknown;
     if (request.type === "projects.list") {
       result = registry.list().map(summarizeProject);
+    } else if (request.type === "projects.create") {
+      result = summarizeProject(registry.create(request.payload.displayName));
     } else if (request.type === "projects.bind") {
       result = summarizeProject(await registry.bindFolder(request.payload.rootPath));
+    } else if (request.type === "projects.attach") {
+      result = summarizeProject(await registry.attachFolder(
+        request.payload.localProjectId,
+        request.payload.rootPath
+      ));
+    } else if (request.type === "projects.delete") {
+      result = registry.delete(request.payload.localProjectId);
     } else if (request.type === "projects.root") {
       const project = registry.get(request.payload.localProjectId);
       if (!project) throw new WorkerError("PROJECT_NOT_FOUND", "Local project not found.");
@@ -273,10 +287,16 @@ parentPort.on("message", async ({ data: request }) => {
         request.payload.relativePath
       );
     } else if (request.type === "workflow.registry") {
-      const context = await loadProjectContext(registry, request.payload.localProjectId);
+      const project = registry.list().find(
+        (candidate) => candidate.localProjectId === request.payload.localProjectId
+      );
+      if (!project) throw new WorkerError("PROJECT_NOT_FOUND", "Project not found.");
+      const context = project.hasFolder
+        ? await loadProjectContext(registry, request.payload.localProjectId)
+        : null;
       result = buildDesktopWorkflowNodeRegistry({
         mcpServers: mcpHost.list(),
-        skills: context.skills
+        skills: context?.skills ?? []
       });
     } else if (request.type === "local.fs.read") {
       result = await executeLocalFsRead(

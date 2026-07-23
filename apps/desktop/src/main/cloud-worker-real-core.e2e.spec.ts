@@ -17,6 +17,7 @@ import {
 } from "@routemarket/work-worker-core";
 import { CloudJobRuntime } from "../worker/cloud-job-runtime";
 import { CloudWorkerClient, type CloudWorkerTransport } from "./cloud-worker-client";
+import { RouteMarketApiClient } from "./routemarket-api-client";
 
 const E2E_ENABLED = process.env.ROUTEMARKET_CORE_E2E === "1";
 const CORE_PORT = Number(process.env.ROUTEMARKET_CORE_E2E_PORT || 43101);
@@ -109,7 +110,10 @@ describe.runIf(E2E_ENABLED)("CloudWorkerClient with a real local Core", () => {
     workerActivities = [];
     runtimeChannelOpened = deferred();
     client = new CloudWorkerClient({
-      apiBaseUrl: API_BASE_URL,
+      apiClient: new RouteMarketApiClient({
+        baseUrl: API_BASE_URL,
+        appVersion: "0.1.0"
+      }),
       installationId: INSTALLATION_ID,
       deviceName: "RouteMarket Work E2E",
       platform: "windows",

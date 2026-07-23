@@ -36,4 +36,36 @@ describe("ActivityStore", () => {
     ]);
     store.close();
   });
+
+  it("groups repeated activity and can clear the history", async () => {
+    const root = await mkdtemp(join(tmpdir(), "routemarket-activity-"));
+    cleanups.push(() => rm(root, { recursive: true, force: true }));
+    const store = new ActivityStore(join(root, "work.db"));
+    store.append({
+      id: "activity_1",
+      kind: "cloud.error",
+      title: "Cloud Worker connection error",
+      detail: "RouteMarket Work API request failed (502).",
+      occurredAt: "2026-07-22T00:00:00.000Z"
+    });
+    store.append({
+      id: "activity_2",
+      kind: "cloud.error",
+      title: "Cloud Worker connection error",
+      detail: "RouteMarket Work API request failed (502).",
+      occurredAt: "2026-07-22T00:00:30.000Z"
+    });
+
+    expect(store.list()).toEqual([
+      expect.objectContaining({
+        id: "activity_1",
+        firstOccurredAt: "2026-07-22T00:00:00.000Z",
+        occurredAt: "2026-07-22T00:00:30.000Z",
+        occurrenceCount: 2
+      })
+    ]);
+    store.clear();
+    expect(store.list()).toEqual([]);
+    store.close();
+  });
 });

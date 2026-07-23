@@ -1,9 +1,19 @@
+# Dependencies and package-manager state
 node_modules/
+.pnpm-store/
+
+# Build, packaging, test, and preview output
 dist/
 out/
 release/
+release-*/
 coverage/
+apps/.tmp/
+*.tsbuildinfo
+
+# Runtime data and logs
 *.log
+*.dmp
 *.db
 *.db-shm
 *.db-wal
@@ -11,9 +21,16 @@ coverage/
 *.sqlite-shm
 *.sqlite-wal
 user-data/
+
+# Local configuration and secrets
 .env
 .env.local
 .env.*
 !.env.example
+
+# Editor and operating-system metadata
+.idea/
+.vscode/
+*.swp
 .DS_Store
 Thumbs.db

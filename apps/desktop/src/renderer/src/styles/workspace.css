@@ -1,0 +1,113 @@
+.app-shell {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  color: var(--rm-text);
+  background: var(--rm-bg);
+}
+
+.workspace {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.workspace-header,
+.project-heading,
+.header-actions,
+.workspace-tabs {
+  display: flex;
+  align-items: center;
+}
+
+.workspace-header {
+  justify-content: space-between;
+  min-width: 0;
+  border-bottom: 1px solid var(--rm-border);
+}
+
+.project-heading {
+  min-width: 0;
+  gap: 9px;
+}
+
+.project-heading > div:nth-child(2) {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.project-heading h1,
+.project-heading span {
+  overflow: hidden;
+  margin: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-icon {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  border-radius: 7px;
+}
+
+.header-actions {
+  flex: 0 0 auto;
+}
+
+.workspace-tabs {
+  min-width: 0;
+  padding: 0 20px;
+  background: var(--rm-surface);
+  border-bottom: 1px solid var(--rm-border);
+}
+
+.tab {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  align-self: stretch;
+  gap: 5px;
+  padding: 0 11px;
+  color: var(--rm-text-muted);
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  font-size: 10px;
+}
+
+.tab:hover:not(:disabled) {
+  color: var(--rm-text);
+}
+
+.tab.active {
+  color: var(--rm-accent);
+  border-bottom-color: var(--rm-accent);
+}
+
+.tab:disabled {
+  cursor: default;
+  opacity: 0.42;
+}
+
+.change-dot {
+  width: 5px;
+  height: 5px;
+  background: var(--rm-warning);
+  border-radius: 50%;
+}
+
+.workspace-body {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}

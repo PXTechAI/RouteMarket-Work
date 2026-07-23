@@ -21,7 +21,10 @@ import type { ProjectContext } from "@routemarket/work-worker-core";
 
 type WorkerRequestInput =
   | { type: "projects.list" }
+  | { type: "projects.create"; payload: { displayName: string } }
   | { type: "projects.bind"; payload: { rootPath: string } }
+  | { type: "projects.attach"; payload: { localProjectId: string; rootPath: string } }
+  | { type: "projects.delete"; payload: { localProjectId: string } }
   | { type: "projects.root"; payload: { localProjectId: string } }
   | { type: "projects.files"; payload: { localProjectId: string } }
   | { type: "projects.search"; payload: { localProjectId: string; query: string } }
@@ -181,10 +184,31 @@ export class WorkerClient {
     return this.request<ProjectSummary[]>({ type: "projects.list" });
   }
 
+  createProject(displayName: string): Promise<ProjectSummary> {
+    return this.request<ProjectSummary>({
+      type: "projects.create",
+      payload: { displayName }
+    });
+  }
+
   bindProject(rootPath: string): Promise<ProjectSummary> {
     return this.request<ProjectSummary>({
       type: "projects.bind",
       payload: { rootPath }
+    });
+  }
+
+  attachProjectFolder(localProjectId: string, rootPath: string): Promise<ProjectSummary> {
+    return this.request<ProjectSummary>({
+      type: "projects.attach",
+      payload: { localProjectId, rootPath }
+    });
+  }
+
+  deleteProject(localProjectId: string): Promise<boolean> {
+    return this.request<boolean>({
+      type: "projects.delete",
+      payload: { localProjectId }
     });
   }
 

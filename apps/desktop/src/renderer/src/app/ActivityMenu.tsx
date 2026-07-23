@@ -6,13 +6,20 @@ import {
   FolderCheck,
   LoaderCircle,
   ShieldCheck,
+  Trash2,
   Workflow,
   XCircle
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { ActivityItem } from "../../../shared/desktop-api";
 
-export function ActivityMenu({ activities }: { activities: ActivityItem[] }) {
+export function ActivityMenu({
+  activities,
+  onClear
+}: {
+  activities: ActivityItem[];
+  onClear(): void;
+}) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const recentActivities = activities.slice(0, 12);
@@ -58,7 +65,18 @@ export function ActivityMenu({ activities }: { activities: ActivityItem[] }) {
               <strong>本机活动</strong>
               <span>Worker、审批和工作流执行记录</span>
             </div>
-            <small>{activities.length} 条</small>
+            <div className="rm-activity-header-actions">
+              <small>{activities.length} 条</small>
+              <button
+                type="button"
+                title="清除全部活动"
+                aria-label="清除全部活动"
+                disabled={activities.length === 0}
+                onClick={onClear}
+              >
+                <Trash2 size={13} />
+              </button>
+            </div>
           </header>
 
           <div className="rm-activity-list">
@@ -69,6 +87,11 @@ export function ActivityMenu({ activities }: { activities: ActivityItem[] }) {
                 </span>
                 <div>
                   <strong>{activity.title}</strong>
+                  {(activity.occurrenceCount ?? 1) > 1 && (
+                    <span className="rm-activity-repeat">
+                      重复 {activity.occurrenceCount} 次
+                    </span>
+                  )}
                   <p>{activity.detail}</p>
                   <time dateTime={activity.occurredAt}>
                     {formatActivityTime(activity.occurredAt)}

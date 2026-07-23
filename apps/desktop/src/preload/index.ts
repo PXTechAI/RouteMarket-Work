@@ -7,11 +7,17 @@ import type {
 
 const api: RouteMarketWorkApi = {
   getState: () => ipcRenderer.invoke("work:get-state"),
+  clearActivities: () => ipcRenderer.invoke("work:activities-clear"),
   signIn: () => ipcRenderer.invoke("work:sign-in"),
   signOut: () => ipcRenderer.invoke("work:sign-out"),
+  switchSpace: (spaceId) => ipcRenderer.invoke("work:switch-space", spaceId),
   removeApprovalPolicy: (policyId) =>
     ipcRenderer.invoke("work:approval-policy-remove", policyId),
   chooseProject: () => ipcRenderer.invoke("work:choose-project"),
+  createProject: (displayName) => ipcRenderer.invoke("work:create-project", displayName),
+  attachProjectFolder: (localProjectId) =>
+    ipcRenderer.invoke("work:attach-project-folder", localProjectId),
+  deleteProject: (localProjectId) => ipcRenderer.invoke("work:delete-project", localProjectId),
   getProjectContext: (localProjectId) =>
     ipcRenderer.invoke("work:get-project-context", localProjectId),
   getWorkflowNodeRegistry: (localProjectId) =>
@@ -144,6 +150,8 @@ const api: RouteMarketWorkApi = {
     ipcRenderer.invoke("work:mcp-tool-call", serverId, name, args),
   listAgentProfiles: () => ipcRenderer.invoke("work:list-agent-profiles"),
   listChatModels: () => ipcRenderer.invoke("work:list-chat-models"),
+  getLocalProjectChat: (localProjectId) =>
+    ipcRenderer.invoke("work:get-local-project-chat", localProjectId),
   sendProjectMessage: (input) =>
     ipcRenderer.invoke("work:send-project-message", input),
   stopProjectMessage: (requestId) =>

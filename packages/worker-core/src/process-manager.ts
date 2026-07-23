@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { terminateProcessTree } from "./child-process";
 import { WorkerError } from "./errors";
 import { ProjectRegistry } from "./project-registry";
 
@@ -138,30 +139,6 @@ function appendBounded(current: string, addition: string, entry: ManagedEntry): 
   if (buffer.byteLength <= MAX_OUTPUT_BYTES) return combined;
   entry.outputTruncated = true;
   return buffer.subarray(buffer.byteLength - MAX_OUTPUT_BYTES).toString("utf8");
-}
-
-async function terminateProcessTree(child: ChildProcessWithoutNullStreams): Promise<void> {
-  const pid = child.pid;
-  if (!pid) return;
-  if (process.platform === "win32") {
-    await new Promise<void>((resolve) => {
-      const killer = spawn("taskkill.exe", ["/pid", String(pid), "/t", "/f"], {
-        windowsHide: true,
-        stdio: "ignore"
-      });
-      killer.once("exit", () => resolve());
-      killer.once("error", () => {
-        child.kill();
-        resolve();
-      });
-    });
-  } else {
-    try {
-      process.kill(-pid, "SIGTERM");
-    } catch {
-      child.kill("SIGTERM");
-    }
-  }
 }
 
 function summarize(entry: ManagedEntry): ManagedProcessSummary {

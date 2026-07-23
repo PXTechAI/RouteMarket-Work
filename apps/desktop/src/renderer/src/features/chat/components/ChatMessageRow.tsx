@@ -1,27 +1,52 @@
 import {
   CheckCircle2,
   CircleAlert,
+  Copy,
   LoaderCircle,
   Paperclip,
-  Sparkles
+  RotateCcw
 } from "lucide-react";
+import { useState } from "react";
 import type { ChatMessage } from "../types";
+import { AgentAvatar } from "./AgentAvatar";
+import { MessageMarkdown } from "./MessageMarkdown";
 
 export function ChatMessageRow({
   message,
-  streaming
+  streaming,
+  onRetry
 }: {
   message: ChatMessage;
   streaming: boolean;
+  onRetry?: () => void;
 }) {
+  const [copied, setCopied] = useState(false);
+  const isError = message.role === "assistant" && message.content.startsWith("请求失败：");
+  const visibleContent = isError
+    ? message.content.slice("请求失败：".length).trim()
+    : message.content;
+
+  async function copyMessage() {
+    if (!message.content) return;
+    await navigator.clipboard.writeText(visibleContent);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1_500);
+  }
+
   return (
-    <article className={`chat-message ${message.role}`}>
+    <article className={`chat-message ${message.role}${isError ? " error" : ""}`}>
       <div className="message-avatar">
-        {message.role === "assistant" ? <Sparkles size={15} /> : "你"}
+        {message.role === "assistant" ? (
+          <AgentAvatar
+            name={message.agentName ?? "RouteMarket Agent"}
+            avatarUrl={message.agentAvatarUrl}
+            size={28}
+          />
+        ) : "你"}
       </div>
       <div className="message-content">
         <div className="message-meta">
-          <strong>{message.role === "assistant" ? "RouteMarket Work" : "你"}</strong>
+          <strong>{message.role === "assistant" ? message.agentName ?? "RouteMarket Agent" : "你"}</strong>
           <time>
             {new Date(message.sentAt).toLocaleTimeString("zh-CN", {
               hour: "2-digit",
@@ -54,9 +79,34 @@ export function ChatMessageRow({
             ))}
           </div>
         ) : null}
-        <div className="message-text">
-          {message.content || (streaming ? "正在思考..." : "")}
-        </div>
+        {isError ? (
+          <div className="message-error-card" role="alert">
+            <strong><CircleAlert size={14} />请求失败</strong>
+            <p>这次对话请求未能完成。</p>
+            <small>{visibleContent}</small>
+          </div>
+        ) : (
+          <div className="message-text">
+            {visibleContent ? (
+              <MessageMarkdown content={visibleContent} />
+            ) : streaming ? (
+              <span className="message-thinking"><LoaderCircle size={14} />正在思考...</span>
+            ) : null}
+          </div>
+        )}
+        {message.role === "assistant" && (message.content || isError) ? (
+          <div className="message-actions">
+            {onRetry ? (
+              <button type="button" onClick={onRetry} title="重新生成" aria-label="重新生成">
+                <RotateCcw size={14} />
+              </button>
+            ) : null}
+            <button type="button" onClick={() => void copyMessage()} title="复制" aria-label="复制">
+              <Copy size={14} />
+              {copied ? <span>已复制</span> : null}
+            </button>
+          </div>
+        ) : null}
         {message.stopped && <span className="stopped-label">已停止</span>}
       </div>
     </article>

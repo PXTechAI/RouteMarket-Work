@@ -3,12 +3,11 @@ import type {
   DesktopWorkflowCloudRuntime,
   DesktopWorkflowDraftNode
 } from "../shared/desktop-api";
+import type { RouteMarketApiClient } from "./routemarket-api-client";
 
 type CloudWorkflowClientOptions = {
-  apiBaseUrl: string;
-  getAccessToken(): string | undefined;
+  apiClient: RouteMarketApiClient;
   pollIntervalMs?: number;
-  fetchImpl?: typeof fetch;
 };
 
 type AsyncTaskResponse = {
@@ -23,11 +22,9 @@ const ACTIVE_STATUSES = new Set(["queued", "retrying", "processing"]);
 const TERMINAL_STATUSES = new Set(["succeeded", "failed", "cancelled", "canceled", "timeout"]);
 
 export class CloudWorkflowClient {
-  private readonly fetchImpl: typeof fetch;
   private readonly pollIntervalMs: number;
 
   constructor(private readonly options: CloudWorkflowClientOptions) {
-    this.fetchImpl = options.fetchImpl ?? fetch;
     this.pollIntervalMs = Math.max(0, options.pollIntervalMs ?? 1_000);
   }
 
@@ -37,10 +34,6 @@ export class CloudWorkflowClient {
     signal: AbortSignal
   ): Promise<unknown> {
     throwIfAborted(signal);
-    const accessToken = this.options.getAccessToken();
-    if (!accessToken) {
-      throw new Error("Sign in to RouteMarket before running a cloud Workflow node.");
-    }
     const runtime = node.definitionSnapshot.cloudRuntime;
     if (!runtime) {
       throw new Error(
@@ -53,14 +46,13 @@ export class CloudWorkflowClient {
     let cancellation: Promise<void> | null = null;
     const cancelOnce = () => {
       if (!taskId) return Promise.resolve();
-      cancellation ??= this.cancelTask(taskId, accessToken);
+      cancellation ??= this.cancelTask(taskId);
       return cancellation;
     };
 
     try {
       const submitted = await this.request<AsyncTaskResponse>(
         "/api/app/v1/workflows/execute",
-        accessToken,
         {
           method: "POST",
           signal,
@@ -77,7 +69,6 @@ export class CloudWorkflowClient {
         throwIfAborted(signal);
         const task = await this.request<AsyncTaskResponse>(
           `/api/app/v1/workflows/executions/${encodeURIComponent(taskId)}`,
-          accessToken,
           { signal }
         );
         const status = typeof task.status === "string" ? task.status.toLowerCase() : "";
@@ -108,26 +99,18 @@ export class CloudWorkflowClient {
     }
   }
 
-  private async cancelTask(taskId: string, accessToken: string): Promise<void> {
+  private async cancelTask(taskId: string): Promise<void> {
     await this.request(
       `/api/app/v1/workflows/executions/${encodeURIComponent(taskId)}/cancel`,
-      accessToken,
       { method: "POST" }
     );
   }
 
   private async request<TResult>(
     path: string,
-    accessToken: string,
     init: RequestInit = {}
   ): Promise<TResult> {
-    const response = await this.fetchImpl(`${this.options.apiBaseUrl}${path}`, {
-      ...init,
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        ...init.headers
-      }
-    });
+    const response = await this.options.apiClient.request(path, init, "required");
     const payload = await response.json().catch(() => null);
     if (!response.ok) {
       if (response.status === 401 || response.status === 403) {

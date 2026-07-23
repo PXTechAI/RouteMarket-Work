@@ -1,14 +1,19 @@
 import {
   Bot,
   Folder,
+  FolderOpen,
+  FolderPlus,
   Globe2,
   MessageSquare,
   PanelLeftClose,
   PanelLeftOpen,
   Plug,
+  RefreshCw,
+  Trash2,
   Workflow
 } from "lucide-react";
 import { useState } from "react";
+import brandIcon from "../../../../build/icon.png";
 import type { WorkState } from "../../../shared/desktop-api";
 import { AccountMenu } from "./AccountMenu";
 
@@ -18,17 +23,31 @@ const railExpandedKey = "routemarket-work:rail-expanded";
 export function AppRail({
   activeView,
   state,
+  selectedProjectId,
   authBusy,
   onSelect,
+  onCreateProject,
+  onSelectProject,
+  onAttachProjectFolder,
+  onDeleteProject,
+  onRefreshState,
   onSignIn,
-  onSignOut
+  onSignOut,
+  onSwitchSpace
 }: {
   activeView: string;
   state: WorkState;
+  selectedProjectId: string | null;
   authBusy: boolean;
   onSelect(view: RailView): void;
+  onCreateProject(): void;
+  onSelectProject(projectId: string): void;
+  onAttachProjectFolder(projectId: string): void;
+  onDeleteProject(projectId: string): void;
+  onRefreshState(): void;
   onSignIn(): void;
   onSignOut(): void;
+  onSwitchSpace(spaceId: string): void;
 }) {
   const [expanded, setExpanded] = useState(
     () => localStorage.getItem(railExpandedKey) === "true"
@@ -42,10 +61,14 @@ export function AppRail({
     });
   }
 
+  const selectedProject = state.projects.find(
+    (project) => project.localProjectId === selectedProjectId
+  );
+
   return (
     <nav className={`rm-rail ${expanded ? "expanded" : ""}`} aria-label="主导航">
       <div className="rm-rail-brand" title="RouteMarket Work">
-        <div className="rm-brand-mark">R</div>
+        <div className="rm-brand-mark"><img src={brandIcon} alt="" /></div>
         <div className="rm-rail-brand-copy">
           <strong>RouteMarket</strong>
           <span>Work</span>
@@ -54,7 +77,13 @@ export function AppRail({
 
       <div className="rm-rail-group">
         <span className="rm-rail-group-label">工作区</span>
-        <RailButton label="项目" active={activeView === "files"} onClick={() => onSelect("files")}>
+        <RailButton
+          label="文件"
+          active={activeView === "files"}
+          disabled={selectedProject?.hasFolder === false}
+          badge={selectedProject?.hasFolder === false ? "先关联文件夹" : undefined}
+          onClick={() => onSelect("files")}
+        >
           <Folder size={18} />
         </RailButton>
         <RailButton label="对话" active={activeView === "chat"} onClick={() => onSelect("chat")}>
@@ -64,6 +93,43 @@ export function AppRail({
           <Workflow size={18} />
         </RailButton>
       </div>
+
+      <section className="rm-rail-projects" aria-label="项目">
+        <div className="rm-rail-projects-heading">
+          <span>项目</span>
+          <button type="button" title="创建项目" onClick={onCreateProject}>
+            <FolderPlus size={15} />
+          </button>
+        </div>
+        <div className="rm-rail-project-list">
+          {state.projects.map((project) => (
+            <div
+              className={`rm-rail-project-row ${project.localProjectId === selectedProjectId ? "active" : ""}`}
+              key={project.localProjectId}
+            >
+              <button className="rm-rail-project-main" type="button" title={project.displayName} onClick={() => onSelectProject(project.localProjectId)}>
+                <FolderOpen size={15} />
+                <span>{project.displayName}</span>
+                <small>{project.hasFolder === false ? "未关联" : "本机"}</small>
+              </button>
+              {project.hasFolder === false && (
+                <button className="rm-rail-project-action" type="button" title="关联本机文件夹" onClick={() => onAttachProjectFolder(project.localProjectId)}>
+                  <FolderPlus size={13} />
+                </button>
+              )}
+              <button className="rm-rail-project-action danger" type="button" title="删除项目" onClick={() => onDeleteProject(project.localProjectId)}>
+                <Trash2 size={13} />
+              </button>
+            </div>
+          ))}
+          {state.projects.length === 0 && (
+            <button className="empty" type="button" onClick={onCreateProject}>
+              <FolderPlus size={16} />
+              <span>创建第一个项目</span>
+            </button>
+          )}
+        </div>
+      </section>
 
       <div className="rm-rail-group rm-rail-capabilities">
         <span className="rm-rail-group-label">本地能力</span>
@@ -79,6 +145,17 @@ export function AppRail({
       </div>
       <div className="rm-rail-spacer" />
 
+      <div className="rm-rail-worker">
+        <span className={`rm-status-dot ${state.workerStatus}`} />
+        <div>
+          <strong>本机 Worker</strong>
+          <span>{state.workerStatus === "online" ? "本地已连接" : "正在启动"} · {cloudStatusLabel(state.cloudStatus)}</span>
+        </div>
+        <button type="button" title="刷新连接状态" onClick={onRefreshState}>
+          <RefreshCw size={13} />
+        </button>
+      </div>
+
       <RailButton
         label={expanded ? "收起侧栏" : "展开侧栏"}
         onClick={toggleExpanded}
@@ -91,9 +168,19 @@ export function AppRail({
         expanded={expanded}
         onSignIn={onSignIn}
         onSignOut={onSignOut}
+        onSwitchSpace={onSwitchSpace}
       />
     </nav>
   );
+}
+
+function cloudStatusLabel(status: WorkState["cloudStatus"]) {
+  if (status === "online") return "云端已连接";
+  if (status === "connecting") return "云端连接中";
+  if (status === "degraded") return "云端连接不稳定";
+  if (status === "access_required") return "需要重新授权";
+  if (status === "error") return "云端异常";
+  return "云端未登录";
 }
 
 function RailButton({

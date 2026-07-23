@@ -1,6 +1,7 @@
 export type ProjectSummary = {
   localProjectId: string;
   displayName: string;
+  hasFolder?: boolean;
   rootFingerprint: string;
   createdAt: string;
   updatedAt: string;
@@ -420,6 +421,9 @@ export type ActivityItem = {
   id: string;
   kind:
     | "project.bound"
+    | "project.created"
+    | "project.folder_attached"
+    | "project.deleted"
     | "cloud.connected"
     | "cloud.error"
     | "job.offered"
@@ -435,6 +439,8 @@ export type ActivityItem = {
   title: string;
   detail: string;
   occurredAt: string;
+  firstOccurredAt?: string;
+  occurrenceCount?: number;
 };
 
 export type CloudWorkerStatus =
@@ -455,6 +461,9 @@ export type WorkState = {
     id: string;
     displayName: string;
     email: string | null;
+    avatarUrl?: string | null;
+    spaces?: AccountSpace[];
+    activeSpaceId?: string;
     membership?: {
       planCode: string;
       planName: string;
@@ -467,6 +476,15 @@ export type WorkState = {
   activities: ActivityItem[];
   approvals: ApprovalRecord[];
   approvalPolicies: ApprovalPolicy[];
+};
+
+export type AccountSpace = {
+  id: string;
+  name: string;
+  kind: "personal" | "team";
+  teamId: string | null;
+  avatarUrl: string | null;
+  role: string | null;
 };
 
 export type ChatModel = {
@@ -484,8 +502,22 @@ export type DesktopAgentTool = {
   credentialId?: string;
 };
 
+export type DesktopAgentSkill = {
+  skillId: string;
+  name?: string;
+  version?: number | string;
+  source: "cloud" | "local";
+  enabled: boolean;
+};
+
+export type DesktopAgentExecutionPolicy = {
+  environment: "auto" | "local" | "cloud";
+  approvalMode: "always_ask" | "risky_only" | "never_ask";
+};
+
 export type DesktopAgentProfile = {
   id: string;
+  revision: number;
   name: string;
   description: string | null;
   avatarUrl: string | null;
@@ -494,6 +526,9 @@ export type DesktopAgentProfile = {
   starterQuestions: string[];
   tags: string[];
   defaultModelCode: string | null;
+  skills: DesktopAgentSkill[];
+  toolPermissions: DesktopAgentTool[];
+  executionPolicy: DesktopAgentExecutionPolicy;
   tools: DesktopAgentTool[];
   updatedAt: string;
 };
@@ -511,9 +546,14 @@ export type ProjectChatRequest = {
   sentAt: string;
   model: string;
   message: string;
+  history?: Array<{
+    role: "user" | "assistant";
+    content: string;
+  }>;
   project: {
     localProjectId: string;
     displayName: string;
+    hasFolder?: boolean;
   };
   contextFile?: {
     relativePath: string;
@@ -531,9 +571,34 @@ export type ProjectChatRequest = {
   };
   agent?: {
     agentId: string;
+    agentRevision: number;
+    executionEnvironment: "auto" | "local" | "cloud";
+    agentName?: string;
+    agentAvatarUrl?: string | null;
     localToolGroups: AgentLocalToolGroup[];
     maxToolRounds: number;
   };
+};
+
+export type LocalProjectChatMessage = {
+  id: string;
+  sessionId: string;
+  localProjectId: string;
+  role: "user" | "assistant";
+  content: string;
+  sentAt: string;
+  contextFile?: string;
+  stopped?: boolean;
+  agentId?: string;
+  agentRevision?: number;
+  agentName?: string;
+  agentAvatarUrl?: string | null;
+};
+
+export type LocalProjectChat = {
+  sessionId: string;
+  localProjectId: string;
+  messages: LocalProjectChatMessage[];
 };
 
 export type ProjectTextContext = {
@@ -617,10 +682,15 @@ export type ProjectChatEvent =
 
 export type RouteMarketWorkApi = {
   getState(): Promise<WorkState>;
+  clearActivities(): Promise<WorkState>;
   signIn(): Promise<WorkState>;
   signOut(): Promise<WorkState>;
+  switchSpace(spaceId: string): Promise<WorkState>;
   removeApprovalPolicy(policyId: string): Promise<boolean>;
   chooseProject(): Promise<ProjectSummary | null>;
+  createProject(displayName: string): Promise<ProjectSummary>;
+  attachProjectFolder(localProjectId: string): Promise<ProjectSummary | null>;
+  deleteProject(localProjectId: string): Promise<boolean>;
   getProjectContext(localProjectId: string): Promise<ProjectContext>;
   getWorkflowNodeRegistry(localProjectId: string): Promise<DesktopWorkflowNodeRegistry>;
   listProjectFiles(localProjectId: string): Promise<ProjectFileTree>;
@@ -764,6 +834,7 @@ export type RouteMarketWorkApi = {
   ): Promise<Record<string, unknown>>;
   listAgentProfiles(): Promise<DesktopAgentProfile[]>;
   listChatModels(): Promise<ChatModel[]>;
+  getLocalProjectChat(localProjectId: string): Promise<LocalProjectChat | null>;
   sendProjectMessage(input: ProjectChatRequest): Promise<void>;
   stopProjectMessage(requestId: string): Promise<void>;
   onProjectChatEvent(listener: (event: ProjectChatEvent) => void): () => void;

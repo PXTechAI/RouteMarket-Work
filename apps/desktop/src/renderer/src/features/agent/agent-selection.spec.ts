@@ -50,6 +50,7 @@ describe("Agent selection", () => {
 function createAgent(id: string): DesktopAgentProfile {
   return {
     id,
+    revision: 1,
     name: id,
     description: null,
     avatarUrl: null,
@@ -58,6 +59,9 @@ function createAgent(id: string): DesktopAgentProfile {
     starterQuestions: [],
     tags: [],
     defaultModelCode: null,
+    skills: [],
+    toolPermissions: [],
+    executionPolicy: { environment: "auto", approvalMode: "risky_only" },
     tools: [],
     updatedAt: "2026-07-19T00:00:00.000Z"
   };

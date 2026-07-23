@@ -6,6 +6,7 @@ import type {
   ProjectChatRequest
 } from "../shared/desktop-api";
 import { readProjectChatStream } from "./project-chat-stream";
+import type { RouteMarketApiClient } from "./routemarket-api-client";
 import type { ProjectChatToolRunner } from "./project-chat-tool-runner";
 import {
   PROJECT_CHAT_TOOLS,
@@ -15,8 +16,7 @@ import {
 } from "./project-chat-tools";
 
 type ProjectChatClientOptions = {
-  apiBaseUrl: string;
-  getAccessToken(): string | undefined;
+  apiClient: RouteMarketApiClient;
   onEvent(event: ProjectChatEvent): void;
   toolRunner?: Pick<ProjectChatToolRunner, "execute"> & {
     listTools?: ProjectChatToolRunner["listTools"];
@@ -57,7 +57,7 @@ export class ProjectChatClient {
       throw new Error(readResponseError(payload, response.status));
     }
     return (Array.isArray(payload?.items) ? payload.items : [])
-      .map(normalizeAgent)
+      .map((agent) => normalizeAgent(agent, this.options.apiClient.origin))
       .filter((agent): agent is DesktopAgentProfile => agent !== null);
   }
 
@@ -72,13 +72,23 @@ export class ProjectChatClient {
 
     try {
       const agent = input.agent
-        ? await this.getAgent(input.agent.agentId, controller.signal)
+        ? await this.getAgent(
+            input.agent.agentId,
+            input.agent.agentRevision,
+            controller.signal
+          )
         : null;
-      await this.prepareSession(input, agent, controller.signal);
-      const availableTools = this.options.toolRunner?.listTools
-        ? await this.options.toolRunner.listTools(input.project.localProjectId)
-        : PROJECT_CHAT_TOOLS;
-      const tools = filterTools(availableTools, input.agent?.localToolGroups);
+      const executionEnvironment = resolveExecutionEnvironment(input);
+      const availableTools = executionEnvironment === "cloud" || input.project.hasFolder === false
+        ? []
+        : this.options.toolRunner?.listTools
+          ? await this.options.toolRunner.listTools(input.project.localProjectId)
+          : PROJECT_CHAT_TOOLS;
+      const tools = filterTools(
+        availableTools,
+        input.agent?.localToolGroups,
+        agent?.toolPermissions
+      );
       const extraMessages: Record<string, unknown>[] = [];
       let toolCallCount = 0;
       let completed = false;
@@ -145,7 +155,10 @@ export class ProjectChatClient {
             input.project.localProjectId,
             call,
             controller.signal,
-            { source: input.agent ? "agent" : "chat" }
+            {
+              source: input.agent ? "agent" : "chat",
+              approvalMode: agent?.executionPolicy.approvalMode ?? "risky_only"
+            }
           );
           if (execution.isError) {
             this.options.onEvent({
@@ -178,7 +191,6 @@ export class ProjectChatClient {
         throw new Error("The local Tool loop reached its maximum number of rounds.");
       }
 
-      await this.persistTurn(input, content, controller.signal);
       this.options.onEvent({
         requestId: input.requestId,
         type: controller.signal.aborted ? "stopped" : "complete",
@@ -222,7 +234,7 @@ export class ProjectChatClient {
     signal: AbortSignal,
     onText: (text: string) => void
   ) {
-    const response = await this.request("", {
+    const response = await this.request("/local", {
       method: "POST",
       signal,
       headers: {
@@ -234,14 +246,14 @@ export class ProjectChatClient {
         request_id: input.requestId,
         model: input.model,
         system_prompt: buildSystemPrompt(input, agent),
-        message: {
-          role: "user",
-          content: buildMessageContent(input)
-        },
+        messages: [
+          ...(input.history ?? []),
+          { role: "user", content: buildMessageContent(input) },
+          ...extraMessages
+        ],
         tools,
         tool_choice: "auto",
         parallel_tool_calls: false,
-        ...(extraMessages.length ? { extra_messages: extraMessages } : {}),
         stream: true
       })
     });
@@ -253,85 +265,17 @@ export class ProjectChatClient {
     return readProjectChatStream(response.body, signal, onText);
   }
 
-  private async prepareSession(
-    input: ProjectChatRequest,
-    agent: DesktopAgentProfile | null,
-    signal: AbortSignal
-  ) {
-    const response = await this.request("/sessions", {
-      method: "POST",
-      signal,
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        session_id: input.sessionId,
-        title: agent ? `${agent.name} · ${input.project.displayName}` : input.project.displayName,
-        model_code: input.model,
-        system_prompt: buildSystemPrompt(input, agent)
-      })
-    });
-    if (!response.ok) {
-      const payload = await response.json().catch(() => null);
-      throw new Error(readResponseError(payload, response.status));
-    }
-  }
-
-  private async persistTurn(
-    input: ProjectChatRequest,
-    content: string,
-    signal: AbortSignal
-  ) {
-    const response = await this.request(
-      `/sessions/${encodeURIComponent(input.sessionId)}/turns`,
-      {
-        method: "POST",
-        signal,
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          user_message: {
-            id: `user:${input.requestId}`,
-            role: "user",
-            content: buildMessageContent(input),
-            sentAt: input.sentAt
-          },
-          assistant_message: {
-            id: `assistant:${input.requestId}`,
-            role: "assistant",
-            content,
-            sentAt: input.sentAt
-          }
-        })
-      }
-    );
-    if (!response.ok) {
-      const payload = await response.json().catch(() => null);
-      throw new Error(readResponseError(payload, response.status));
-    }
-  }
-
   private request(path: string, init: RequestInit = {}) {
     return this.requestApp(`/api/app/v1/work/chat${path}`, init);
   }
 
   private requestApp(path: string, init: RequestInit = {}) {
-    const accessToken = this.options.getAccessToken();
-    if (!accessToken) {
-      throw new Error("Sign in to RouteMarket before starting a chat.");
-    }
-    return fetch(`${this.options.apiBaseUrl}${path}`, {
-      ...init,
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        ...init.headers
-      }
-    });
+    return this.options.apiClient.request(path, init, "required");
   }
 
   private async getAgent(
     agentId: string,
+    requestedRevision: number,
     signal: AbortSignal
   ): Promise<DesktopAgentProfile> {
     const response = await this.requestApp(
@@ -342,8 +286,27 @@ export class ProjectChatClient {
     if (!response.ok) {
       throw new Error(readResponseError(payload, response.status));
     }
-    const agent = normalizeAgent(payload);
+    const agent = normalizeAgent(payload, this.options.apiClient.origin);
     if (!agent) throw new Error("RouteMarket returned an invalid Agent profile.");
+    if (agent.revision !== requestedRevision) {
+      const versionResponse = await this.requestApp(
+        `/api/app/v1/agents/${encodeURIComponent(agentId)}/versions/${requestedRevision}`,
+        { signal }
+      );
+      const versionPayload = await versionResponse.json().catch(() => null);
+      if (!versionResponse.ok) {
+        throw new Error(readResponseError(versionPayload, versionResponse.status));
+      }
+      const versionedAgent = normalizeAgentVersion(
+        versionPayload,
+        agent,
+        this.options.apiClient.origin
+      );
+      if (!versionedAgent) {
+        throw new Error("RouteMarket returned an invalid Agent version snapshot.");
+      }
+      return versionedAgent;
+    }
     return agent;
   }
 }
@@ -369,7 +332,10 @@ function normalizeModel(value: unknown): ChatModel | null {
   };
 }
 
-function normalizeAgent(value: unknown): DesktopAgentProfile | null {
+function normalizeAgent(
+  value: unknown,
+  apiOrigin: string
+): DesktopAgentProfile | null {
   if (!value || typeof value !== "object") return null;
   const agent = value as Record<string, unknown>;
   if (
@@ -381,15 +347,28 @@ function normalizeAgent(value: unknown): DesktopAgentProfile | null {
   }
   return {
     id: agent.id,
+    revision: typeof agent.revision === "number" && Number.isInteger(agent.revision)
+      ? agent.revision
+      : 1,
     name: agent.name,
     description: typeof agent.description === "string" ? agent.description : null,
-    avatarUrl: typeof agent.avatar_url === "string" ? agent.avatar_url : null,
+    avatarUrl:
+      typeof agent.avatar_url === "string"
+        ? resolveAgentAvatarUrl(agent.avatar_url, apiOrigin)
+        : null,
     systemPrompt: agent.system_prompt,
     greeting: typeof agent.greeting === "string" ? agent.greeting : null,
     starterQuestions: normalizeStringArray(agent.starter_questions),
     tags: normalizeStringArray(agent.tags),
     defaultModelCode:
       typeof agent.default_model_code === "string" ? agent.default_model_code : null,
+    skills: Array.isArray(agent.skills)
+      ? agent.skills
+          .map(normalizeAgentSkill)
+          .filter((skill): skill is DesktopAgentProfile["skills"][number] => skill !== null)
+      : [],
+    toolPermissions: normalizeAgentTools(agent.tool_permissions ?? agent.tools),
+    executionPolicy: normalizeExecutionPolicy(agent.execution_policy),
     tools: Array.isArray(agent.tools)
       ? agent.tools
           .map(normalizeAgentTool)
@@ -397,6 +376,58 @@ function normalizeAgent(value: unknown): DesktopAgentProfile | null {
       : [],
     updatedAt: typeof agent.updated_at === "string" ? agent.updated_at : ""
   };
+}
+
+function normalizeAgentVersion(
+  value: unknown,
+  current: DesktopAgentProfile,
+  apiOrigin: string
+): DesktopAgentProfile | null {
+  if (!value || typeof value !== "object") return null;
+  const version = value as Record<string, unknown>;
+  if (!version.snapshot || typeof version.snapshot !== "object") return null;
+  const snapshot = version.snapshot as Record<string, unknown>;
+  if (
+    typeof version.revision !== "number" ||
+    typeof snapshot.name !== "string" ||
+    typeof snapshot.systemPrompt !== "string"
+  ) {
+    return null;
+  }
+  return {
+    id: current.id,
+    revision: version.revision,
+    name: snapshot.name,
+    description: typeof snapshot.description === "string" ? snapshot.description : null,
+    avatarUrl: typeof snapshot.avatarUrl === "string"
+      ? resolveAgentAvatarUrl(snapshot.avatarUrl, apiOrigin)
+      : null,
+    systemPrompt: snapshot.systemPrompt,
+    greeting: typeof snapshot.greeting === "string" ? snapshot.greeting : null,
+    starterQuestions: normalizeStringArray(snapshot.starterQuestions),
+    tags: normalizeStringArray(snapshot.tags),
+    defaultModelCode: typeof snapshot.defaultModelCode === "string"
+      ? snapshot.defaultModelCode
+      : null,
+    skills: Array.isArray(snapshot.skills)
+      ? snapshot.skills
+          .map(normalizeAgentSkill)
+          .filter((skill): skill is DesktopAgentProfile["skills"][number] => skill !== null)
+      : [],
+    toolPermissions: normalizeAgentTools(snapshot.toolPermissions ?? snapshot.tools),
+    executionPolicy: normalizeExecutionPolicy(snapshot.executionPolicy),
+    tools: Array.isArray(snapshot.tools)
+      ? snapshot.tools
+          .map(normalizeAgentTool)
+          .filter((tool): tool is DesktopAgentProfile["tools"][number] => tool !== null)
+      : [],
+    updatedAt: typeof version.created_at === "string" ? version.created_at : current.updatedAt
+  };
+}
+
+function resolveAgentAvatarUrl(value: string, apiOrigin: string): string {
+  if (!value.startsWith("/")) return value;
+  return new URL(value, apiOrigin).toString();
 }
 
 function normalizeAgentTool(
@@ -414,6 +445,52 @@ function normalizeAgentTool(
   };
 }
 
+function normalizeAgentTools(value: unknown): DesktopAgentProfile["toolPermissions"] {
+  return Array.isArray(value)
+    ? value
+        .map(normalizeAgentTool)
+        .filter((tool): tool is DesktopAgentProfile["tools"][number] => tool !== null)
+    : [];
+}
+
+function normalizeAgentSkill(
+  value: unknown
+): DesktopAgentProfile["skills"][number] | null {
+  if (!value || typeof value !== "object") return null;
+  const skill = value as Record<string, unknown>;
+  const skillId = typeof skill.skillId === "string"
+    ? skill.skillId
+    : typeof skill.skill_id === "string" ? skill.skill_id : "";
+  if (!skillId.trim()) return null;
+  const source = skill.source === "local" ? "local" : "cloud";
+  return {
+    skillId,
+    ...(typeof skill.name === "string" ? { name: skill.name } : {}),
+    ...(typeof skill.version === "number" || typeof skill.version === "string"
+      ? { version: skill.version }
+      : {}),
+    source,
+    enabled: skill.enabled !== false
+  };
+}
+
+function normalizeExecutionPolicy(
+  value: unknown
+): DesktopAgentProfile["executionPolicy"] {
+  const policy = value && typeof value === "object"
+    ? value as Record<string, unknown>
+    : {};
+  const environment = policy.environment === "local" || policy.environment === "cloud"
+    ? policy.environment
+    : "auto";
+  const approvalMode = policy.approvalMode === "always_ask" || policy.approval_mode === "always_ask"
+    ? "always_ask"
+    : policy.approvalMode === "never_ask" || policy.approval_mode === "never_ask"
+      ? "never_ask"
+      : "risky_only";
+  return { environment, approvalMode };
+}
+
 function normalizeStringArray(value: unknown): string[] {
   return Array.isArray(value)
     ? value.filter((item): item is string => typeof item === "string")
@@ -424,15 +501,24 @@ function buildSystemPrompt(
   input: ProjectChatRequest,
   agent: DesktopAgentProfile | null = null
 ) {
+  const hasFolder = input.project.hasFolder !== false;
+  const executionEnvironment = resolveExecutionEnvironment(input);
   const lines = [
-    "You are RouteMarket Work, an AI collaborator operating inside a local desktop project.",
+    "You are RouteMarket Work, an AI collaborator operating inside a desktop project.",
     `Current project: ${input.project.displayName} (${input.project.localProjectId}).`,
-    "Use the supplied local file context when relevant.",
-    "Use the supplied project tools to inspect the project instead of guessing file contents or paths.",
-    "Before modifying an existing file, read it and use the returned sha256 for the guarded write.",
-    "When running a project command, pass the executable and arguments separately. Inspect project processes after starting a long-running service, and stop only processes returned for this project.",
+    `Execution environment: ${executionEnvironment}.`,
     "Do not claim that you changed files, ran commands, or used local tools unless a later tool result explicitly confirms it."
   ];
+  if (hasFolder) {
+    lines.push(
+      "This project is linked to a local folder. Prefer its supplied file context and project tools when relevant.",
+      "Use the supplied project tools to inspect the project instead of guessing file contents or paths.",
+      "Before modifying an existing file, read it and use the returned sha256 for the guarded write.",
+      "When running a project command, pass the executable and arguments separately. Inspect project processes after starting a long-running service, and stop only processes returned for this project."
+    );
+  } else {
+    lines.push("This project is not linked to a local folder. Do not imply that local project files or project tools are available.");
+  }
   if (agent) {
     lines.push(
       `You are operating as the RouteMarket Agent profile "${agent.name}" (${agent.id}).`,
@@ -477,6 +563,14 @@ function buildSystemPrompt(
   return lines.join("\n");
 }
 
+function resolveExecutionEnvironment(
+  input: ProjectChatRequest
+): "local" | "cloud" {
+  const requested = input.agent?.executionEnvironment ?? "auto";
+  if (requested === "local" || requested === "cloud") return requested;
+  return input.project.hasFolder === false ? "cloud" : "local";
+}
+
 function clampToolRounds(value: number): number {
   if (!Number.isFinite(value)) return MAX_TOOL_ROUNDS;
   return Math.max(1, Math.min(MAX_TOOL_ROUNDS, Math.trunc(value)));
@@ -484,23 +578,60 @@ function clampToolRounds(value: number): number {
 
 function filterTools(
   tools: ProjectChatToolDefinition[],
-  groups?: AgentLocalToolGroup[]
+  groups?: AgentLocalToolGroup[],
+  permissions: DesktopAgentProfile["toolPermissions"] = []
 ): ProjectChatToolDefinition[] {
-  if (!groups) return tools;
-  const allowed = new Set(groups);
+  const allowed = groups ? new Set(groups) : null;
+  const permissionTypes = new Set(permissions.map((permission) => permission.type));
+  const localPermissionTypes = new Set([
+    "files",
+    "project_files",
+    "processes",
+    "browser",
+    "mcp",
+    "skills",
+    "skill"
+  ]);
+  const hasLocalPermissionPolicy = permissions.some(
+    (permission) => {
+      const type = permission.type;
+      // A cloud MCP binding is not a declaration that local MCP is the only
+      // desktop capability allowed. Local MCP bindings have no cloud server id
+      // (or use an explicitly local id).
+      if (
+        type === "mcp" &&
+        permission.serverId &&
+        !permission.serverId.startsWith("local")
+      ) {
+        return false;
+      }
+      return localPermissionTypes.has(type) ||
+      type.startsWith("project_") ||
+      type.startsWith("browser_") ||
+      type.startsWith("mcp_local_") ||
+      type.startsWith("skill_local_");
+    }
+  );
   return tools.filter((tool) => {
     const name = tool.function.name;
-    if (name.startsWith("mcp_local_")) return allowed.has("mcp");
-    if (name.startsWith("skill_local_")) return allowed.has("skills");
-    if (name.startsWith("browser_")) return allowed.has("browser");
-    if (
-      name === "project_start_process" ||
-      name === "project_list_processes" ||
-      name === "project_stop_process"
-    ) {
-      return allowed.has("processes");
-    }
-    return name.startsWith("project_") && allowed.has("files");
+    const group: AgentLocalToolGroup = name.startsWith("mcp_local_")
+      ? "mcp"
+      : name.startsWith("skill_local_")
+        ? "skills"
+        : name.startsWith("browser_")
+          ? "browser"
+          : name === "project_start_process" ||
+              name === "project_list_processes" ||
+              name === "project_stop_process"
+            ? "processes"
+            : "files";
+    if (allowed && !allowed.has(group)) return false;
+    if (!hasLocalPermissionPolicy) return true;
+    if (permissionTypes.has(name) || permissionTypes.has(group)) return true;
+    if (group === "files" && permissionTypes.has("project_files")) return true;
+    if (group === "skills" && permissionTypes.has("skill")) return true;
+    if (group === "mcp" && permissionTypes.has("mcp")) return true;
+    return false;
   });
 }
 

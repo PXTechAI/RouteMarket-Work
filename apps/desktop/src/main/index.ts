@@ -26,12 +26,15 @@ import {
 } from "./approval-policy";
 import { ApprovalStore } from "./approval-store";
 import { ActivityStore } from "./activity-store";
+import { LocalChatStore } from "./local-chat-store";
 import { DesktopAuthManager } from "./desktop-auth-manager";
 import { DeviceCredentialStore } from "./device-credential-store";
 import { ProjectChatClient } from "./project-chat-client";
+import { RouteMarketApiClient } from "./routemarket-api-client";
 import { ProjectChatToolRunner } from "./project-chat-tool-runner";
 import {
   LocalToolBroker,
+  resolveToolApprovalGate,
   type ToolAuthorizationRequest,
   type ToolRisk
 } from "./tool-broker";
@@ -49,20 +52,36 @@ import { WorkflowRunStore } from "./workflow-run-store";
 import { WorkerClient } from "./worker-client";
 
 declare const __ROUTEMARKET_WORK_DEFAULT_API_URL__: string;
+declare const __ROUTEMARKET_WORK_DEFAULT_WEB_URL__: string;
 
 const PROTOCOL = "routemarket-work";
 const API_BASE_URL = (
   process.env.ROUTEMARKET_WORK_API_URL ??
   __ROUTEMARKET_WORK_DEFAULT_API_URL__
 ).replace(/\/+$/, "");
+const WEB_BASE_URL = (
+  process.env.ROUTEMARKET_WORK_WEB_URL ??
+  __ROUTEMARKET_WORK_DEFAULT_WEB_URL__
+).replace(/\/+$/, "");
 
 let mainWindow: BrowserWindow | null = null;
 let workerClient: WorkerClient | null = null;
 let cloudWorkerClient: CloudWorkerClient | null = null;
 let desktopAuthManager: DesktopAuthManager | null = null;
+let accountSyncTimer: NodeJS.Timeout | null = null;
 let projectChatClient: ProjectChatClient | null = null;
 let approvalStore: ApprovalStore | null = null;
 let activityStore: ActivityStore | null = null;
+let localChatStore: LocalChatStore | null = null;
+const activeLocalChats = new Map<string, {
+  sessionId: string;
+  localProjectId: string;
+  sentAt: string;
+  agentId?: string;
+  agentRevision?: number;
+  agentName?: string;
+  agentAvatarUrl?: string | null;
+}>();
 let managedBrowser: ManagedBrowserManager | null = null;
 let localTriggerManager: LocalTriggerManager | null = null;
 let workflowDraftStore: WorkflowDraftStore | null = null;
@@ -76,7 +95,11 @@ const toolBroker = new LocalToolBroker(
   async (request) => {
     const policy = approvalStore?.matchPolicy(request);
     const storedDecision = resolveStoredApprovalPolicy(request, policy ?? null);
-    if (storedDecision) return storedDecision === "allow";
+    const approvalGate = resolveToolApprovalGate(request.approvalMode, storedDecision);
+    if (approvalGate !== "prompt") return approvalGate === "allow";
+    // A synced Agent may request more caution, but it may never silently lower
+    // this device's approval boundary. "Never ask" therefore requires a
+    // pre-existing local allow policy; otherwise the operation is denied.
     if (!mainWindow) return false;
     const choices = approvalDialogChoices(request);
     const buttons = choices.map(approvalDialogLabel);
@@ -136,6 +159,7 @@ function createWindow(): void {
     minHeight: 680,
     backgroundColor: "#f4f3ef",
     title: "RouteMarket Work",
+    icon: join(__dirname, "../../build/icon.png"),
     show: false,
     webPreferences: {
       preload: join(__dirname, "../preload/index.cjs"),
@@ -169,6 +193,9 @@ function createWindow(): void {
   });
   mainWindow.on("closed", () => {
     mainWindow = null;
+  });
+  mainWindow.on("focus", () => {
+    void desktopAuthManager?.syncAccount();
   });
 
   if (process.env.ELECTRON_RENDERER_URL) {
@@ -586,6 +613,12 @@ async function getWorkState(): Promise<WorkState> {
 function registerIpc(): void {
   ipcMain.handle("work:get-state", getWorkState);
 
+  ipcMain.handle("work:activities-clear", async (): Promise<WorkState> => {
+    activityStore?.clear();
+    transientActivities.length = 0;
+    return getWorkState();
+  });
+
   ipcMain.handle("work:sign-in", async (): Promise<WorkState> => {
     await desktopAuthManager?.signIn();
     return getWorkState();
@@ -593,6 +626,11 @@ function registerIpc(): void {
 
   ipcMain.handle("work:sign-out", async (): Promise<WorkState> => {
     await desktopAuthManager?.signOut();
+    return getWorkState();
+  });
+
+  ipcMain.handle("work:switch-space", async (_event, spaceId: string): Promise<WorkState> => {
+    await desktopAuthManager?.switchSpace(spaceId);
     return getWorkState();
   });
 
@@ -612,21 +650,81 @@ function registerIpc(): void {
   ipcMain.handle("work:choose-project", async (): Promise<ProjectSummary | null> => {
     if (!mainWindow || !workerClient) return null;
     const result = await dialog.showOpenDialog(mainWindow, {
-      title: "选择本地项目",
+      title: "从文件夹创建项目",
       properties: ["openDirectory", "createDirectory"]
     });
     const rootPath = result.filePaths[0];
     if (result.canceled || !rootPath) return null;
     const project = await workerClient.bindProject(rootPath);
-    addActivity("project.bound", "项目已绑定", project.displayName);
+    addActivity("project.bound", "项目已从文件夹创建", project.displayName);
     void cloudWorkerClient?.syncProjects().catch((error: unknown) => {
       addActivity(
         "cloud.error",
-        "项目云端同步失败",
+        "工作区运行能力登记失败",
         error instanceof Error ? error.message : "Unknown cloud sync error"
       );
     });
     return project;
+  });
+
+  ipcMain.handle("work:create-project", async (_event, displayName: string): Promise<ProjectSummary> => {
+    if (!workerClient) throw new Error("RouteMarket Worker is offline.");
+    const project = await workerClient.createProject(displayName);
+    addActivity("project.created", "项目已创建", project.displayName);
+    return project;
+  });
+
+  ipcMain.handle(
+    "work:attach-project-folder",
+    async (_event, localProjectId: string): Promise<ProjectSummary | null> => {
+      if (!mainWindow || !workerClient) return null;
+      const result = await dialog.showOpenDialog(mainWindow, {
+        title: "关联项目文件夹",
+        properties: ["openDirectory", "createDirectory"]
+      });
+      const rootPath = result.filePaths[0];
+      if (result.canceled || !rootPath) return null;
+      const project = await workerClient.attachProjectFolder(localProjectId, rootPath);
+      addActivity("project.folder_attached", "项目已关联文件夹", project.displayName);
+      void cloudWorkerClient?.syncProjects().catch((error: unknown) => {
+        addActivity(
+          "cloud.error",
+          "项目运行能力登记失败",
+          error instanceof Error ? error.message : "Unknown cloud sync error"
+        );
+      });
+      return project;
+    }
+  );
+
+  ipcMain.handle("work:delete-project", async (_event, localProjectId: string): Promise<boolean> => {
+    if (!mainWindow || !workerClient) return false;
+    const project = (await workerClient.listProjects()).find(
+      (candidate) => candidate.localProjectId === localProjectId
+    );
+    if (!project) return false;
+    const confirmation = await dialog.showMessageBox(mainWindow, {
+      type: "warning",
+      title: "删除项目",
+      message: `确定删除项目“${project.displayName}”吗？`,
+      detail: "只会删除项目记录和本机对话，不会删除已关联文件夹或其中的任何文件。",
+      buttons: ["取消", "删除项目"],
+      defaultId: 0,
+      cancelId: 0,
+      noLink: true
+    });
+    if (confirmation.response !== 1) return false;
+    for (const [requestId, active] of activeLocalChats) {
+      if (active.localProjectId !== localProjectId) continue;
+      projectChatClient?.stop(requestId);
+      activeLocalChats.delete(requestId);
+    }
+    const deleted = await workerClient.deleteProject(localProjectId);
+    if (deleted) {
+      localChatStore?.deleteProject(localProjectId);
+      addActivity("project.deleted", "项目已删除", `${project.displayName} · 未删除关联文件夹`);
+    }
+    return deleted;
   });
 
   ipcMain.handle("work:list-project-files", async (_event, localProjectId: string) => {
@@ -1458,6 +1556,11 @@ function registerIpc(): void {
     return projectChatClient.listModels();
   });
 
+  ipcMain.handle("work:get-local-project-chat", (_event, localProjectId: string) => {
+    if (!localChatStore) throw new Error("Local chat storage is unavailable.");
+    return localChatStore.get(localProjectId);
+  });
+
   ipcMain.handle("work:list-agent-profiles", async () => {
     if (!projectChatClient) {
       throw new Error("RouteMarket Agent profiles are unavailable.");
@@ -1474,15 +1577,43 @@ function registerIpc(): void {
       const project = (await workerClient.listProjects()).find(
         (candidate) => candidate.localProjectId === input.project.localProjectId
       );
-      if (!project) throw new Error("The selected project is not bound on this device.");
-      const projectContext = await workerClient.projectContext(project.localProjectId);
+      if (!project) throw new Error("The selected project does not exist on this device.");
+      const projectContext = project.hasFolder === false
+        ? null
+        : await workerClient.projectContext(project.localProjectId);
+      if (!localChatStore) throw new Error("Local chat storage is unavailable.");
+      const thread = localChatStore.getOrCreate(project.localProjectId, project.displayName);
+      const history = thread.messages.map(({ role, content }) => ({ role, content }));
+      localChatStore.append({
+        id: `user:${input.requestId}`,
+        sessionId: thread.sessionId,
+        localProjectId: project.localProjectId,
+        role: "user",
+        content: input.message,
+        sentAt: input.sentAt,
+        ...(input.contextFile ? { contextFile: input.contextFile.relativePath } : {})
+      });
+      activeLocalChats.set(input.requestId, {
+        sessionId: thread.sessionId,
+        localProjectId: project.localProjectId,
+        sentAt: input.sentAt,
+        ...(input.agent?.agentId ? { agentId: input.agent.agentId } : {}),
+        ...(input.agent?.agentRevision ? { agentRevision: input.agent.agentRevision } : {}),
+        ...(input.agent?.agentName ? { agentName: input.agent.agentName } : {}),
+        ...(input.agent && "agentAvatarUrl" in input.agent
+          ? { agentAvatarUrl: input.agent.agentAvatarUrl }
+          : {})
+      });
       void projectChatClient.send({
         ...input,
+        sessionId: thread.sessionId,
+        history,
         project: {
           localProjectId: project.localProjectId,
-          displayName: project.displayName
+          displayName: project.displayName,
+          hasFolder: project.hasFolder !== false
         },
-        projectContext
+        ...(projectContext ? { projectContext } : {})
       });
     }
   );
@@ -1547,6 +1678,7 @@ if (!hasSingleInstanceLock) {
     workerClient.start();
     approvalStore = new ApprovalStore(join(workDataPath, "work.db"));
     activityStore = new ActivityStore(join(workDataPath, "work.db"));
+    localChatStore = new LocalChatStore(join(workDataPath, "work.db"));
     localTriggerManager = new LocalTriggerManager(
       join(workDataPath, "work.db"),
       (localProjectId) => workerClient!.projectRoot(localProjectId),
@@ -1570,9 +1702,12 @@ if (!hasSingleInstanceLock) {
     );
     workflowDraftStore = new WorkflowDraftStore(join(workDataPath, "work.db"));
     workflowRunStore = new WorkflowRunStore(join(workDataPath, "work.db"));
+    const apiClient = new RouteMarketApiClient({
+      baseUrl: API_BASE_URL,
+      appVersion: app.getVersion()
+    });
     const cloudWorkflowClient = new CloudWorkflowClient({
-      apiBaseUrl: API_BASE_URL,
-      getAccessToken: () => desktopAuthManager?.getAccessToken()
+      apiClient
     });
     localWorkflowRuntime = new LocalWorkflowRuntime(
       workflowDraftStore,
@@ -1611,7 +1746,7 @@ if (!hasSingleInstanceLock) {
     const platform = process.platform === "darwin" ? "macos" : "windows";
     const arch = process.arch === "arm64" ? "arm64" : "x64";
     cloudWorkerClient = new CloudWorkerClient({
-      apiBaseUrl: API_BASE_URL,
+      apiClient,
       installationId,
       deviceName: hostname(),
       platform,
@@ -1623,7 +1758,8 @@ if (!hasSingleInstanceLock) {
       executeDesktopJob: executeExternalDesktopJob
     });
     desktopAuthManager = new DesktopAuthManager({
-      apiBaseUrl: API_BASE_URL,
+      apiClient,
+      webBaseUrl: WEB_BASE_URL,
       installationId,
       deviceName: hostname(),
       platform,
@@ -1633,12 +1769,41 @@ if (!hasSingleInstanceLock) {
         join(workDataPath, "device-credentials.json")
       ),
       openExternal: (url) => shell.openExternal(url),
-      onAccessToken: (token) => cloudWorkerClient?.setAccessToken(token)
+      onAccessToken: (token) => {
+        apiClient.setAccessToken(token);
+        cloudWorkerClient?.setAccessToken(token);
+      },
+      onSpaceChanged: (teamId) => {
+        apiClient.setTeamId(teamId);
+        cloudWorkerClient?.refreshWorkspace();
+      }
     });
     projectChatClient = new ProjectChatClient({
-      apiBaseUrl: API_BASE_URL,
-      getAccessToken: () => desktopAuthManager?.getAccessToken(),
-      onEvent: (event) => mainWindow?.webContents.send("work:project-chat-event", event),
+      apiClient,
+      onEvent: (event) => {
+        const active = activeLocalChats.get(event.requestId);
+        if (active && (event.type === "complete" || event.type === "stopped")) {
+          localChatStore?.append({
+            id: `assistant:${event.requestId}`,
+            sessionId: active.sessionId,
+            localProjectId: active.localProjectId,
+            role: "assistant",
+            content: event.content,
+            sentAt: active.sentAt,
+            ...(event.type === "stopped" ? { stopped: true } : {}),
+            ...(active.agentId ? { agentId: active.agentId } : {}),
+            ...(active.agentRevision ? { agentRevision: active.agentRevision } : {}),
+            ...(active.agentName ? { agentName: active.agentName } : {}),
+            ...("agentAvatarUrl" in active
+              ? { agentAvatarUrl: active.agentAvatarUrl }
+              : {})
+          });
+          activeLocalChats.delete(event.requestId);
+        } else if (event.type === "error") {
+          activeLocalChats.delete(event.requestId);
+        }
+        mainWindow?.webContents.send("work:project-chat-event", event);
+      },
       toolRunner: new ProjectChatToolRunner({
         workerClient,
         toolBroker,
@@ -1653,6 +1818,10 @@ if (!hasSingleInstanceLock) {
     await localTriggerManager.startAll();
 
     await desktopAuthManager.initialize();
+    void desktopAuthManager.syncAccount();
+    accountSyncTimer = setInterval(() => {
+      void desktopAuthManager?.syncAccount();
+    }, 60_000);
     await cloudWorkerClient.start();
 
     const initialDeepLink = pendingDeepLink ?? findDeepLink(process.argv);
@@ -1674,6 +1843,8 @@ app.on("window-all-closed", () => {
 });
 
 app.on("before-quit", () => {
+  if (accountSyncTimer) clearInterval(accountSyncTimer);
+  accountSyncTimer = null;
   void attachedBrowser.disconnect();
   localTriggerManager?.close();
   localTriggerManager = null;
@@ -1690,4 +1861,6 @@ app.on("before-quit", () => {
   approvalStore = null;
   activityStore?.close();
   activityStore = null;
+  localChatStore?.close();
+  localChatStore = null;
 });

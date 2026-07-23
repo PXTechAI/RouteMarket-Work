@@ -5,18 +5,22 @@ import {
   FolderPlus,
   Paperclip,
   Send,
-  Sparkles,
   Square,
+  WandSparkles,
   X
 } from "lucide-react";
+import { useEffect, useRef } from "react";
 import type {
   ChatModel,
+  DesktopAgentProfile,
   ProjectContext,
   ProjectSummary,
   ReadResult,
   WorkState
 } from "../../../../shared/desktop-api";
 import { ChatMessageRow } from "./components/ChatMessageRow";
+import { AgentAvatar } from "./components/AgentAvatar";
+import { ChatAgentPicker } from "./components/ChatAgentPicker";
 import { ModelPicker } from "./components/ModelPicker";
 import type { ChatMessage } from "./types";
 
@@ -31,15 +35,24 @@ type ChatPageProps = {
   authStatus: WorkState["authStatus"];
   models: ChatModel[];
   selectedModelCode: string;
+  executionEnvironment: "auto" | "local" | "cloud";
   modelsLoading: boolean;
+  agents: DesktopAgentProfile[];
+  agentsLoading: boolean;
+  selectedAgentId: string;
+  selectedAgent: DesktopAgentProfile | null;
   projectContext: ProjectContext | null;
   selectedProjectSkillId: string;
   error: string | null;
   onChooseProject(): void;
+  onAttachProjectFolder(): void;
   onDraftChange(value: string): void;
   onSend(): void;
+  onRetry(messageId: string): void;
   onStop(): void;
   onModelChange(value: string): void;
+  onExecutionEnvironmentChange(value: "auto" | "local" | "cloud"): void;
+  onAgentChange(agentId: string): void;
   onProjectSkillChange(value: string): void;
   onIncludeFileContextChange(value: boolean): void;
   onDismissError(): void;
@@ -56,37 +69,92 @@ export function ChatPage({
   authStatus,
   models,
   selectedModelCode,
+  executionEnvironment,
   modelsLoading,
+  agents,
+  agentsLoading,
+  selectedAgentId,
+  selectedAgent,
   projectContext,
   selectedProjectSkillId,
   error,
   onChooseProject,
+  onAttachProjectFolder,
   onDraftChange,
   onSend,
+  onRetry,
   onStop,
   onModelChange,
+  onExecutionEnvironmentChange,
+  onAgentChange,
   onProjectSkillChange,
   onIncludeFileContextChange,
   onDismissError
 }: ChatPageProps) {
+  const chatScrollRef = useRef<HTMLDivElement>(null);
+  const latestMessage = messages.at(-1);
+
+  useEffect(() => {
+    const scroller = chatScrollRef.current;
+    if (!scroller) return;
+    const frame = window.requestAnimationFrame(() => {
+      scroller.scrollTop = scroller.scrollHeight;
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [
+    messages.length,
+    latestMessage?.content,
+    latestMessage?.tools?.length,
+    latestMessage?.tools?.at(-1)?.status,
+    activeRequestId
+  ]);
+
   return (
     <section className="chat-pane">
-      <div className="chat-scroll">
+      <div ref={chatScrollRef} className="chat-scroll">
         {!selectedProject && (
           <div className="blank-state">
             <div className="blank-icon"><FolderPlus size={28} /></div>
-            <h2>打开一个本地项目开始对话</h2>
+            <h2>创建一个项目开始对话</h2>
             <button className="primary-button" type="button" onClick={onChooseProject}>
               <FolderPlus size={16} />
-              选择文件夹
+              创建项目
             </button>
           </div>
         )}
         {selectedProject && messages.length === 0 && (
           <div className="chat-empty">
-            <div className="chat-empty-icon"><Sparkles size={25} /></div>
-            <h2>和 {selectedProject.displayName} 一起工作</h2>
-            <p>选择左侧文件可以把内容带入本次请求，也可以直接讨论整个项目。</p>
+            <AgentAvatar
+              className="chat-empty-agent-avatar"
+              name={selectedAgent?.name ?? "RouteMarket Agent"}
+              avatarUrl={selectedAgent?.avatarUrl}
+              size={48}
+            />
+            <h2>
+              {selectedAgent
+                ? `${selectedAgent.name} · ${selectedProject.displayName}`
+                : `和 ${selectedProject.displayName} 一起工作`}
+            </h2>
+            {selectedAgent?.greeting ? <p>{selectedAgent.greeting}</p> : null}
+            {selectedProject.hasFolder === false ? (
+              <>
+                <p>这个项目尚未关联文件夹，可以直接对话，也可以关联文件夹让 AI 读取和操作其中的内容。</p>
+                <button className="chat-link-folder" type="button" onClick={onAttachProjectFolder}>
+                  <FolderPlus size={15} />关联本机文件夹
+                </button>
+              </>
+            ) : (
+              <p>选择项目文件可以把内容带入本次请求，也可以直接讨论整个项目。</p>
+            )}
+            {selectedAgent?.starterQuestions.length ? (
+              <div className="chat-starter-list">
+                {selectedAgent.starterQuestions.slice(0, 3).map((question) => (
+                  <button type="button" key={question} onClick={() => onDraftChange(question)}>
+                    {question}
+                  </button>
+                ))}
+              </div>
+            ) : null}
           </div>
         )}
         {selectedProject && messages.length > 0 && (
@@ -98,6 +166,11 @@ export function ChatPage({
                 streaming={
                   message.id === `assistant:${activeRequestId}` &&
                   !message.content
+                }
+                onRetry={
+                  message.role === "assistant" && !activeRequestId
+                    ? () => onRetry(message.id)
+                    : undefined
                 }
               />
             ))}
@@ -121,15 +194,28 @@ export function ChatPage({
             </div>
           )}
           <div className="composer">
+            <div className="composer-topbar">
+              <ChatAgentPicker
+                agents={agents}
+                selectedAgentId={selectedAgentId}
+                loading={agentsLoading}
+                disabled={Boolean(activeRequestId)}
+                onSelect={onAgentChange}
+              />
+              <div className="composer-top-actions">
+                <button type="button" onClick={() => onDraftChange("请分析这个项目的现状，并给出清晰的下一步行动建议。")}>常用提示词</button>
+                <button type="button" title="桌面端提示词优化即将接入" disabled><WandSparkles size={13} />提示词优化</button>
+              </div>
+            </div>
             <textarea
               value={draft}
               placeholder={
                 authStatus === "signed_in"
-                  ? "询问项目、分析文件或规划下一步..."
+                  ? "输入你的问题、任务、创意、代码需求或结构化指令…"
                   : "登录后开始项目对话"
               }
               disabled={authStatus !== "signed_in"}
-              rows={3}
+              rows={4}
               onChange={(event) => onDraftChange(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key === "Enter" && !event.shiftKey) {
@@ -148,6 +234,21 @@ export function ChatPage({
                   disabled={Boolean(activeRequestId)}
                   onChange={onModelChange}
                 />
+                <label className="project-skill-picker">
+                  <select
+                    aria-label="执行环境"
+                    value={executionEnvironment}
+                    disabled={Boolean(activeRequestId)}
+                    onChange={(event) => onExecutionEnvironmentChange(
+                      event.target.value as "auto" | "local" | "cloud"
+                    )}
+                  >
+                    <option value="auto">自动选择</option>
+                    <option value="local">本地执行</option>
+                    <option value="cloud">云端执行</option>
+                  </select>
+                  <ChevronDown size={12} />
+                </label>
                 {projectContext?.skills.length ? (
                   <label className="project-skill-picker">
                     <Bot size={13} />
@@ -165,6 +266,16 @@ export function ChatPage({
                     <ChevronDown size={12} />
                   </label>
                 ) : null}
+                {selectedAgent?.skills.filter((skill) => skill.enabled).length ? (
+                  <span className="composer-location">
+                    Agent Skills · {selectedAgent.skills.filter((skill) => skill.enabled).length}
+                  </span>
+                ) : null}
+                {selectedAgent?.toolPermissions.length ? (
+                  <span className="composer-location">
+                    工具权限 · {selectedAgent.toolPermissions.length}
+                  </span>
+                ) : null}
                 {readResult && !includeFileContext && (
                   <button
                     className="attach-button"
@@ -175,7 +286,7 @@ export function ChatPage({
                     引用当前文件
                   </button>
                 )}
-                {!readResult && <span>Enter 发送 · Shift Enter 换行</span>}
+                <span className="composer-location">{selectedProject.hasFolder === false ? "仅本地对话" : "本机文件夹"}</span>
               </div>
               {activeRequestId ? (
                 <button
@@ -194,11 +305,13 @@ export function ChatPage({
                   disabled={
                     !draft.trim() ||
                     !selectedModelCode ||
+                    !selectedAgent ||
                     authStatus !== "signed_in"
                   }
                   onClick={onSend}
                 >
-                  <Send size={15} />
+                  <Send size={14} />
+                  <span>发送</span>
                 </button>
               )}
             </div>

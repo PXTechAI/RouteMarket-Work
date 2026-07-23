@@ -1,4 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { terminateProcessTree } from "./child-process";
 import { WorkerError } from "./errors";
 import type { McpRegistry, McpServerConfig } from "./mcp-registry";
 import type { ProjectRegistry } from "./project-registry";
@@ -127,7 +128,7 @@ export class StdioMcpHost {
       return summarize(config, session);
     } catch (error) {
       this.failSession(session, error instanceof Error ? error : new Error("MCP initialization failed."));
-      await terminateChild(child);
+      await terminateProcessTree(child);
       throw error;
     }
   }
@@ -136,7 +137,7 @@ export class StdioMcpHost {
     const config = this.registry.get(serverId);
     if (!config) throw new WorkerError("MCP_SERVER_NOT_FOUND", "MCP server was not found.");
     const session = this.sessions.get(serverId);
-    if (session?.child) await terminateChild(session.child);
+    if (session?.child) await terminateProcessTree(session.child);
     if (session?.config.transport === "streamable-http" && session.config.url) {
       await fetch(session.config.url, {
         method: "DELETE",
@@ -385,7 +386,7 @@ export class StdioMcpHost {
     session.stdoutBuffer += chunk.toString("utf8");
     if (Buffer.byteLength(session.stdoutBuffer, "utf8") > MAX_MESSAGE_BYTES) {
       this.failSession(session, new WorkerError("MCP_PROTOCOL_ERROR", "MCP stdout message exceeds 4 MiB."));
-      if (session.child) void terminateChild(session.child);
+      if (session.child) void terminateProcessTree(session.child);
       return;
     }
     let newline = session.stdoutBuffer.indexOf("\n");
@@ -403,7 +404,7 @@ export class StdioMcpHost {
       message = JSON.parse(line) as Record<string, unknown>;
     } catch {
       this.failSession(session, new WorkerError("MCP_PROTOCOL_ERROR", "MCP server wrote non-JSON data to stdout."));
-      if (session.child) void terminateChild(session.child);
+      if (session.child) void terminateProcessTree(session.child);
       return;
     }
     if (message.jsonrpc !== "2.0") return;
@@ -489,24 +490,4 @@ function waitForSpawn(child: ChildProcessWithoutNullStreams): Promise<void> {
     child.once("spawn", resolve);
     child.once("error", reject);
   });
-}
-
-async function terminateChild(child: ChildProcessWithoutNullStreams): Promise<void> {
-  const pid = child.pid;
-  if (!pid || child.killed) return;
-  if (process.platform === "win32") {
-    await new Promise<void>((resolve) => {
-      const killer = spawn("taskkill.exe", ["/pid", String(pid), "/t", "/f"], {
-        windowsHide: true,
-        stdio: "ignore"
-      });
-      killer.once("exit", () => resolve());
-      killer.once("error", () => {
-        child.kill();
-        resolve();
-      });
-    });
-  } else {
-    child.kill("SIGTERM");
-  }
 }

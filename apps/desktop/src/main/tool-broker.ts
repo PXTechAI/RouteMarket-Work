@@ -1,6 +1,9 @@
 import { randomUUID } from "node:crypto";
 
 export type ToolRisk = "R0" | "R1" | "R2" | "R3";
+export type ToolApprovalMode = "always_ask" | "risky_only" | "never_ask";
+export type StoredToolApprovalDecision = "allow" | "deny" | null;
+export type ToolApprovalGate = "allow" | "deny" | "prompt";
 
 export type ToolAuthorizationRequest = {
   invocationId: string;
@@ -11,6 +14,7 @@ export type ToolAuthorizationRequest = {
   auditDetail?: string;
   approvalKey?: string;
   projectId?: string;
+  approvalMode?: ToolApprovalMode;
 };
 
 export type ToolAuthorizationDecision = "requested" | "approved" | "denied";
@@ -29,6 +33,16 @@ export class ToolApprovalDeniedError extends Error {
   }
 }
 
+export function resolveToolApprovalGate(
+  approvalMode: ToolApprovalMode | undefined,
+  storedDecision: StoredToolApprovalDecision
+): ToolApprovalGate {
+  if (storedDecision === "deny") return "deny";
+  if (storedDecision === "allow" && approvalMode !== "always_ask") return "allow";
+  if (approvalMode === "never_ask") return "deny";
+  return "prompt";
+}
+
 export class LocalToolBroker {
   constructor(
     private readonly confirm: (request: ToolAuthorizationRequest) => Promise<boolean>,
@@ -44,7 +58,7 @@ export class LocalToolBroker {
       ...input,
       invocationId: `tool_${randomUUID().replaceAll("-", "")}`
     };
-    if (request.risk !== "R0") {
+    if (request.risk !== "R0" || request.approvalMode === "always_ask") {
       await this.notifyDecision(request, "requested", onDecision);
       const approved = await this.confirm(request);
       await this.notifyDecision(request, approved ? "approved" : "denied", onDecision);

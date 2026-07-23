@@ -37,7 +37,7 @@ export function AgentPage({
     return (
       <section className="agent-pane agent-blank">
         <FolderPlus size={30} />
-        <h2>打开本地项目后使用 Agent</h2>
+        <h2>选择项目后使用 Agent</h2>
         <button className="primary-button" type="button" onClick={actions.onChooseProject}>
           <FolderPlus size={15} />
           选择文件夹

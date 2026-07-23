@@ -14,4 +14,8 @@ export type ChatMessage = {
   contextFile?: string;
   stopped?: boolean;
   tools?: ChatToolActivity[];
+  agentId?: string;
+  agentRevision?: number;
+  agentName?: string;
+  agentAvatarUrl?: string | null;
 };
