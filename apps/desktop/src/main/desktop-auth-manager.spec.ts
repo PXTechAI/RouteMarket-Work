@@ -223,7 +223,12 @@ describe("DesktopAuthManager", () => {
         accessToken: `rmw_dt_${"a".repeat(43)}`,
         expiresAt: "2027-01-13T00:00:00.000Z",
         scopes: ["work:runtime", "work:projects", "work:jobs", "work:chat"],
-        account: { id: "account_test", displayName: "Old Name", email: null }
+        account: {
+          id: "account_test",
+          displayName: "Old Name",
+          email: null,
+          creditsBalance: 10
+        }
       }
     };
     const fetchMock = vi.fn<typeof fetch>(async () => jsonResponse({
@@ -231,6 +236,7 @@ describe("DesktopAuthManager", () => {
         id: "account_test",
         display_name: "Updated User",
         email: "updated@example.test",
+        credits_balance: 123.45,
         membership: {
           plan_code: "team",
           plan_name: "Team 年度版",
@@ -253,10 +259,12 @@ describe("DesktopAuthManager", () => {
     );
     expect(manager.getState().account).toMatchObject({
       displayName: "Updated User",
+      creditsBalance: 123.45,
       membership: { planCode: "team", planName: "Team 年度版" },
       spaces: expect.arrayContaining([expect.objectContaining({ id: "team_new" })])
     });
     expect(credentialStore.payload.credentials?.account.displayName).toBe("Updated User");
+    expect(credentialStore.payload.credentials?.account.creditsBalance).toBe(123.45);
   });
 
   it("returns to signed out when the server rejects the device session", async () => {

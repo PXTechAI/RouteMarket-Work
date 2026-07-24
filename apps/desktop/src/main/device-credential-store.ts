@@ -7,6 +7,7 @@ export type DeviceAccount = {
   displayName: string;
   email: string | null;
   avatarUrl?: string | null;
+  creditsBalance?: number;
   spaces?: DeviceSpace[];
   activeSpaceId?: string;
   membership?: {

@@ -12,7 +12,8 @@ import {
   Sun,
   Trash2,
   UserRound,
-  UsersRound
+  UsersRound,
+  WalletCards
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type {
@@ -153,6 +154,17 @@ export function AccountMenu({
                     有效至 {new Date(account.membership.expiresAt).toLocaleDateString("zh-CN")}
                   </small>
                 )}
+              </div>
+            </div>
+          )}
+
+          {account && (
+            <div className="rm-membership-summary">
+              <WalletCards size={15} />
+              <div>
+                <span>Credits 余额</span>
+                <strong>{formatCreditsBalance(account.creditsBalance)}</strong>
+                <small>账户同步后自动更新</small>
               </div>
             </div>
           )}
@@ -387,6 +399,13 @@ function membershipLabel(
   if (membership === undefined) return "会员信息暂不可用";
   if (membership === null) return "未开通会员";
   return membership.planName;
+}
+
+function formatCreditsBalance(value: number | undefined): string {
+  if (value === undefined) return "暂不可用";
+  return new Intl.NumberFormat("zh-CN", {
+    maximumFractionDigits: 2
+  }).format(value);
 }
 
 function getInitials(displayName: string) {

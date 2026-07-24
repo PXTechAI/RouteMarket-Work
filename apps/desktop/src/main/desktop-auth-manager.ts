@@ -65,6 +65,7 @@ type ExchangeResponse = {
     display_name: string;
     email: string | null;
     avatar_url?: string | null;
+    credits_balance?: number;
     membership?: {
       plan_code: string;
       plan_name: string;
@@ -311,7 +312,13 @@ export class DesktopAuthManager {
         : resolveActiveSpaceId(result, spaces);
       const nextCredentials: DeviceCredentials = {
         ...credentials,
-        account: accountFromResponse(result, spaces, activeSpaceId, (value) => this.resolveAvatarUrl(value))
+        account: accountFromResponse(
+          result,
+          spaces,
+          activeSpaceId,
+          (value) => this.resolveAvatarUrl(value),
+          credentials.account.creditsBalance
+        )
       };
       await this.mutateCredentials(() => this.options.credentialStore.write({ credentials: nextCredentials }));
       if (this.credentials !== credentials) return;
@@ -546,13 +553,22 @@ function accountFromResponse(
   response: AccountSnapshotResponse,
   spaces: DeviceSpace[],
   activeSpaceId: string,
-  resolveAvatarUrl: (value: unknown) => string | null
+  resolveAvatarUrl: (value: unknown) => string | null,
+  fallbackCreditsBalance?: number
 ): DeviceAccount {
   return {
     id: response.account.id,
     displayName: response.account.display_name,
     email: response.account.email,
     avatarUrl: resolveAvatarUrl(response.account.avatar_url),
+    ...(
+      typeof response.account.credits_balance === "number" &&
+      Number.isFinite(response.account.credits_balance)
+        ? { creditsBalance: response.account.credits_balance }
+        : fallbackCreditsBalance !== undefined
+          ? { creditsBalance: fallbackCreditsBalance }
+          : {}
+    ),
     spaces,
     activeSpaceId,
     ...(response.account.membership !== undefined

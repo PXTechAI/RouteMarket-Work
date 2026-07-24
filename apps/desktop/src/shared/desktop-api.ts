@@ -463,6 +463,7 @@ export type WorkState = {
     displayName: string;
     email: string | null;
     avatarUrl?: string | null;
+    creditsBalance?: number;
     spaces?: AccountSpace[];
     activeSpaceId?: string;
     membership?: {

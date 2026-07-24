@@ -94,6 +94,7 @@ const previewState: WorkState = {
     id: "account_preview",
     displayName: "PX Labs",
     email: "hello@routemarket.ai",
+    creditsBalance: 1280.75,
     membership: {
       planCode: "pro",
       planName: "RouteMarket Pro",
