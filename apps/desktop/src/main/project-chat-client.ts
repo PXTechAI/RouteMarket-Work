@@ -20,6 +20,10 @@ import {
 type ProjectChatClientOptions = {
   apiClient: RouteMarketApiClient;
   onEvent(event: ProjectChatEvent): void;
+  agentCache?: {
+    list(): DesktopAgentProfile[];
+    replace(profiles: DesktopAgentProfile[]): void;
+  };
   toolRunner?: Pick<ProjectChatToolRunner, "execute"> & {
     listTools?: ProjectChatToolRunner["listTools"];
   };
@@ -72,14 +76,27 @@ export class ProjectChatClient {
   }
 
   async listAgents(): Promise<DesktopAgentProfile[]> {
-    const response = await this.requestApp("/api/app/v1/agents");
+    let response: Response;
+    try {
+      response = await this.requestApp("/api/app/v1/agents");
+    } catch (error) {
+      const cached = this.options.agentCache?.list() ?? [];
+      if (cached.length) return cached;
+      throw error;
+    }
     const payload = (await response.json().catch(() => null)) as AgentsResponse | null;
     if (!response.ok) {
+      if (isTransientAgentCatalogStatus(response.status)) {
+        const cached = this.options.agentCache?.list() ?? [];
+        if (cached.length) return cached;
+      }
       throw new Error(readResponseError(payload, response.status));
     }
-    return (Array.isArray(payload?.items) ? payload.items : [])
+    const agents = (Array.isArray(payload?.items) ? payload.items : [])
       .map((agent) => normalizeAgent(agent, this.options.apiClient.origin))
       .filter((agent): agent is DesktopAgentProfile => agent !== null);
+    this.options.agentCache?.replace(agents);
+    return agents;
   }
 
   async send(input: ProjectChatRequest): Promise<void> {
@@ -401,6 +418,10 @@ export class ProjectChatClient {
     }
     return agent;
   }
+}
+
+function isTransientAgentCatalogStatus(status: number): boolean {
+  return status === 408 || status === 429 || status >= 500;
 }
 
 function normalizeModel(value: unknown): ChatModel | null {

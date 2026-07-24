@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
+  DesktopAgentProfile,
   ProjectChatEvent,
   ProjectChatRequest
 } from "../shared/desktop-api";
@@ -67,6 +68,27 @@ const agentProfilePayload = {
   updated_at: "2026-07-18T00:00:00.000Z"
 };
 
+const cachedAgentProfile: DesktopAgentProfile = {
+  id: "agent_cached",
+  revision: 7,
+  name: "Cached Agent",
+  description: null,
+  avatarUrl: "https://assets.example.test/cached.png",
+  systemPrompt: "Continue offline.",
+  greeting: null,
+  starterQuestions: [],
+  tags: [],
+  defaultModelCode: null,
+  skills: [],
+  toolPermissions: [],
+  executionPolicy: {
+    environment: "auto",
+    approvalMode: "risky_only"
+  },
+  tools: [],
+  updatedAt: "2026-07-24T00:00:00.000Z"
+};
+
 const agentRequest: ProjectChatRequest = {
   ...request,
   requestId: "request_agent_1",
@@ -108,6 +130,10 @@ function createClient(
   events: ProjectChatEvent[] = [],
   toolRunner?: Pick<ProjectChatToolRunner, "execute"> & {
     listTools?: ProjectChatToolRunner["listTools"];
+  },
+  agentCache?: {
+    list(): DesktopAgentProfile[];
+    replace(profiles: DesktopAgentProfile[]): void;
   }
 ) {
   const apiClient = new RouteMarketApiClient({
@@ -118,6 +144,7 @@ function createClient(
   return new ProjectChatClient({
     apiClient,
     onEvent: (event) => events.push(event),
+    ...(agentCache ? { agentCache } : {}),
     toolRunner
   });
 }
@@ -330,6 +357,10 @@ describe("ProjectChatClient", () => {
   });
 
   it("normalizes Agent profiles and authorizes the Core Agent API request", async () => {
+    const cache = {
+      list: vi.fn(() => [] as DesktopAgentProfile[]),
+      replace: vi.fn()
+    };
     const fetchMock = vi.fn<typeof fetch>(async () =>
       jsonResponse({
         items: [
@@ -340,7 +371,7 @@ describe("ProjectChatClient", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(createClient().listAgents()).resolves.toEqual([{
+    await expect(createClient([], undefined, cache).listAgents()).resolves.toEqual([{
       id: "agent_builder",
       revision: 1,
       name: "Project Builder",
@@ -368,6 +399,55 @@ describe("ProjectChatClient", () => {
         })
       })
     );
+    expect(cache.replace).toHaveBeenCalledWith([
+      expect.objectContaining({
+        id: "agent_builder",
+        revision: 1,
+        avatarUrl: "https://assets.example.test/agent.png"
+      })
+    ]);
+  });
+
+  it("uses the cached Agent catalog during network and service outages", async () => {
+    const cache = {
+      list: vi.fn(() => [cachedAgentProfile]),
+      replace: vi.fn()
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>(async () => {
+        throw new TypeError("fetch failed");
+      })
+    );
+    await expect(createClient([], undefined, cache).listAgents()).resolves
+      .toEqual([cachedAgentProfile]);
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>(async () =>
+        jsonResponse({ message: "Unavailable" }, 503)
+      )
+    );
+    await expect(createClient([], undefined, cache).listAgents()).resolves
+      .toEqual([cachedAgentProfile]);
+    expect(cache.replace).not.toHaveBeenCalled();
+  });
+
+  it("does not hide an authentication failure behind cached Agents", async () => {
+    const cache = {
+      list: vi.fn(() => [cachedAgentProfile]),
+      replace: vi.fn()
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>(async () =>
+        jsonResponse({ message: "Authentication required." }, 401)
+      )
+    );
+
+    await expect(createClient([], undefined, cache).listAgents()).rejects
+      .toThrow("Authentication required.");
+    expect(cache.list).not.toHaveBeenCalled();
   });
 
   it("streams OpenAI chat completion deltas and completes with accumulated text", async () => {

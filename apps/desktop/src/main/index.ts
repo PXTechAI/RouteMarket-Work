@@ -64,6 +64,7 @@ import { WorkerClient } from "./worker-client";
 import { DESKTOP_APP_ID, desktopWindowIconPath } from "./desktop-brand";
 import { resolveRuntimeEndpoint } from "./runtime-endpoints";
 import { DesktopUpdateManager } from "./desktop-update-manager";
+import { AgentCatalogStore } from "./agent-catalog-store";
 import {
   MAX_CHAT_ATTACHMENTS,
   uploadSelectedChatAttachments
@@ -99,6 +100,7 @@ let routeMarketApiClient: RouteMarketApiClient | null = null;
 let approvalStore: ApprovalStore | null = null;
 let activityStore: ActivityStore | null = null;
 let localChatStore: LocalChatStore | null = null;
+let agentCatalogStore: AgentCatalogStore | null = null;
 const activeLocalChats = new Map<string, {
   sessionId: string;
   localProjectId: string;
@@ -1884,6 +1886,7 @@ if (!hasSingleInstanceLock) {
     approvalStore = new ApprovalStore(join(workDataPath, "work.db"));
     activityStore = new ActivityStore(join(workDataPath, "work.db"));
     localChatStore = new LocalChatStore(join(workDataPath, "work.db"));
+    agentCatalogStore = new AgentCatalogStore(join(workDataPath, "work.db"));
     localTriggerManager = new LocalTriggerManager(
       join(workDataPath, "work.db"),
       (localProjectId) => workerClient!.projectRoot(localProjectId),
@@ -1986,6 +1989,7 @@ if (!hasSingleInstanceLock) {
     });
     projectChatClient = new ProjectChatClient({
       apiClient,
+      agentCache: agentCatalogStore,
       onEvent: (event) => {
         const active = activeLocalChats.get(event.requestId);
         if (active && (event.type === "complete" || event.type === "stopped")) {
@@ -2078,5 +2082,7 @@ app.on("before-quit", () => {
   activityStore = null;
   localChatStore?.close();
   localChatStore = null;
+  agentCatalogStore?.close();
+  agentCatalogStore = null;
   routeMarketApiClient = null;
 });
