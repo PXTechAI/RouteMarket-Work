@@ -722,6 +722,7 @@ export type RouteMarketWorkApi = {
   switchSpace(spaceId: string): Promise<WorkState>;
   removeApprovalPolicy(policyId: string): Promise<boolean>;
   chooseProject(): Promise<ProjectSummary | null>;
+  chooseWorkflowOutputDirectory(): Promise<string | null>;
   createProject(displayName: string): Promise<ProjectSummary>;
   attachProjectFolder(localProjectId: string): Promise<ProjectSummary | null>;
   deleteProject(localProjectId: string): Promise<boolean>;

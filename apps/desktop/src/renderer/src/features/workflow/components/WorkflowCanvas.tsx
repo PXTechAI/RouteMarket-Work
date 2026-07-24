@@ -3,12 +3,16 @@ import {
   GitBranch,
   LoaderCircle,
   Save,
+  Settings2,
   Trash2,
   Workflow,
   X
 } from "lucide-react";
+import { useState } from "react";
 import type { WorkflowPageActions, WorkflowPageModel } from "../types";
 import { WorkspaceState } from "../../../app/WorkspaceState";
+import { AmazonPriceWorkflowSetup } from "./AmazonPriceWorkflowSetup";
+import { WorkflowNodeConfigPanel } from "./WorkflowNodeConfigPanel";
 import { WorkflowRunPanel } from "./WorkflowRunPanel";
 
 export function WorkflowCanvas({
@@ -18,10 +22,13 @@ export function WorkflowCanvas({
   model: WorkflowPageModel;
   actions: WorkflowPageActions["canvas"];
 }) {
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const availableDefinitions = model.registry?.definitions.filter(
     (definition) =>
       definition.executorKey !== `subworkflow.local.${model.draft?.workflowId}`
   ) ?? [];
+  const selectedNode =
+    model.draft?.nodes.find((node) => node.nodeId === selectedNodeId) ?? null;
 
   return (
     <div className="workflow-canvas-layout">
@@ -142,6 +149,8 @@ export function WorkflowCanvas({
         </button>
       </div>
 
+      <AmazonPriceWorkflowSetup model={model} actions={actions} />
+
       <div className="workflow-canvas-scroll">
         <div className="workflow-canvas-surface">
           <svg className="workflow-edge-layer" aria-hidden="true">
@@ -165,21 +174,39 @@ export function WorkflowCanvas({
               key={node.nodeId}
               className={[
                 "workflow-canvas-node",
+                selectedNodeId === node.nodeId ? "selected" : "",
                 model.selectedRun?.nodeRuns.find(
                   (nodeRun) => nodeRun.nodeId === node.nodeId
                 )?.status ?? ""
               ].filter(Boolean).join(" ")}
               style={{ left: node.x, top: node.y }}
+              onClick={() => setSelectedNodeId(node.nodeId)}
             >
               <div>
                 <span>{node.executionTarget}</span>
-                <button
-                  type="button"
-                  title="删除节点"
-                  onClick={() => actions.onRemoveNode(node.nodeId)}
-                >
-                  <X size={12} />
-                </button>
+                <div className="workflow-canvas-node-actions">
+                  <button
+                    type="button"
+                    title="配置节点"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setSelectedNodeId(node.nodeId);
+                    }}
+                  >
+                    <Settings2 size={12} />
+                  </button>
+                  <button
+                    type="button"
+                    title="删除节点"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      actions.onRemoveNode(node.nodeId);
+                      if (selectedNodeId === node.nodeId) setSelectedNodeId(null);
+                    }}
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
               </div>
               <strong>{node.title}</strong>
               <code>{node.executorKey}</code>
@@ -207,6 +234,14 @@ export function WorkflowCanvas({
           )}
         </div>
       </div>
+
+      {selectedNode && (
+        <WorkflowNodeConfigPanel
+          node={selectedNode}
+          actions={actions}
+          onClose={() => setSelectedNodeId(null)}
+        />
+      )}
 
       <WorkflowRunPanel model={model} actions={actions} />
 

@@ -499,11 +499,112 @@
 }
 
 .workflow-canvas-layout {
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto 30px;
+  display: flex;
+  flex-direction: column;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
+}
+
+.workflow-amazon-setup {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.1fr) minmax(220px, 2fr) minmax(150px, 1fr) auto auto;
+  gap: 8px;
+  align-items: end;
+  padding: 9px;
+  background: linear-gradient(90deg, var(--rm-accent-soft), var(--rm-surface));
+  border-bottom: 1px solid var(--rm-border);
+}
+
+.workflow-amazon-copy {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+}
+
+.workflow-amazon-copy > span {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 31px;
+  height: 31px;
+  color: var(--rm-accent);
+  background: var(--rm-surface);
+  border: 1px solid rgb(65 98 255 / 18%);
+  border-radius: 7px;
+}
+
+.workflow-amazon-copy > div {
+  display: grid;
+  min-width: 0;
+}
+
+.workflow-amazon-copy strong {
+  color: var(--rm-text);
+  font-size: 10px;
+}
+
+.workflow-amazon-copy small {
+  overflow: hidden;
+  color: var(--rm-text-muted);
+  font-size: 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workflow-amazon-setup label {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  color: var(--rm-text-muted);
+  font-size: 8px;
+  font-weight: 700;
+}
+
+.workflow-amazon-setup input {
+  min-width: 0;
+  height: 31px;
+  padding: 0 8px;
+  color: var(--rm-text);
+  background: var(--rm-surface);
+  border: 1px solid var(--rm-border-strong);
+  border-radius: 5px;
+  outline: none;
+  font-size: 9px;
+}
+
+.workflow-amazon-setup input:focus {
+  border-color: var(--rm-accent);
+  box-shadow: var(--rm-focus-ring);
+}
+
+.workflow-amazon-setup > button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: 31px;
+  padding: 0 9px;
+  color: var(--rm-text-muted);
+  background: var(--rm-surface);
+  border: 1px solid var(--rm-border-strong);
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 8px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.workflow-amazon-setup > button.workflow-amazon-create {
+  color: #fff;
+  background: var(--rm-brand-gradient);
+  border-color: transparent;
+}
+
+.workflow-amazon-setup > button:disabled {
+  opacity: 0.42;
+  cursor: default;
 }
 
 .workflow-canvas-toolbar {
@@ -599,6 +700,7 @@
 }
 
 .workflow-canvas-scroll {
+  flex: 1 1 auto;
   min-width: 0;
   min-height: 0;
   overflow: auto;
@@ -647,6 +749,11 @@
   box-shadow: 0 0 0 2px rgb(65 98 255 / 14%), 0 4px 12px rgb(17 24 39 / 9%);
 }
 
+.workflow-canvas-node.selected {
+  border-color: var(--rm-accent);
+  box-shadow: 0 0 0 2px rgb(65 98 255 / 14%), 0 4px 12px rgb(17 24 39 / 9%);
+}
+
 .workflow-canvas-node.succeeded {
   border-color: rgb(22 163 74 / 48%);
 }
@@ -687,6 +794,15 @@
 
 .workflow-canvas-node > div button:hover {
   background: rgb(239 68 68 / 8%);
+}
+
+.workflow-canvas-node-actions {
+  display: flex;
+  gap: 1px;
+}
+
+.workflow-canvas-node-actions button:first-child {
+  color: var(--rm-accent);
 }
 
 .workflow-canvas-node strong {
@@ -735,6 +851,7 @@
 }
 
 .workflow-run-panel {
+  flex: 0 0 auto;
   display: grid;
   grid-template-columns: 290px minmax(0, 1fr);
   max-height: 210px;
@@ -742,6 +859,124 @@
   overflow: hidden;
   background: var(--rm-surface);
   border-top: 1px solid var(--rm-border);
+}
+
+.workflow-node-config-panel {
+  position: relative;
+  display: grid;
+  grid-template-columns: 210px minmax(0, 1fr) auto;
+  gap: 9px;
+  align-items: stretch;
+  flex: 0 0 132px;
+  min-height: 0;
+  padding: 9px;
+  background: var(--rm-surface);
+  border-top: 1px solid var(--rm-border);
+}
+
+.workflow-node-config-panel > div:first-child {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  min-width: 0;
+}
+
+.workflow-node-config-icon {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  color: var(--rm-accent);
+  background: var(--rm-accent-soft);
+  border-radius: 6px;
+}
+
+.workflow-node-config-panel > div:first-child > div {
+  display: grid;
+  min-width: 0;
+}
+
+.workflow-node-config-panel strong,
+.workflow-node-config-panel code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workflow-node-config-panel strong {
+  color: var(--rm-text);
+  font-size: 10px;
+}
+
+.workflow-node-config-panel code {
+  margin-top: 3px;
+  color: var(--rm-accent);
+  font-size: 8px;
+}
+
+.workflow-node-config-panel label {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 3px;
+  min-width: 0;
+  color: var(--rm-text-muted);
+  font-size: 8px;
+  font-weight: 700;
+}
+
+.workflow-node-config-panel textarea {
+  min-height: 0;
+  resize: none;
+  padding: 6px 7px;
+  color: var(--rm-text);
+  background: var(--rm-surface-muted);
+  border: 1px solid var(--rm-border-strong);
+  border-radius: 5px;
+  outline: none;
+  font: 8px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+.workflow-node-config-panel textarea:focus {
+  border-color: var(--rm-accent);
+  box-shadow: var(--rm-focus-ring);
+}
+
+.workflow-node-config-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.workflow-node-config-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 28px;
+  padding: 0 8px;
+  color: var(--rm-text-muted);
+  background: var(--rm-surface-muted);
+  border: 1px solid var(--rm-border);
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 8px;
+  white-space: nowrap;
+}
+
+.workflow-node-config-actions button:nth-last-child(2) {
+  color: #fff;
+  background: var(--rm-brand-gradient);
+  border-color: transparent;
+}
+
+.workflow-node-config-panel > p {
+  position: absolute;
+  right: 130px;
+  bottom: 4px;
+  margin: 0;
+  color: var(--rm-danger);
+  font-size: 8px;
 }
 
 .workflow-run-controls {
@@ -938,6 +1173,7 @@
 }
 
 .workflow-canvas-status {
+  flex: 0 0 30px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -964,6 +1200,14 @@
 
   .workflow-run-panel {
     grid-template-columns: 240px minmax(0, 1fr);
+  }
+
+  .workflow-amazon-setup {
+    grid-template-columns: minmax(180px, 1fr) minmax(220px, 2fr) auto auto;
+  }
+
+  .workflow-amazon-copy {
+    display: none;
   }
 
   .local-trigger-layout {

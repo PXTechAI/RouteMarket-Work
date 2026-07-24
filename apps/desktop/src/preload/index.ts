@@ -18,6 +18,8 @@ const api: RouteMarketWorkApi = {
   removeApprovalPolicy: (policyId) =>
     ipcRenderer.invoke("work:approval-policy-remove", policyId),
   chooseProject: () => ipcRenderer.invoke("work:choose-project"),
+  chooseWorkflowOutputDirectory: () =>
+    ipcRenderer.invoke("work:workflow-output-directory-choose"),
   createProject: (displayName) => ipcRenderer.invoke("work:create-project", displayName),
   attachProjectFolder: (localProjectId) =>
     ipcRenderer.invoke("work:attach-project-folder", localProjectId),

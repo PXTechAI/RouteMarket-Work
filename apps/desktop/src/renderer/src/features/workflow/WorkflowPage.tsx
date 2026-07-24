@@ -9,7 +9,7 @@ const panelContent: Record<WorkflowPanel, { title: string; description: string }
   canvas: {
     title: "Workflow Canvas",
     description:
-      "编辑本地草稿与定义快照；桌面节点可在本机运行，混合工作流仍由 RouteLab Orchestrator 协调。"
+      "编辑本地草稿与定义快照；桌面节点可在本机运行，混合工作流仍由 RouteMarket 云端协调。"
   },
   nodes: {
     title: "混合工作流节点",

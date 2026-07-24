@@ -35,12 +35,14 @@ const BUILTIN_DEFINITIONS: DefinitionInput[] = [
   builtin("local.fs.create", "新建文件", "在项目中安全创建新文件。", "portable"),
   builtin("local.process.start", "启动进程", "在项目目录启动受控进程。", "device_bound"),
   builtin("local.process.stop", "停止进程", "停止受控进程树。", "device_bound"),
-  builtin("local.browser.navigate", "浏览器导航", "在可见托管浏览器中打开网页。", "device_bound"),
-  builtin("local.browser.click", "点击网页", "点击托管浏览器中的元素。", "device_bound"),
-  builtin("local.browser.type", "网页输入", "向托管浏览器元素输入文本。", "device_bound"),
-  builtin("local.browser.upload", "上传文件", "把项目内文件上传到托管浏览器页面。", "device_bound"),
-  builtin("local.browser.extract", "提取网页", "提取托管浏览器中的文本。", "device_bound"),
-  builtin("local.browser.screenshot", "网页截图", "截取托管浏览器当前页面。", "device_bound"),
+  builtin("local.browser.navigate", "打开网页", "在可见的内置浏览器中打开网页。", "device_bound"),
+  builtin("local.browser.click", "点击网页", "点击内置浏览器中的元素。", "device_bound"),
+  builtin("local.browser.type", "网页输入", "向内置浏览器元素输入文本。", "device_bound"),
+  builtin("local.browser.upload", "上传文件", "把项目内文件上传到内置浏览器页面。", "device_bound"),
+  builtin("local.browser.extract", "提取网页", "提取内置浏览器中的文本。", "device_bound"),
+  amazonProductDefinition(),
+  builtin("local.browser.screenshot", "网页截图", "截取内置浏览器当前页面。", "device_bound"),
+  csvExportDefinition(),
   builtin("desktop.trigger.file_changed", "文件变更触发", "项目内文件发生变化时启动工作流。", "device_bound"),
   builtin("desktop.trigger.folder_added", "文件夹新增触发", "项目内新增文件夹时启动工作流。", "device_bound"),
   builtin("desktop.trigger.schedule", "本地定时触发", "按当前设备的持久化时间间隔启动工作流。", "device_bound"),
@@ -67,6 +69,98 @@ function builtin(
     description,
     available: true,
     blockedReason: null
+  };
+}
+
+function amazonProductDefinition(): DefinitionInput {
+  return {
+    ...builtin(
+      "local.browser.product_extract",
+      "识别 Amazon 商品",
+      "从内置浏览器当前页面识别单个商品的名称与价格。",
+      "device_bound"
+    ),
+    inputSchema: {
+      type: "object",
+      properties: {
+        sourceUrl: { type: "string", minLength: 1, maxLength: 8_192 },
+        pageId: { type: "string", maxLength: 256 },
+        titleSelectors: {
+          type: "array",
+          items: { type: "string", minLength: 1, maxLength: 2_048 },
+          maxItems: 16
+        },
+        priceSelectors: {
+          type: "array",
+          items: { type: "string", minLength: 1, maxLength: 2_048 },
+          maxItems: 16
+        }
+      },
+      required: ["sourceUrl"],
+      additionalProperties: true
+    },
+    outputSchema: {
+      type: "object",
+      properties: {
+        productTitle: { type: "string" },
+        priceText: { type: "string" },
+        priceValue: { type: ["number", "null"] },
+        currency: { type: ["string", "null"] },
+        sourceUrl: { type: "string" },
+        capturedAt: { type: "string" }
+      },
+      required: [
+        "productTitle",
+        "priceText",
+        "priceValue",
+        "currency",
+        "sourceUrl",
+        "capturedAt"
+      ],
+      additionalProperties: false
+    }
+  };
+}
+
+function csvExportDefinition(): DefinitionInput {
+  return {
+    ...builtin(
+      "local.data.csv_export",
+      "导出商品价格表",
+      "把识别结果保存为 Excel 可直接打开的 UTF-8 CSV 文件。",
+      "device_bound"
+    ),
+    inputSchema: {
+      type: "object",
+      properties: {
+        outputDirectory: { type: "string", minLength: 1, maxLength: 32_768 },
+        fileName: { type: "string", maxLength: 200 },
+        productTitle: { type: "string" },
+        priceText: { type: "string" },
+        priceValue: { type: ["number", "null"] },
+        currency: { type: ["string", "null"] },
+        sourceUrl: { type: "string" },
+        capturedAt: { type: "string" }
+      },
+      required: [
+        "outputDirectory",
+        "productTitle",
+        "priceText",
+        "sourceUrl",
+        "capturedAt"
+      ],
+      additionalProperties: true
+    },
+    outputSchema: {
+      type: "object",
+      properties: {
+        fileName: { type: "string" },
+        savedPath: { type: "string" },
+        rowCount: { type: "number", const: 1 }
+      },
+      required: ["fileName", "savedPath", "rowCount"],
+      additionalProperties: false
+    }
   };
 }
 

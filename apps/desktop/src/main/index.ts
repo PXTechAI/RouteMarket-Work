@@ -520,7 +520,7 @@ function externalJobTitle(job: ExternalDesktopJob): string {
 
 function externalJobDetail(job: ExternalDesktopJob): string {
   if (job.executorKey === "local.browser.navigate") return job.input.url;
-  if (job.executorKey === "local.browser.screenshot") return "当前托管浏览器页面";
+  if (job.executorKey === "local.browser.screenshot") return "当前内置浏览器页面";
   if (job.executorKey === "local.browser.upload") {
     return `${job.input.selector} / ${job.input.relativePaths.length} files`;
   }
@@ -747,6 +747,19 @@ function registerIpc(): void {
     });
     return project;
   });
+
+  ipcMain.handle(
+    "work:workflow-output-directory-choose",
+    async (): Promise<string | null> => {
+      if (!mainWindow) return null;
+      const result = await dialog.showOpenDialog(mainWindow, {
+        title: "选择工作流表格保存目录",
+        buttonLabel: "选择此目录",
+        properties: ["openDirectory", "createDirectory"]
+      });
+      return result.canceled ? null : result.filePaths[0] ?? null;
+    }
+  );
 
   ipcMain.handle("work:chat-attachments-choose", async (_event, maxCount: number) => {
     if (!mainWindow || !routeMarketApiClient) return [];

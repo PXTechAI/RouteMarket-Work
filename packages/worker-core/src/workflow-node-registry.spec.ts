@@ -35,6 +35,16 @@ describe("buildDesktopWorkflowNodeRegistry", () => {
     expect(registry.definitions).toEqual(expect.arrayContaining([
       expect.objectContaining({ executorKey: "local.fs.read", available: true }),
       expect.objectContaining({
+        executorKey: "local.browser.product_extract",
+        title: "识别 Amazon 商品",
+        available: true
+      }),
+      expect.objectContaining({
+        executorKey: "local.data.csv_export",
+        title: "导出商品价格表",
+        available: true
+      }),
+      expect.objectContaining({
         executorKey: "mcp__mcp_excel__write_cells",
         portability: "requires_connector",
         available: true

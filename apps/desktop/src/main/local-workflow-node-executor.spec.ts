@@ -204,6 +204,64 @@ describe("createLocalWorkflowNodeExecutor", () => {
       { source: "workflow" }
     );
   });
+
+  it("extracts an Amazon product through selector fallbacks", async () => {
+    const extract = vi.fn(async (
+      _localProjectId: string,
+      selector: string
+    ) => {
+      if (selector === "#productTitle") return "Demo Product";
+      if (selector === ".priceToPay .a-offscreen") return "$49.99";
+      throw new Error("not found");
+    });
+    const browser = { extract } as unknown as ManagedBrowserManager;
+    const executor = createExecutor(createWorkerClient(), undefined, browser);
+
+    await expect(
+      executor(
+        node("local.browser.product_extract"),
+        {
+          $localProjectId: projectId,
+          sourceUrl: "https://www.amazon.com/dp/test",
+          activePageId: "page_1"
+        },
+        new AbortController().signal
+      )
+    ).resolves.toMatchObject({
+      productTitle: "Demo Product",
+      priceText: "$49.99",
+      priceValue: 49.99,
+      currency: "USD"
+    });
+  });
+
+  it("requires R2 approval before exporting a product table outside the project", async () => {
+    const confirm = vi.fn(async () => false);
+    const executor = createExecutor(createWorkerClient(), confirm);
+
+    await expect(
+      executor(
+        node("local.data.csv_export"),
+        {
+          $localProjectId: projectId,
+          outputDirectory: "C:/Exports",
+          fileName: "price.csv",
+          productTitle: "Demo Product",
+          priceText: "$49.99",
+          priceValue: 49.99,
+          currency: "USD",
+          sourceUrl: "https://www.amazon.com/dp/test",
+          capturedAt: "2026-07-24T00:00:00.000Z"
+        },
+        new AbortController().signal
+      )
+    ).rejects.toThrow();
+    expect(confirm).toHaveBeenCalledWith(expect.objectContaining({
+      capability: "local.data.csv_export",
+      risk: "R2",
+      projectId
+    }));
+  });
 });
 
 function createExecutor(

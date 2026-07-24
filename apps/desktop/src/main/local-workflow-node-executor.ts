@@ -9,6 +9,11 @@ import type { ManagedBrowserManager } from "./managed-browser-manager";
 import type { NativeAppConnectorManager } from "./native-app-connector-manager";
 import type { LocalToolBroker, ToolRisk } from "./tool-broker";
 import type { WorkerClient } from "./worker-client";
+import {
+  exportProductPriceCsv,
+  extractProductPrice,
+  type ProductPriceRecord
+} from "./workflow-product-data";
 
 type ExecutorOptions = {
   cloudWorkflowClient: Pick<CloudWorkflowClient, "executeNode">;
@@ -146,8 +151,41 @@ async function executeNode(
   if (key.startsWith("mcp__")) {
     return executeMcp(options, key, input, localProjectId);
   }
+  if (key === "local.browser.product_extract") {
+    const browser = options.getBrowser();
+    return extractProductPrice(browser, {
+      localProjectId,
+      pageId:
+        optionalString(input, "pageId", 256) ??
+        optionalString(input, "activePageId", 256),
+      sourceUrl: requiredString(
+        input,
+        "sourceUrl",
+        8_192,
+        false,
+        optionalString(input, "url", 8_192)
+      ),
+      titleSelectors: optionalStringArray(input.titleSelectors, "titleSelectors", 16),
+      priceSelectors: optionalStringArray(input.priceSelectors, "priceSelectors", 16)
+    });
+  }
   if (key.startsWith("local.browser.")) {
     return executeBrowser(options, key, input, localProjectId, signal);
+  }
+  if (key === "local.data.csv_export") {
+    const outputDirectory = requiredString(input, "outputDirectory", 32_768);
+    const fileName = optionalString(input, "fileName", 200);
+    const record = productPriceRecord(input);
+    return authorize(
+      options,
+      localProjectId,
+      key,
+      "R2",
+      "允许工作流把商品价格表保存到所选目录吗？",
+      `${outputDirectory} / ${fileName ?? "自动文件名"}`,
+      hash(JSON.stringify({ outputDirectory, fileName, record })),
+      () => exportProductPriceCsv({ outputDirectory, fileName, record })
+    );
   }
   if (key.startsWith("local.app.") && key.endsWith(".open")) {
     const connectorId = key.slice("local.app.".length, -".open".length);
@@ -389,6 +427,49 @@ function stringArray(value: unknown, key: string): string[] {
     throw new Error(`${key} must be an array of strings.`);
   }
   return value;
+}
+
+function optionalStringArray(
+  value: unknown,
+  key: string,
+  maxItems: number
+): string[] | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (
+    !Array.isArray(value) ||
+    !value.length ||
+    value.length > maxItems ||
+    value.some(
+      (item) =>
+        typeof item !== "string" ||
+        !item.trim() ||
+        item.length > 2_048
+    )
+  ) {
+    throw new Error(`${key} must be an array of 1 to ${maxItems} strings.`);
+  }
+  return value;
+}
+
+function productPriceRecord(
+  input: Record<string, unknown>
+): ProductPriceRecord {
+  const priceValue = input.priceValue;
+  const currency = input.currency;
+  return {
+    productTitle: requiredString(input, "productTitle", 10_000),
+    priceText: requiredString(input, "priceText", 1_000),
+    priceValue:
+      typeof priceValue === "number" && Number.isFinite(priceValue)
+        ? priceValue
+        : null,
+    currency:
+      typeof currency === "string" && currency.length <= 16
+        ? currency
+        : null,
+    sourceUrl: requiredString(input, "sourceUrl", 8_192),
+    capturedAt: requiredString(input, "capturedAt", 64)
+  };
 }
 
 function withoutRuntimeFields(

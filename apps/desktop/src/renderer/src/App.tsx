@@ -81,6 +81,7 @@ import {
 } from "./features/projects/project-folder-status";
 import { WorkflowPage } from "./features/workflow/WorkflowPage";
 import type { WorkflowPanel } from "./features/workflow/types";
+import { createAmazonPriceWorkflowDraft } from "./features/workflow/amazon-price-template";
 
 type WorkspaceView = "chat" | "files" | "changes" | "versions" | "terminal" | "approvals" | "browser" | "mcp" | "workflow" | "agent";
 
@@ -376,6 +377,9 @@ const previewApi: RouteMarketWorkApi = {
   async chooseProject() {
     return null;
   },
+  async chooseWorkflowOutputDirectory() {
+    return "C:/Users/Demo/Downloads";
+  },
   async createProject(displayName) {
     const project: ProjectSummary = {
       localProjectId: `project_preview_${Date.now()}`,
@@ -425,7 +429,9 @@ const previewApi: RouteMarketWorkApi = {
   async getWorkflowNodeRegistry() {
     const definitions = [
       { executorKey: "local.fs.read", title: "读取文件", description: "读取项目内文本文件。", portability: "portable" as const },
-      { executorKey: "local.browser.navigate", title: "浏览器导航", description: "在本机浏览器中打开网页。", portability: "device_bound" as const },
+      { executorKey: "local.browser.navigate", title: "打开网页", description: "在内置浏览器中打开网页。", portability: "device_bound" as const },
+      { executorKey: "local.browser.product_extract", title: "识别 Amazon 商品", description: "识别当前商品页的名称和价格。", portability: "device_bound" as const },
+      { executorKey: "local.data.csv_export", title: "导出商品价格表", description: "保存为 Excel 可打开的 CSV 文件。", portability: "device_bound" as const },
       { executorKey: "local.app.vscode.open", title: "Visual Studio Code", description: "在 VS Code 中打开当前项目。", portability: "requires_connector" as const }
     ].map((item) => ({
       ...item,
@@ -1069,6 +1075,7 @@ const unavailableApi: RouteMarketWorkApi = {
   switchSpace: async () => desktopBridgeUnavailable(),
   removeApprovalPolicy: async () => desktopBridgeUnavailable(),
   chooseProject: async () => desktopBridgeUnavailable(),
+  chooseWorkflowOutputDirectory: async () => desktopBridgeUnavailable(),
   createProject: async () => desktopBridgeUnavailable(),
   attachProjectFolder: async () => desktopBridgeUnavailable(),
   deleteProject: async () => desktopBridgeUnavailable(),
@@ -2482,6 +2489,52 @@ export function App() {
     if (workflowEdgeTarget === nodeId) setWorkflowEdgeTarget("");
   }
 
+  function updateWorkflowNodeConfig(
+    nodeId: string,
+    config: Record<string, unknown>
+  ) {
+    updateWorkflowDraft((draft) => ({
+      ...draft,
+      nodes: draft.nodes.map((node) =>
+        node.nodeId === nodeId ? { ...node, config } : node
+      )
+    }));
+  }
+
+  function createAmazonPriceWorkflow(input: {
+    url: string;
+    outputDirectory: string;
+    fileName: string;
+  }) {
+    if (!selectedProjectId || !workflowRegistry) return;
+    if (
+      workflowDraftDirty &&
+      !window.confirm("当前工作流有未保存更改。放弃并创建 Amazon 价格采集工作流吗？")
+    ) {
+      return;
+    }
+    try {
+      setWorkflowDraft(
+        createAmazonPriceWorkflowDraft({
+          localProjectId: selectedProjectId,
+          definitions: workflowRegistry.definitions,
+          ...input
+        })
+      );
+      setWorkflowDraftDirty(true);
+      setWorkflowRunInput("{}");
+      setWorkflowEdgeSource("");
+      setWorkflowEdgeTarget("");
+      setError(null);
+    } catch (nextError) {
+      setError(
+        nextError instanceof Error
+          ? nextError.message
+          : "Amazon 价格采集工作流创建失败。"
+      );
+    }
+  }
+
   function connectWorkflowNodes() {
     if (!workflowDraft || !workflowEdgeSource || !workflowEdgeTarget || workflowEdgeSource === workflowEdgeTarget) return;
     if (workflowDraft.edges.some((edge) => edge.sourceNodeId === workflowEdgeSource && edge.targetNodeId === workflowEdgeTarget)) return;
@@ -2559,6 +2612,13 @@ export function App() {
         input as Record<string, unknown>
       );
       setWorkflowRuns((current) => upsertWorkflowRun(current, run));
+      if (
+        workflowDraft.nodes.some((node) =>
+          node.executorKey.startsWith("local.browser.")
+        )
+      ) {
+        setWorkspaceView("browser");
+      }
     } catch (nextError) {
       setError(
         nextError instanceof Error ? nextError.message : "Workflow 运行失败"
@@ -3158,6 +3218,10 @@ export function App() {
                   onClearEdges: () =>
                     updateWorkflowDraft((draft) => ({ ...draft, edges: [] })),
                   onRemoveNode: removeWorkflowNode,
+                  onUpdateNodeConfig: updateWorkflowNodeConfig,
+                  onChooseOutputDirectory: () =>
+                    api.chooseWorkflowOutputDirectory(),
+                  onCreateAmazonPriceWorkflow: createAmazonPriceWorkflow,
                   onSaveDraft: () => void saveWorkflowDraft(),
                   onDeleteDraft: () => void deleteWorkflowDraft(),
                   onRunInputChange: setWorkflowRunInput,
