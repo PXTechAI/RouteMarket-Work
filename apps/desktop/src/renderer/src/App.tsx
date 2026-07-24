@@ -40,6 +40,7 @@ import type {
   NativeAppConnectorSummary,
   ProjectChatEvent,
   ProjectChatRequest,
+  WebSearchMode,
   ProjectContext,
   ProjectAssetPreview,
   ProjectFileVersion,
@@ -52,6 +53,7 @@ import type {
   WorkState
 } from "../../shared/desktop-api";
 import { resolveDesktopAgentSkillAvailability } from "../../shared/agent-skill-availability";
+import { resolveAvailableWebSearchMode } from "./features/chat/web-search-mode";
 import { createDiffPreview } from "./diff";
 import { parseCommandLine } from "./command-line";
 import { AppRail } from "./app/AppRail";
@@ -137,16 +139,20 @@ const previewModels: ChatModel[] = [
     displayName: "GPT-5",
     category: "reasoning",
     supportsTools: true,
+    supportsNativeWebSearch: true,
     supportsVision: true,
-    supportsStream: true
+    supportsStream: true,
+    preferredChatProtocol: "openai_responses"
   },
   {
     code: "claude-sonnet",
     displayName: "Claude Sonnet",
     category: "chat",
     supportsTools: true,
+    supportsNativeWebSearch: false,
     supportsVision: true,
-    supportsStream: true
+    supportsStream: true,
+    preferredChatProtocol: null
   }
 ];
 
@@ -1218,6 +1224,7 @@ export function App() {
   const [models, setModels] = useState<ChatModel[]>([]);
   const [selectedModelCode, setSelectedModelCode] = useState("");
   const [executionEnvironment, setExecutionEnvironment] = useState<"auto" | "local" | "cloud">("auto");
+  const [webSearchMode, setWebSearchMode] = useState<WebSearchMode>("agentic");
   const [selectedProjectSkillId, setSelectedProjectSkillId] = useState("");
   const [modelsLoading, setModelsLoading] = useState(false);
   const [draft, setDraft] = useState("");
@@ -1240,6 +1247,10 @@ export function App() {
   const selectedProject = useMemo(
     () => state.projects.find((project) => project.localProjectId === selectedProjectId) ?? null,
     [selectedProjectId, state.projects]
+  );
+  const selectedChatModel = useMemo(
+    () => models.find((model) => model.code === selectedModelCode) ?? null,
+    [models, selectedModelCode]
   );
   const selectedFolderAvailable = projectFolderAvailable(selectedProject);
   const selectedFolderStatus = projectFolderStatus(selectedProject);
@@ -1302,6 +1313,15 @@ export function App() {
   useEffect(() => {
     setEditingMessageId(null);
   }, [selectedProjectId]);
+
+  useEffect(() => {
+    if (!selectedChatModel) return;
+    const availableMode = resolveAvailableWebSearchMode(
+      selectedChatModel,
+      webSearchMode
+    );
+    if (availableMode !== webSearchMode) setWebSearchMode(availableMode);
+  }, [selectedChatModel, webSearchMode]);
 
   useEffect(() => {
     if (!selectedProjectId) return;
@@ -2785,6 +2805,7 @@ export function App() {
         sessionId,
         sentAt,
         model: selectedModelCode,
+        webSearchMode,
         message,
         project: {
           localProjectId: selectedProject.localProjectId,
@@ -3295,6 +3316,7 @@ export function App() {
               models={models}
               selectedModelCode={selectedModelCode}
               executionEnvironment={executionEnvironment}
+              webSearchMode={webSearchMode}
               modelsLoading={modelsLoading}
               agents={agentWorkspace.model.agents}
               agentsLoading={agentWorkspace.model.agentsLoading}
@@ -3330,6 +3352,7 @@ export function App() {
               onStop={() => void stopMessage()}
               onModelChange={setSelectedModelCode}
               onExecutionEnvironmentChange={setExecutionEnvironment}
+              onWebSearchModeChange={setWebSearchMode}
               onAgentChange={(agentId) => {
                 agentWorkspace.actions.onSelectAgent(agentId);
                 const nextAgent = agentWorkspace.model.agents.find(

@@ -501,9 +501,13 @@ export type ChatModel = {
   displayName: string;
   category: "chat" | "reasoning";
   supportsTools: boolean;
+  supportsNativeWebSearch: boolean;
   supportsVision: boolean;
   supportsStream: boolean;
+  preferredChatProtocol: "openai_responses" | null;
 };
+
+export type WebSearchMode = "agentic" | "native" | "off";
 
 export type DesktopAgentTool = {
   type: string;
@@ -554,6 +558,7 @@ export type ProjectChatRequest = {
   sessionId: string;
   sentAt: string;
   model: string;
+  webSearchMode?: WebSearchMode;
   message: string;
   history?: Array<{
     role: "user" | "assistant";

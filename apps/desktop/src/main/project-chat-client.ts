@@ -34,6 +34,25 @@ type AgentsResponse = {
 
 const MAX_TOOL_ROUNDS = 8;
 const MAX_TOOL_CALLS = 24;
+const WEB_SEARCH_TOOL: ProjectChatToolDefinition = {
+  type: "function",
+  function: {
+    name: "web_search",
+    description:
+      "Search the web for current information through the user's RouteMarket search preference.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description: "The search query."
+        }
+      },
+      required: ["query"],
+      additionalProperties: false
+    }
+  }
+};
 
 export class ProjectChatClient {
   private readonly activeRequests = new Map<string, AbortController>();
@@ -85,11 +104,14 @@ export class ProjectChatClient {
         : this.options.toolRunner?.listTools
           ? await this.options.toolRunner.listTools(input.project.localProjectId)
           : PROJECT_CHAT_TOOLS;
-      const tools = filterTools(
+      const localTools = filterTools(
         availableTools,
         input.agent?.localToolGroups,
         agent?.toolPermissions
       );
+      const tools = input.webSearchMode === "agentic"
+        ? [...localTools, WEB_SEARCH_TOOL]
+        : localTools;
       const extraMessages: Record<string, unknown>[] = [];
       let toolCallCount = 0;
       let completed = false;
@@ -121,7 +143,10 @@ export class ProjectChatClient {
           completed = true;
           break;
         }
-        if (!this.options.toolRunner) {
+        if (
+          !this.options.toolRunner &&
+          result.toolCalls.some((call) => call.name !== "web_search")
+        ) {
           throw new Error("The local chat Tool runtime is unavailable.");
         }
 
@@ -152,15 +177,18 @@ export class ProjectChatClient {
             toolName: call.name,
             title
           });
-          const execution = await this.options.toolRunner.execute(
-            input.project.localProjectId,
-            call,
-            controller.signal,
-            {
-              source: input.agent ? "agent" : "chat",
-              approvalMode: agent?.executionPolicy.approvalMode ?? "risky_only"
-            }
-          );
+          const execution = call.name === "web_search"
+            ? await this.executeWebSearch(call, controller.signal)
+            : await this.options.toolRunner!.execute(
+                input.project.localProjectId,
+                call,
+                controller.signal,
+                {
+                  source: input.agent ? "agent" : "chat",
+                  approvalMode:
+                    agent?.executionPolicy.approvalMode ?? "risky_only"
+                }
+              );
           if (execution.isError) {
             this.options.onEvent({
               requestId: input.requestId,
@@ -235,6 +263,9 @@ export class ProjectChatClient {
     signal: AbortSignal,
     onText: (text: string) => void
   ) {
+    const requestTools = input.webSearchMode === "native"
+      ? [...tools, { type: "web_search" as const }]
+      : tools;
     const response = await this.request("/local", {
       method: "POST",
       signal,
@@ -256,9 +287,12 @@ export class ProjectChatClient {
           { role: "user", content: buildMessageContent(input) },
           ...extraMessages
         ],
-        tools,
+        tools: requestTools,
         tool_choice: "auto",
         parallel_tool_calls: false,
+        ...(input.webSearchMode === "native"
+          ? { protocol: "openai_responses" }
+          : {}),
         stream: true
       })
     });
@@ -268,6 +302,58 @@ export class ProjectChatClient {
       throw new Error(readResponseError(payload, response.status));
     }
     return readProjectChatStream(response.body, signal, onText);
+  }
+
+  private async executeWebSearch(
+    call: ProjectChatToolCall,
+    signal: AbortSignal
+  ) {
+    let query = "";
+    try {
+      const args = JSON.parse(call.arguments || "{}") as Record<string, unknown>;
+      query = typeof args.query === "string" ? args.query.trim() : "";
+    } catch {
+      // Invalid arguments are returned to the model as a Tool error.
+    }
+    if (!query) {
+      return {
+        content: JSON.stringify({ error: "Search query is required." }),
+        summary: "搜索词为空",
+        isError: true
+      };
+    }
+    const response = await this.requestApp("/api/app/v1/tools/web-search", {
+      method: "POST",
+      signal,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        query,
+        max_results: 5,
+        provider: "auto",
+        credential_id: null,
+        allow_official_fallback: true
+      })
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) {
+      return {
+        content: JSON.stringify({
+          error: readResponseError(payload, response.status)
+        }),
+        summary: `联网搜索失败（${response.status}）`,
+        isError: true
+      };
+    }
+    const results =
+      payload && typeof payload === "object" &&
+      Array.isArray((payload as { results?: unknown[] }).results)
+        ? (payload as { results: unknown[] }).results
+        : [];
+    return {
+      content: JSON.stringify({ query, results }),
+      summary: `已检索 “${query}” · ${results.length} 条结果`,
+      isError: false
+    };
   }
 
   private request(path: string, init: RequestInit = {}) {
@@ -332,8 +418,13 @@ function normalizeModel(value: unknown): ChatModel | null {
     displayName: model.display_name,
     category,
     supportsTools: model.supports_tools === true,
+    supportsNativeWebSearch: model.supports_native_web_search === true,
     supportsVision: model.supports_vision === true,
-    supportsStream: model.supports_stream === true
+    supportsStream: model.supports_stream === true,
+    preferredChatProtocol:
+      model.preferred_chat_protocol === "openai_responses"
+        ? "openai_responses"
+        : null
   };
 }
 

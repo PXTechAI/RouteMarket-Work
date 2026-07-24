@@ -149,6 +149,8 @@ describe("ProjectChatClient", () => {
             display_name: "Chat Model",
             category: "chat",
             supports_tools: true,
+            supports_native_web_search: true,
+            preferred_chat_protocol: "openai_responses",
             supports_vision: false,
             supports_stream: true
           },
@@ -173,16 +175,20 @@ describe("ProjectChatClient", () => {
         displayName: "Chat Model",
         category: "chat",
         supportsTools: true,
+        supportsNativeWebSearch: true,
         supportsVision: false,
-        supportsStream: true
+        supportsStream: true,
+        preferredChatProtocol: "openai_responses"
       },
       {
         code: "model_reasoning",
         displayName: "Reasoning Model",
         category: "reasoning",
         supportsTools: false,
+        supportsNativeWebSearch: false,
         supportsVision: false,
-        supportsStream: false
+        supportsStream: false,
+        preferredChatProtocol: null
       }
     ]);
     expect(fetchMock).toHaveBeenCalledWith(
@@ -193,6 +199,93 @@ describe("ProjectChatClient", () => {
         })
       })
     );
+  });
+
+  it("runs intelligent search through the authenticated RouteMarket search service", async () => {
+    const events: ProjectChatEvent[] = [];
+    const modelBodies: Record<string, unknown>[] = [];
+    let modelRound = 0;
+    const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+      const url = String(input);
+      if (url.endsWith("/tools/web-search")) {
+        expect(JSON.parse(String(init?.body))).toEqual({
+          query: "RouteMarket release",
+          max_results: 5,
+          provider: "auto",
+          credential_id: null,
+          allow_official_fallback: true
+        });
+        return jsonResponse({
+          results: [{
+            title: "RouteMarket",
+            url: "https://routemarket.ai",
+            snippet: "Official"
+          }]
+        });
+      }
+      modelBodies.push(JSON.parse(String(init?.body)));
+      modelRound += 1;
+      return modelRound === 1
+        ? sseResponse(
+            'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_search_1","type":"function","function":{"name":"web_search","arguments":"{\\"query\\":\\"RouteMarket release\\"}"}}]},"finish_reason":"tool_calls"}]}\n\n',
+            "data: [DONE]\n\n"
+          )
+        : sseResponse(
+            'data: {"choices":[{"delta":{"content":"Found the current release."}}]}\n\n',
+            "data: [DONE]\n\n"
+          );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createClient(events).send({
+      ...request,
+      requestId: "request_search_1",
+      webSearchMode: "agentic"
+    });
+
+    expect(modelBodies[0]?.tools).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          function: expect.objectContaining({ name: "web_search" })
+        })
+      ])
+    );
+    expect(events).toContainEqual({
+      requestId: "request_search_1",
+      type: "tool_completed",
+      toolCallId: "call_search_1",
+      toolName: "web_search",
+      title: "联网搜索",
+      summary: "已检索 “RouteMarket release” · 1 条结果"
+    });
+    expect(events.at(-1)).toEqual({
+      requestId: "request_search_1",
+      type: "complete",
+      content: "Found the current release."
+    });
+  });
+
+  it("passes native search to a Responses-capable model without local credentials", async () => {
+    let requestBody: Record<string, unknown> | null = null;
+    const fetchMock = vi.fn<typeof fetch>(async (_input, init) => {
+      requestBody = JSON.parse(String(init?.body));
+      return sseResponse(
+        'data: {"type":"response.output_text.delta","delta":"Native result"}\n\n',
+        "data: [DONE]\n\n"
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createClient().send({
+      ...request,
+      requestId: "request_native_search_1",
+      webSearchMode: "native"
+    });
+
+    expect(requestBody).toEqual(expect.objectContaining({
+      protocol: "openai_responses",
+      tools: expect.arrayContaining([{ type: "web_search" }])
+    }));
   });
 
   it("normalizes Agent profiles and authorizes the Core Agent API request", async () => {

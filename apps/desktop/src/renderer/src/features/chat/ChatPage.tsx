@@ -3,6 +3,7 @@ import {
   ChevronDown,
   CircleAlert,
   FolderPlus,
+  Globe2,
   Paperclip,
   Pencil,
   RefreshCw,
@@ -19,6 +20,7 @@ import type {
   ProjectContext,
   ProjectSummary,
   ReadResult,
+  WebSearchMode,
   WorkState
 } from "../../../../shared/desktop-api";
 import { ChatMessageRow } from "./components/ChatMessageRow";
@@ -27,6 +29,7 @@ import { AgentAvatar } from "./components/AgentAvatar";
 import { ChatAgentPicker } from "./components/ChatAgentPicker";
 import { ModelPicker } from "./components/ModelPicker";
 import { VirtualMessageList } from "./VirtualMessageList";
+import { supportsNativeWebSearch } from "./web-search-mode";
 import type { ChatMessage } from "./types";
 import {
   projectFolderAvailable,
@@ -47,6 +50,7 @@ type ChatPageProps = {
   models: ChatModel[];
   selectedModelCode: string;
   executionEnvironment: "auto" | "local" | "cloud";
+  webSearchMode: WebSearchMode;
   modelsLoading: boolean;
   agents: DesktopAgentProfile[];
   agentsLoading: boolean;
@@ -72,6 +76,7 @@ type ChatPageProps = {
   onStop(): void;
   onModelChange(value: string): void;
   onExecutionEnvironmentChange(value: "auto" | "local" | "cloud"): void;
+  onWebSearchModeChange(value: WebSearchMode): void;
   onAgentChange(agentId: string): void;
   onUpdateAgent(): void;
   onProjectSkillChange(value: string): void;
@@ -91,6 +96,7 @@ export function ChatPage({
   models,
   selectedModelCode,
   executionEnvironment,
+  webSearchMode,
   modelsLoading,
   agents,
   agentsLoading,
@@ -112,6 +118,7 @@ export function ChatPage({
   onStop,
   onModelChange,
   onExecutionEnvironmentChange,
+  onWebSearchModeChange,
   onAgentChange,
   onUpdateAgent,
   onProjectSkillChange,
@@ -124,6 +131,8 @@ export function ChatPage({
   const latestMessage = messages.at(-1);
   const folderAvailable = projectFolderAvailable(selectedProject);
   const folderStatus = projectFolderStatus(selectedProject);
+  const selectedModel =
+    models.find((model) => model.code === selectedModelCode) ?? null;
 
   useEffect(() => {
     const scroller = chatScrollRef.current;
@@ -351,6 +360,32 @@ export function ChatPage({
                     <option value="auto">自动选择</option>
                     <option value="local">本地执行</option>
                     <option value="cloud">云端执行</option>
+                  </select>
+                  <ChevronDown size={12} />
+                </label>
+                <label className="project-skill-picker">
+                  <Globe2 size={13} />
+                  <select
+                    aria-label="联网搜索"
+                    value={webSearchMode}
+                    disabled={Boolean(activeRequestId)}
+                    onChange={(event) =>
+                      onWebSearchModeChange(event.target.value as WebSearchMode)
+                    }
+                  >
+                    <option
+                      value="agentic"
+                      disabled={selectedModel?.supportsTools === false}
+                    >
+                      智能检索
+                    </option>
+                    <option
+                      value="native"
+                      disabled={!supportsNativeWebSearch(selectedModel)}
+                    >
+                      模型原生检索
+                    </option>
+                    <option value="off">关闭联网</option>
                   </select>
                   <ChevronDown size={12} />
                 </label>
