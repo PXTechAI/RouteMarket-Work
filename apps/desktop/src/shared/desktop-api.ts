@@ -292,6 +292,7 @@ export type DesktopWorkflowDraftSummary = Pick<
 export type DesktopWorkflowRunStatus =
   | "queued"
   | "running"
+  | "waiting_for_user"
   | "succeeded"
   | "failed"
   | "canceled";
@@ -299,6 +300,7 @@ export type DesktopWorkflowRunStatus =
 export type DesktopWorkflowNodeRunStatus =
   | "pending"
   | "running"
+  | "waiting_for_user"
   | "succeeded"
   | "failed"
   | "skipped"
@@ -433,6 +435,7 @@ export type ActivityItem = {
     | "approval.approved"
     | "approval.denied"
     | "approval.policy_removed"
+    | "job.attention"
     | "job.succeeded"
     | "job.failed"
     | "job.canceled"
@@ -828,6 +831,7 @@ export type RouteMarketWorkApi = {
     workflowId?: string
   ): Promise<DesktopWorkflowRun[]>;
   cancelDesktopWorkflowRun(runId: string): Promise<DesktopWorkflowRun>;
+  resumeDesktopWorkflowRun(runId: string): Promise<DesktopWorkflowRun>;
   retryDesktopWorkflowRun(runId: string): Promise<DesktopWorkflowRun>;
   onDesktopWorkflowRunEvent(
     listener: (event: DesktopWorkflowRunEvent) => void

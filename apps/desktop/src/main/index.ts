@@ -2,7 +2,15 @@ import { createHash, randomUUID } from "node:crypto";
 import { copyFile, readFile, realpath, mkdir, writeFile } from "node:fs/promises";
 import { hostname } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { app, BrowserWindow, dialog, globalShortcut, ipcMain, shell } from "electron";
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  globalShortcut,
+  ipcMain,
+  Notification,
+  shell
+} from "electron";
 import type { DesktopJob, JobEvent } from "@routemarket/work-protocol";
 import { projectBindingIdFor } from "@routemarket/work-worker-core";
 import type {
@@ -975,6 +983,12 @@ function registerIpc(): void {
       throw new Error("Local Workflow runtime is unavailable.");
     }
     return localWorkflowRuntime.cancel(runId);
+  });
+  ipcMain.handle("work:workflow-run-resume", (_event, runId: string) => {
+    if (!localWorkflowRuntime) {
+      throw new Error("Local Workflow runtime is unavailable.");
+    }
+    return localWorkflowRuntime.resume(runId);
   });
   ipcMain.handle("work:workflow-run-retry", (_event, runId: string) => {
     if (!localWorkflowRuntime) {
@@ -1949,6 +1963,25 @@ if (!hasSingleInstanceLock) {
             `Workflow completed: ${event.run.workflowName}`,
             event.run.runId
           );
+        } else if (event.run.status === "waiting_for_user") {
+          addActivity(
+            "job.attention",
+            `Workflow 需要用户处理: ${event.run.workflowName}`,
+            event.run.error ?? event.run.runId
+          );
+          mainWindow?.flashFrame(true);
+          mainWindow?.once("focus", () => mainWindow?.flashFrame(false));
+          if (Notification.isSupported()) {
+            const notification = new Notification({
+              title: "RouteMarket Work 需要你的操作",
+              body: "请在内置浏览器完成登录或验证码，然后点击“处理完成，继续”。"
+            });
+            notification.on("click", () => {
+              mainWindow?.show();
+              mainWindow?.focus();
+            });
+            notification.show();
+          }
         } else if (
           event.run.status === "failed" ||
           event.run.status === "canceled"

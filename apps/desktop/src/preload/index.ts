@@ -138,6 +138,8 @@ const api: RouteMarketWorkApi = {
     ipcRenderer.invoke("work:workflow-run-list", localProjectId, workflowId),
   cancelDesktopWorkflowRun: (runId) =>
     ipcRenderer.invoke("work:workflow-run-cancel", runId),
+  resumeDesktopWorkflowRun: (runId) =>
+    ipcRenderer.invoke("work:workflow-run-resume", runId),
   retryDesktopWorkflowRun: (runId) =>
     ipcRenderer.invoke("work:workflow-run-retry", runId),
   onDesktopWorkflowRunEvent: (listener) => {

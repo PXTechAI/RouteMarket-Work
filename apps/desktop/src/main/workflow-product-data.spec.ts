@@ -49,6 +49,25 @@ describe("workflow product data", () => {
     );
   });
 
+  it("requests user action when the page does not expose a price", async () => {
+    const extract = vi.fn(async () => {
+      throw new Error("Browser element not found");
+    });
+
+    await expect(
+      extractProductPrice(
+        { extract } as never,
+        {
+          localProjectId: "project_1",
+          sourceUrl: "https://www.amazon.com/dp/test"
+        }
+      )
+    ).rejects.toMatchObject({
+      code: "WORKFLOW_USER_ACTION_REQUIRED",
+      message: expect.stringContaining("登录或验证")
+    });
+  });
+
   it("writes an Excel-compatible CSV without overwriting an existing export", async () => {
     temporaryDirectory = await mkdtemp(join(tmpdir(), "routemarket-price-"));
     const record = {

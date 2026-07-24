@@ -75,7 +75,11 @@ export class LocalWorkflowRuntime {
     run.error = "Workflow run was canceled.";
     run.finishedAt = now;
     for (const nodeRun of run.nodeRuns) {
-      if (nodeRun.status === "pending" || nodeRun.status === "running") {
+      if (
+        nodeRun.status === "pending" ||
+        nodeRun.status === "running" ||
+        nodeRun.status === "waiting_for_user"
+      ) {
         nodeRun.status = "canceled";
         nodeRun.error = "Workflow run was canceled.";
         nodeRun.finishedAt = now;
@@ -93,6 +97,52 @@ export class LocalWorkflowRuntime {
     return this.run(previous.localProjectId, previous.workflowId, previous.input);
   }
 
+  resume(runId: string): DesktopWorkflowRun {
+    const run = this.runs.get(runId);
+    if (!run) throw new Error("Workflow run not found.");
+    if (run.status !== "waiting_for_user") {
+      throw new Error("Only a Workflow waiting for user action can be resumed.");
+    }
+    const draft = this.requireDraft(run.localProjectId, run.workflowId, "workflow");
+    const order = topologicalOrder(draft);
+    const waitingIndex = order.findIndex((node) =>
+      run.nodeRuns.some(
+        (nodeRun) =>
+          nodeRun.nodeId === node.nodeId &&
+          nodeRun.status === "waiting_for_user"
+      )
+    );
+    if (waitingIndex < 0) {
+      throw new Error("Workflow waiting node was not found.");
+    }
+    const outputs = new Map<string, unknown>();
+    for (const nodeRun of run.nodeRuns) {
+      if (nodeRun.status === "succeeded") {
+        outputs.set(nodeRun.nodeId, nodeRun.output);
+      } else if (nodeRun.status === "waiting_for_user") {
+        nodeRun.attempt += 1;
+      }
+    }
+    const controller = new AbortController();
+    const active: ActiveRun = {
+      run,
+      controller,
+      completion: Promise.resolve()
+    };
+    run.error = null;
+    run.finishedAt = null;
+    active.completion = this.executeRun(
+      active,
+      draft,
+      order.slice(waitingIndex),
+      outputs
+    )
+      .catch(() => undefined)
+      .finally(() => this.activeRuns.delete(run.runId));
+    this.activeRuns.set(run.runId, active);
+    return this.persist(run);
+  }
+
   async waitForRun(runId: string): Promise<DesktopWorkflowRun | null> {
     await this.activeRuns.get(runId)?.completion;
     return this.runs.get(runId);
@@ -107,7 +157,8 @@ export class LocalWorkflowRuntime {
   private async executeRun(
     active: ActiveRun,
     draft: DesktopWorkflowDraft,
-    order: DesktopWorkflowDraftNode[]
+    order: DesktopWorkflowDraftNode[],
+    outputs = new Map<string, unknown>()
   ): Promise<void> {
     const { run, controller } = active;
     const startedAt = new Date().toISOString();
@@ -115,7 +166,6 @@ export class LocalWorkflowRuntime {
     run.startedAt = startedAt;
     this.persist(run);
 
-    const outputs = new Map<string, unknown>();
     try {
       const output = await this.executeDraft(
         draft,
@@ -133,6 +183,15 @@ export class LocalWorkflowRuntime {
       this.persist(run);
     } catch (error) {
       if (controller.signal.aborted) return;
+      if (requiresUserAction(error)) {
+        run.status = "waiting_for_user";
+        run.error = error instanceof Error
+          ? error.message
+          : "Workflow is waiting for user action.";
+        run.finishedAt = null;
+        this.persist(run);
+        return;
+      }
       const now = new Date().toISOString();
       run.status = "failed";
       run.error = error instanceof Error ? error.message : "Unknown Workflow error";
@@ -189,9 +248,15 @@ export class LocalWorkflowRuntime {
         }
       } catch (error) {
         if (nodeRun && nodeRun.status !== "canceled") {
-          nodeRun.status = signal.aborted ? "canceled" : "failed";
+          nodeRun.status = signal.aborted
+            ? "canceled"
+            : requiresUserAction(error)
+              ? "waiting_for_user"
+              : "failed";
           nodeRun.error = error instanceof Error ? error.message : "Unknown node error";
-          nodeRun.finishedAt = new Date().toISOString();
+          nodeRun.finishedAt = requiresUserAction(error)
+            ? null
+            : new Date().toISOString();
           this.persist(run!);
         }
         throw error;
@@ -366,6 +431,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isTerminal(status: DesktopWorkflowRun["status"]): boolean {
   return status === "succeeded" || status === "failed" || status === "canceled";
+}
+
+function requiresUserAction(error: unknown): boolean {
+  return Boolean(
+    error &&
+    typeof error === "object" &&
+    "code" in error &&
+    error.code === "WORKFLOW_USER_ACTION_REQUIRED"
+  );
 }
 
 function throwIfAborted(signal: AbortSignal): void {

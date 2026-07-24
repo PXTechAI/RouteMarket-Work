@@ -52,13 +52,15 @@ export async function extractProductPrice(
     extractFirst(browser, input.localProjectId, input.pageId, priceSelectors)
   ]);
   if (!productTitle) {
-    throw new Error(
-      "未识别到商品名称。请确认商品页面已加载，或在节点配置中调整 titleSelectors。"
+    throw Object.assign(
+      new Error("页面尚未显示商品信息。请在内置浏览器完成登录或验证后继续运行。"),
+      { code: "WORKFLOW_USER_ACTION_REQUIRED" }
     );
   }
   if (!priceText) {
-    throw new Error(
-      "未识别到商品价格。页面可能需要登录或验证码，请在内置浏览器完成后重试。"
+    throw Object.assign(
+      new Error("页面需要你完成登录或验证。请在内置浏览器处理后继续运行。"),
+      { code: "WORKFLOW_USER_ACTION_REQUIRED" }
     );
   }
   const price = parsePrice(priceText, input.sourceUrl);

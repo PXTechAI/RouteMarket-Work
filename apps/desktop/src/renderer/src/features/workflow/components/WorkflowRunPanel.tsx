@@ -2,6 +2,7 @@ import {
   CircleAlert,
   CircleCheck,
   Clock3,
+  Hand,
   LoaderCircle,
   Play,
   RotateCcw,
@@ -21,7 +22,11 @@ export function WorkflowRunPanel({
   actions: WorkflowPageActions["canvas"];
 }) {
   const run = model.selectedRun;
-  const running = run?.status === "queued" || run?.status === "running";
+  const waitingForUser = run?.status === "waiting_for_user";
+  const running =
+    run?.status === "queued" ||
+    run?.status === "running" ||
+    waitingForUser;
   const canRun = Boolean(
     model.draft &&
     model.draft.kind === "workflow" &&
@@ -66,6 +71,22 @@ export function WorkflowRunPanel({
             重试
           </button>
         </div>
+        {waitingForUser && (
+          <div className="workflow-user-action" role="status">
+            <Hand size={16} />
+            <div>
+              <strong>需要你在浏览器中完成操作</strong>
+              <small>完成登录或验证码后，从当前步骤继续；不会重新打开页面。</small>
+            </div>
+            <button
+              type="button"
+              disabled={model.runBusy}
+              onClick={actions.onResumeRun}
+            >
+              处理完成，继续
+            </button>
+          </div>
+        )}
         <div className={`workflow-run-summary ${run?.status ?? "idle"}`}>
           <RunStatusIcon run={run} />
           <div>
@@ -117,6 +138,7 @@ function RunStatusIcon({ run }: { run: DesktopWorkflowRun | null }) {
   if (run.status === "queued" || run.status === "running") {
     return <LoaderCircle className="spin" size={16} />;
   }
+  if (run.status === "waiting_for_user") return <Hand size={16} />;
   if (run.status === "succeeded") return <CircleCheck size={16} />;
   return <CircleAlert size={16} />;
 }
@@ -125,6 +147,7 @@ function statusLabel(status: DesktopWorkflowRun["status"]): string {
   return {
     queued: "等待运行",
     running: "正在运行",
+    waiting_for_user: "等待你处理",
     succeeded: "运行成功",
     failed: "运行失败",
     canceled: "已取消"
@@ -135,6 +158,7 @@ function nodeStatusLabel(status: DesktopWorkflowNodeRun["status"]): string {
   return {
     pending: "等待",
     running: "运行中",
+    waiting_for_user: "等待你处理",
     succeeded: "成功",
     failed: "失败",
     skipped: "已跳过",

@@ -74,6 +74,48 @@ describe("LocalWorkflowRuntime", () => {
     ]);
   });
 
+  it("pauses for user action and resumes from the waiting node", async () => {
+    const draft = createDraft();
+    const runs = memoryRuns();
+    const calls: string[] = [];
+    let challengeResolved = false;
+    const runtime = new LocalWorkflowRuntime(
+      draftReader([draft]),
+      runs,
+      async (node) => {
+        calls.push(node.nodeId);
+        if (node.nodeId === "node_search1" && !challengeResolved) {
+          throw Object.assign(new Error("请完成登录或验证码。"), {
+            code: "WORKFLOW_USER_ACTION_REQUIRED"
+          });
+        }
+        return node.nodeId === "node_read1"
+          ? { text: "hello" }
+          : { result: "ready" };
+      }
+    );
+
+    const queued = runtime.run("project_test", "workflow_test");
+    const waiting = await runtime.waitForRun(queued.runId);
+
+    expect(waiting?.status).toBe("waiting_for_user");
+    expect(waiting?.nodeRuns.map((node) => node.status)).toEqual([
+      "succeeded",
+      "waiting_for_user"
+    ]);
+
+    challengeResolved = true;
+    const resumed = runtime.resume(queued.runId);
+    const completed = await runtime.waitForRun(resumed.runId);
+
+    expect(completed).toMatchObject({
+      status: "succeeded",
+      output: { result: "ready" }
+    });
+    expect(completed?.nodeRuns[1]?.attempt).toBe(2);
+    expect(calls).toEqual(["node_read1", "node_search1", "node_search1"]);
+  });
+
   it("cancels an active run without allowing late output to overwrite it", async () => {
     const draft = createDraft();
     const runs = memoryRuns();

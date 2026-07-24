@@ -81,7 +81,7 @@ import {
 } from "./features/projects/project-folder-status";
 import { WorkflowPage } from "./features/workflow/WorkflowPage";
 import type { WorkflowPanel } from "./features/workflow/types";
-import { createAmazonPriceWorkflowDraft } from "./features/workflow/amazon-price-template";
+import { workflowSkillById } from "./features/workflow/workflow-skill-registry";
 
 type WorkspaceView = "chat" | "files" | "changes" | "versions" | "terminal" | "approvals" | "browser" | "mcp" | "workflow" | "agent";
 
@@ -907,6 +907,20 @@ const previewApi: RouteMarketWorkApi = {
       run.input
     );
   },
+  async resumeDesktopWorkflowRun(runId) {
+    const run = previewWorkflowRuns.find((item) => item.runId === runId);
+    if (!run) throw new Error("Workflow run not found");
+    run.status = "running";
+    run.error = null;
+    for (const node of run.nodeRuns) {
+      if (node.status === "waiting_for_user") {
+        node.status = "running";
+        node.error = null;
+        node.attempt += 1;
+      }
+    }
+    return structuredClone(run);
+  },
   onDesktopWorkflowRunEvent(listener) {
     previewWorkflowRunListeners.add(listener);
     return () => previewWorkflowRunListeners.delete(listener);
@@ -1139,6 +1153,7 @@ const unavailableApi: RouteMarketWorkApi = {
   getDesktopWorkflowRun: async () => desktopBridgeUnavailable(),
   listDesktopWorkflowRuns: async () => desktopBridgeUnavailable(),
   cancelDesktopWorkflowRun: async () => desktopBridgeUnavailable(),
+  resumeDesktopWorkflowRun: async () => desktopBridgeUnavailable(),
   retryDesktopWorkflowRun: async () => desktopBridgeUnavailable(),
   onDesktopWorkflowRunEvent: () => () => undefined,
   installMcpServer: async () => desktopBridgeUnavailable(),
@@ -2501,11 +2516,10 @@ export function App() {
     }));
   }
 
-  function createAmazonPriceWorkflow(input: {
-    url: string;
-    outputDirectory: string;
-    fileName: string;
-  }) {
+  function createWorkflowFromSkill(
+    skillId: string,
+    values: Record<string, string>
+  ) {
     if (!selectedProjectId || !workflowRegistry) return;
     if (
       workflowDraftDirty &&
@@ -2515,10 +2529,10 @@ export function App() {
     }
     try {
       setWorkflowDraft(
-        createAmazonPriceWorkflowDraft({
+        workflowSkillById(skillId).createDraft({
           localProjectId: selectedProjectId,
           definitions: workflowRegistry.definitions,
-          ...input
+          values
         })
       );
       setWorkflowDraftDirty(true);
@@ -2654,6 +2668,28 @@ export function App() {
     } catch (nextError) {
       setError(
         nextError instanceof Error ? nextError.message : "Workflow 重试失败"
+      );
+    } finally {
+      setWorkflowRunBusy(false);
+    }
+  }
+
+  async function resumeWorkflowRun() {
+    if (
+      !selectedWorkflowRun ||
+      selectedWorkflowRun.status !== "waiting_for_user" ||
+      workflowRunBusy
+    ) {
+      return;
+    }
+    setWorkflowRunBusy(true);
+    setError(null);
+    try {
+      const run = await api.resumeDesktopWorkflowRun(selectedWorkflowRun.runId);
+      setWorkflowRuns((current) => upsertWorkflowRun(current, run));
+    } catch (nextError) {
+      setError(
+        nextError instanceof Error ? nextError.message : "Workflow 继续运行失败"
       );
     } finally {
       setWorkflowRunBusy(false);
@@ -3221,12 +3257,13 @@ export function App() {
                   onUpdateNodeConfig: updateWorkflowNodeConfig,
                   onChooseOutputDirectory: () =>
                     api.chooseWorkflowOutputDirectory(),
-                  onCreateAmazonPriceWorkflow: createAmazonPriceWorkflow,
+                  onCreateWorkflowSkill: createWorkflowFromSkill,
                   onSaveDraft: () => void saveWorkflowDraft(),
                   onDeleteDraft: () => void deleteWorkflowDraft(),
                   onRunInputChange: setWorkflowRunInput,
                   onRun: () => void runWorkflowDraft(),
                   onCancelRun: () => void cancelWorkflowRun(),
+                  onResumeRun: () => void resumeWorkflowRun(),
                   onRetryRun: () => void retryWorkflowRun()
                 },
                 triggers: {

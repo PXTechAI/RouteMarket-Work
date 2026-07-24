@@ -57,16 +57,16 @@ export type WorkflowPageActions = {
     onRemoveNode(nodeId: string): void;
     onUpdateNodeConfig(nodeId: string, config: Record<string, unknown>): void;
     onChooseOutputDirectory(): Promise<string | null>;
-    onCreateAmazonPriceWorkflow(input: {
-      url: string;
-      outputDirectory: string;
-      fileName: string;
-    }): void;
+    onCreateWorkflowSkill(
+      skillId: string,
+      values: Record<string, string>
+    ): void;
     onSaveDraft(): void;
     onDeleteDraft(): void;
     onRunInputChange(value: string): void;
     onRun(): void;
     onCancelRun(): void;
+    onResumeRun(): void;
     onRetryRun(): void;
   };
   triggers: {

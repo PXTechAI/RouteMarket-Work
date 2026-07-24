@@ -1058,6 +1058,10 @@
   color: var(--rm-success);
 }
 
+.workflow-run-summary.waiting_for_user {
+  color: var(--rm-warning);
+}
+
 .workflow-run-summary.failed,
 .workflow-run-summary.canceled {
   color: var(--rm-danger);
@@ -1109,6 +1113,50 @@
 
 .workflow-node-run.running .workflow-node-run-dot {
   background: var(--rm-accent);
+}
+
+.workflow-node-run.waiting_for_user .workflow-node-run-dot {
+  background: var(--rm-warning);
+}
+
+.workflow-user-action {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  padding: 8px;
+  color: var(--rm-warning);
+  background: color-mix(in srgb, var(--rm-warning) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--rm-warning) 35%, transparent);
+  border-radius: 6px;
+}
+
+.workflow-user-action > div {
+  display: grid;
+  gap: 2px;
+}
+
+.workflow-user-action strong,
+.workflow-user-action small {
+  color: currentColor;
+}
+
+.workflow-user-action strong {
+  font-size: 9px;
+}
+
+.workflow-user-action small {
+  font-size: 7px;
+}
+
+.workflow-user-action button {
+  padding: 6px 8px;
+  color: #fff;
+  font-size: 8px;
+  font-weight: 700;
+  background: var(--rm-brand-gradient);
+  border: 0;
+  border-radius: 5px;
 }
 
 .workflow-node-run.succeeded .workflow-node-run-dot {

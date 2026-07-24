@@ -11,7 +11,7 @@ import {
 import { useState } from "react";
 import type { WorkflowPageActions, WorkflowPageModel } from "../types";
 import { WorkspaceState } from "../../../app/WorkspaceState";
-import { AmazonPriceWorkflowSetup } from "./AmazonPriceWorkflowSetup";
+import { WorkflowSkillSetup } from "./WorkflowSkillSetup";
 import { WorkflowNodeConfigPanel } from "./WorkflowNodeConfigPanel";
 import { WorkflowRunPanel } from "./WorkflowRunPanel";
 
@@ -149,7 +149,7 @@ export function WorkflowCanvas({
         </button>
       </div>
 
-      <AmazonPriceWorkflowSetup model={model} actions={actions} />
+      <WorkflowSkillSetup model={model} actions={actions} />
 
       <div className="workflow-canvas-scroll">
         <div className="workflow-canvas-surface">

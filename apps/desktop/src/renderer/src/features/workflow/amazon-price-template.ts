@@ -2,12 +2,53 @@ import type {
   DesktopWorkflowDraft,
   DesktopWorkflowNodeDefinition
 } from "../../../../shared/desktop-api";
+import type { WorkflowSkillDefinition } from "./workflow-skill-registry";
 
 export const AMAZON_PRICE_WORKFLOW_KEYS = [
   "local.browser.navigate",
   "local.browser.product_extract",
   "local.data.csv_export"
 ] as const;
+
+export const AMAZON_PRICE_MONITOR_SKILL: WorkflowSkillDefinition = {
+  id: "builtin.amazon-price-monitor",
+  version: 1,
+  name: "Amazon 价格监控",
+  description: "打开单个商品页，识别名称和价格，并将结果保存为本地 CSV。",
+  requiredExecutorKeys: [...AMAZON_PRICE_WORKFLOW_KEYS],
+  setupFields: [
+    {
+      key: "url",
+      kind: "url",
+      label: "商品链接",
+      placeholder: "https://www.amazon.com/dp/...",
+      required: true
+    },
+    {
+      key: "fileName",
+      kind: "text",
+      label: "输出文件",
+      placeholder: "amazon-product-price.csv",
+      defaultValue: "amazon-product-price.csv",
+      required: true
+    },
+    {
+      key: "outputDirectory",
+      kind: "directory",
+      label: "保存目录",
+      required: true
+    }
+  ],
+  createDraft(input) {
+    return createAmazonPriceWorkflowDraft({
+      localProjectId: input.localProjectId,
+      definitions: input.definitions,
+      url: input.values.url ?? "",
+      outputDirectory: input.values.outputDirectory ?? "",
+      fileName: input.values.fileName
+    });
+  }
+};
 
 export function createAmazonPriceWorkflowDraft(input: {
   localProjectId: string;
