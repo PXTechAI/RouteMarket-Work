@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { copyFile, readFile, realpath, mkdir, writeFile } from "node:fs/promises";
+import { copyFile, readFile, realpath, mkdir, stat, writeFile } from "node:fs/promises";
 import { hostname } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import {
@@ -68,6 +68,7 @@ import { createLocalWorkflowNodeExecutor } from "./local-workflow-node-executor"
 import { LocalWorkflowRuntime } from "./local-workflow-runtime";
 import { WorkflowDraftStore } from "./workflow-draft-store";
 import { WorkflowRunStore } from "./workflow-run-store";
+import { workflowArtifactPath } from "./workflow-artifact";
 import { WorkerClient } from "./worker-client";
 import { DESKTOP_APP_ID, desktopWindowIconPath } from "./desktop-brand";
 import { resolveRuntimeEndpoint } from "./runtime-endpoints";
@@ -996,6 +997,35 @@ function registerIpc(): void {
     }
     return localWorkflowRuntime.retry(runId);
   });
+  ipcMain.handle(
+    "work:workflow-artifact-open",
+    async (_event, runId: string, action: "open" | "reveal") => {
+      if (!localWorkflowRuntime) {
+        throw new Error("Local Workflow runtime is unavailable.");
+      }
+      if (action !== "open" && action !== "reveal") {
+        throw new Error("Workflow artifact action is invalid.");
+      }
+      const run = localWorkflowRuntime.get(runId);
+      if (!run || run.status !== "succeeded") {
+        throw new Error("Workflow artifact is not available.");
+      }
+      const savedPath = workflowArtifactPath(run);
+      const file = savedPath
+        ? await stat(savedPath).catch(() => null)
+        : null;
+      if (!savedPath || !file?.isFile()) {
+        throw new Error("Workflow artifact no longer exists on this device.");
+      }
+      if (action === "reveal") {
+        shell.showItemInFolder(savedPath);
+        return true;
+      }
+      const error = await shell.openPath(savedPath);
+      if (error) throw new Error(error);
+      return true;
+    }
+  );
 
   ipcMain.handle(
     "work:read-project-file",

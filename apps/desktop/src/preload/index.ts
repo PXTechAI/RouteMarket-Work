@@ -142,6 +142,8 @@ const api: RouteMarketWorkApi = {
     ipcRenderer.invoke("work:workflow-run-resume", runId),
   retryDesktopWorkflowRun: (runId) =>
     ipcRenderer.invoke("work:workflow-run-retry", runId),
+  openDesktopWorkflowArtifact: (runId, action) =>
+    ipcRenderer.invoke("work:workflow-artifact-open", runId, action),
   onDesktopWorkflowRunEvent: (listener) => {
     const handler = (
       _event: Electron.IpcRendererEvent,

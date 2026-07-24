@@ -22,6 +22,10 @@ describe("Amazon price workflow template", () => {
     expect(draft.nodes.map((node) => node.executorKey)).toEqual(
       AMAZON_PRICE_WORKFLOW_KEYS
     );
+    expect(draft.sourceSkill).toEqual({
+      id: "builtin.amazon-price-monitor",
+      version: 1
+    });
     expect(draft.nodes[0]?.config).toEqual({
       url: "https://www.amazon.com/dp/B000TEST"
     });

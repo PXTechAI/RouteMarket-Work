@@ -63,6 +63,11 @@ export function WorkflowCanvas({
           disabled={!model.draft}
           onChange={(event) => actions.onDraftNameChange(event.target.value)}
         />
+        {model.draft?.sourceSkill && (
+          <span className="workflow-skill-origin" title={model.draft.sourceSkill.id}>
+            Skill · v{model.draft.sourceSkill.version}
+          </span>
+        )}
         <select
           value={model.addExecutor}
           aria-label="待添加节点"

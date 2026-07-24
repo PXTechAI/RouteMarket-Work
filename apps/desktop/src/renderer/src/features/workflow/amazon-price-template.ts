@@ -97,6 +97,10 @@ export function createAmazonPriceWorkflowDraft(input: {
     localProjectId: input.localProjectId,
     kind: "workflow",
     name: "Amazon 单品价格采集",
+    sourceSkill: {
+      id: AMAZON_PRICE_MONITOR_SKILL.id,
+      version: AMAZON_PRICE_MONITOR_SKILL.version
+    },
     nodes,
     edges: [
       {

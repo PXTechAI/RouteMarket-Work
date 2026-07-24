@@ -84,7 +84,11 @@ export class WorkflowDraftStore {
       createdAt: existing?.createdAt ?? draft.createdAt ?? now,
       updatedAt: now
     };
-    const documentJson = JSON.stringify({ nodes: next.nodes, edges: next.edges });
+    const documentJson = JSON.stringify({
+      ...(next.sourceSkill ? { sourceSkill: next.sourceSkill } : {}),
+      nodes: next.nodes,
+      edges: next.edges
+    });
     if (Buffer.byteLength(documentJson, "utf8") > 512 * 1024) {
       throw new Error("Workflow draft exceeds the 512 KiB local limit.");
     }
@@ -145,6 +149,16 @@ function validateDraft(draft: DesktopWorkflowDraft): void {
   if (!ID_PATTERN.test(draft.workflowId) || !ID_PATTERN.test(draft.localProjectId)) throw new Error("Workflow or project id is invalid.");
   if (draft.kind !== "workflow" && draft.kind !== "local_action") throw new Error("Workflow draft kind is invalid.");
   if (!draft.name.trim() || draft.name.trim().length > 120) throw new Error("Workflow name must be 1-120 characters.");
+  if (
+    draft.sourceSkill &&
+    (
+      !/^[A-Za-z0-9_.-]{3,256}$/.test(draft.sourceSkill.id) ||
+      !Number.isSafeInteger(draft.sourceSkill.version) ||
+      draft.sourceSkill.version < 1
+    )
+  ) {
+    throw new Error("Workflow source Skill is invalid.");
+  }
   if (draft.nodes.length > 200 || draft.edges.length > 400) throw new Error("Workflow draft exceeds node or edge limits.");
   const nodeIds = new Set<string>();
   for (const node of draft.nodes) {
@@ -222,12 +236,18 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function mapRow(row: DraftRow): DesktopWorkflowDraft {
-  const document = JSON.parse(row.document_json) as Pick<DesktopWorkflowDraft, "nodes" | "edges">;
+  const document = JSON.parse(row.document_json) as Pick<
+    DesktopWorkflowDraft,
+    "nodes" | "edges" | "sourceSkill"
+  >;
   return {
     workflowId: row.workflow_id,
     localProjectId: row.local_project_id,
     kind: row.kind,
     name: row.name,
+    ...(document.sourceSkill
+      ? { sourceSkill: document.sourceSkill }
+      : {}),
     nodes: document.nodes,
     edges: document.edges,
     createdAt: row.created_at,

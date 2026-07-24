@@ -350,6 +350,9 @@ function createRun(
     workflowId: draft.workflowId,
     workflowName: draft.name,
     localProjectId: draft.localProjectId,
+    ...(draft.sourceSkill
+      ? { sourceSkill: structuredClone(draft.sourceSkill) }
+      : {}),
     status: "queued",
     input: structuredClone(input),
     output: null,

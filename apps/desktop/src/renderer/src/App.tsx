@@ -907,6 +907,9 @@ const previewApi: RouteMarketWorkApi = {
       run.input
     );
   },
+  async openDesktopWorkflowArtifact() {
+    return true;
+  },
   async resumeDesktopWorkflowRun(runId) {
     const run = previewWorkflowRuns.find((item) => item.runId === runId);
     if (!run) throw new Error("Workflow run not found");
@@ -1155,6 +1158,7 @@ const unavailableApi: RouteMarketWorkApi = {
   cancelDesktopWorkflowRun: async () => desktopBridgeUnavailable(),
   resumeDesktopWorkflowRun: async () => desktopBridgeUnavailable(),
   retryDesktopWorkflowRun: async () => desktopBridgeUnavailable(),
+  openDesktopWorkflowArtifact: async () => desktopBridgeUnavailable(),
   onDesktopWorkflowRunEvent: () => () => undefined,
   installMcpServer: async () => desktopBridgeUnavailable(),
   listMcpServers: async () => desktopBridgeUnavailable(),
@@ -2696,6 +2700,21 @@ export function App() {
     }
   }
 
+  async function openWorkflowArtifact(action: "open" | "reveal") {
+    if (!selectedWorkflowRun || workflowRunBusy) return;
+    setWorkflowRunBusy(true);
+    setError(null);
+    try {
+      await api.openDesktopWorkflowArtifact(selectedWorkflowRun.runId, action);
+    } catch (nextError) {
+      setError(
+        nextError instanceof Error ? nextError.message : "无法打开工作流产物"
+      );
+    } finally {
+      setWorkflowRunBusy(false);
+    }
+  }
+
   async function selectWorkflowDraft(workflowId: string) {
     if (!selectedProjectId || workflowDraftBusy || workflowId === workflowDraft?.workflowId) return;
     if (workflowDraftDirty && !window.confirm("当前工作流有未保存更改。放弃并切换吗？")) return;
@@ -3264,7 +3283,8 @@ export function App() {
                   onRun: () => void runWorkflowDraft(),
                   onCancelRun: () => void cancelWorkflowRun(),
                   onResumeRun: () => void resumeWorkflowRun(),
-                  onRetryRun: () => void retryWorkflowRun()
+                  onRetryRun: () => void retryWorkflowRun(),
+                  onOpenRunArtifact: (action) => void openWorkflowArtifact(action)
                 },
                 triggers: {
                   onNameChange: setTriggerName,

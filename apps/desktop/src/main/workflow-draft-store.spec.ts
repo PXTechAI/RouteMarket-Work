@@ -104,6 +104,21 @@ describe("WorkflowDraftStore", () => {
     expect(reopened.list("project_test")).toHaveLength(0);
     reopened.close();
   });
+
+  it("persists a valid Workflow Skill source snapshot", () => {
+    const draft = createDraft();
+    draft.sourceSkill = {
+      id: "builtin.amazon-price-monitor",
+      version: 1
+    };
+
+    const saved = store.save(draft);
+
+    expect(saved.sourceSkill).toEqual(draft.sourceSkill);
+    expect(store.get(draft.localProjectId, draft.workflowId)?.sourceSkill).toEqual(
+      draft.sourceSkill
+    );
+  });
 });
 
 function createDraft(): DesktopWorkflowDraft {

@@ -278,6 +278,10 @@ export type DesktopWorkflowDraft = {
   localProjectId: string;
   kind: "workflow" | "local_action";
   name: string;
+  sourceSkill?: {
+    id: string;
+    version: number;
+  };
   nodes: DesktopWorkflowDraftNode[];
   edges: DesktopWorkflowDraftEdge[];
   createdAt: string;
@@ -325,6 +329,10 @@ export type DesktopWorkflowRun = {
   workflowId: string;
   workflowName: string;
   localProjectId: string;
+  sourceSkill?: {
+    id: string;
+    version: number;
+  };
   status: DesktopWorkflowRunStatus;
   input: Record<string, unknown>;
   output: unknown;
@@ -833,6 +841,10 @@ export type RouteMarketWorkApi = {
   cancelDesktopWorkflowRun(runId: string): Promise<DesktopWorkflowRun>;
   resumeDesktopWorkflowRun(runId: string): Promise<DesktopWorkflowRun>;
   retryDesktopWorkflowRun(runId: string): Promise<DesktopWorkflowRun>;
+  openDesktopWorkflowArtifact(
+    runId: string,
+    action: "open" | "reveal"
+  ): Promise<boolean>;
   onDesktopWorkflowRunEvent(
     listener: (event: DesktopWorkflowRunEvent) => void
   ): () => void;

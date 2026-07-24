@@ -68,6 +68,7 @@ export type WorkflowPageActions = {
     onCancelRun(): void;
     onResumeRun(): void;
     onRetryRun(): void;
+    onOpenRunArtifact(action: "open" | "reveal"): void;
   };
   triggers: {
     onNameChange(value: string): void;

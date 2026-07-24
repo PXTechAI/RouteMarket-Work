@@ -641,6 +641,17 @@
   flex: 1 1 140px;
 }
 
+.workflow-skill-origin {
+  padding: 5px 7px;
+  color: var(--rm-accent);
+  font-size: 8px;
+  font-weight: 700;
+  background: var(--rm-accent-soft);
+  border: 1px solid var(--rm-accent-soft-strong);
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
 .workflow-canvas-toolbar select[aria-label="待添加节点"] {
   flex: 2 1 220px;
 }
@@ -1080,6 +1091,53 @@
 .workflow-run-summary small {
   color: var(--rm-text-weak);
   font-size: 7px;
+}
+
+.workflow-run-artifact {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 5px;
+  align-items: center;
+  padding: 7px;
+  color: var(--rm-success);
+  background: color-mix(in srgb, var(--rm-success) 9%, transparent);
+  border: 1px solid color-mix(in srgb, var(--rm-success) 28%, transparent);
+  border-radius: 6px;
+}
+
+.workflow-run-artifact > div {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.workflow-run-artifact strong,
+.workflow-run-artifact small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workflow-run-artifact strong {
+  color: currentColor;
+  font-size: 8px;
+}
+
+.workflow-run-artifact small {
+  color: var(--rm-text-weak);
+  font-size: 7px;
+}
+
+.workflow-run-artifact button {
+  display: inline-flex;
+  gap: 3px;
+  align-items: center;
+  padding: 5px 6px;
+  color: var(--rm-text-muted);
+  font-size: 7px;
+  background: var(--rm-surface);
+  border: 1px solid var(--rm-border-strong);
+  border-radius: 5px;
 }
 
 .workflow-run-timeline {

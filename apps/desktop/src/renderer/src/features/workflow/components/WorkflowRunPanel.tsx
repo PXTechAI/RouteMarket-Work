@@ -2,6 +2,8 @@ import {
   CircleAlert,
   CircleCheck,
   Clock3,
+  ExternalLink,
+  FolderOpen,
   Hand,
   LoaderCircle,
   Play,
@@ -23,6 +25,7 @@ export function WorkflowRunPanel({
 }) {
   const run = model.selectedRun;
   const waitingForUser = run?.status === "waiting_for_user";
+  const artifact = workflowArtifact(run);
   const running =
     run?.status === "queued" ||
     run?.status === "running" ||
@@ -98,6 +101,30 @@ export function WorkflowRunPanel({
             </small>
           </div>
         </div>
+        {artifact && (
+          <div className="workflow-run-artifact">
+            <div>
+              <strong>{artifact.fileName}</strong>
+              <small title={artifact.savedPath}>{artifact.savedPath}</small>
+            </div>
+            <button
+              type="button"
+              disabled={model.runBusy}
+              onClick={() => actions.onOpenRunArtifact("open")}
+            >
+              <ExternalLink size={12} />
+              打开
+            </button>
+            <button
+              type="button"
+              disabled={model.runBusy}
+              onClick={() => actions.onOpenRunArtifact("reveal")}
+            >
+              <FolderOpen size={12} />
+              所在目录
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="workflow-run-timeline">
@@ -171,4 +198,31 @@ function formatValue(value: unknown): string {
   return serialized && serialized.length > 4_000
     ? `${serialized.slice(0, 4_000)}\n...`
     : serialized ?? String(value);
+}
+
+function workflowArtifact(run: DesktopWorkflowRun | null): {
+  fileName: string;
+  savedPath: string;
+} | null {
+  if (run?.status !== "succeeded") return null;
+  const exportNode = [...run.nodeRuns].reverse().find(
+    (node) =>
+      node.executorKey === "local.data.csv_export" &&
+      node.status === "succeeded"
+  );
+  if (
+    !exportNode?.output ||
+    typeof exportNode.output !== "object" ||
+    Array.isArray(exportNode.output)
+  ) {
+    return null;
+  }
+  const output = exportNode.output as {
+    fileName?: unknown;
+    savedPath?: unknown;
+  };
+  return typeof output.fileName === "string" &&
+    typeof output.savedPath === "string"
+    ? { fileName: output.fileName, savedPath: output.savedPath }
+    : null;
 }
