@@ -1,6 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
 import { LocalChatStore } from "./local-chat-store";
 
@@ -23,7 +24,18 @@ describe("LocalChatStore", () => {
       localProjectId: "project_1",
       role: "user",
       content: "Inspect this project",
-      sentAt: "2026-07-23T04:00:00.000Z"
+      sentAt: "2026-07-23T04:00:00.000Z",
+      attachments: [{
+        id: "attachment_1",
+        name: "requirements.md",
+        mimeType: "text/markdown",
+        size: 128,
+        kind: "file",
+        textExcerpt: "# Requirements",
+        assetId: "asset_1",
+        downloadUrl: "https://console.routemarket.ai/api/assets/asset_1",
+        previewUrl: null
+      }]
     });
     first.append({
       id: "assistant:request_1",
@@ -42,7 +54,15 @@ describe("LocalChatStore", () => {
     expect(restored.get("project_1")).toMatchObject({
       sessionId: thread.sessionId,
       messages: [
-        { role: "user", content: "Inspect this project" },
+        {
+          role: "user",
+          content: "Inspect this project",
+          attachments: [{
+            id: "attachment_1",
+            name: "requirements.md",
+            assetId: "asset_1"
+          }]
+        },
         {
           role: "assistant",
           content: "The project looks healthy.",
@@ -63,6 +83,49 @@ describe("LocalChatStore", () => {
     expect(first.sessionId).not.toBe(second.sessionId);
     expect(store.getOrCreate("project_1", "First").sessionId).toBe(first.sessionId);
     store.close();
+  });
+
+  it("migrates an existing chat database without losing old messages", async () => {
+    temporaryDirectory = await mkdtemp(join(tmpdir(), "routemarket-local-chat-"));
+    const databasePath = join(temporaryDirectory, "work.db");
+    const legacy = new DatabaseSync(databasePath);
+    legacy.exec(`
+      CREATE TABLE local_chat_threads (
+        session_id TEXT PRIMARY KEY,
+        local_project_id TEXT NOT NULL UNIQUE,
+        title TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE local_chat_messages (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        local_project_id TEXT NOT NULL,
+        role TEXT NOT NULL,
+        content TEXT NOT NULL,
+        sent_at TEXT NOT NULL,
+        context_file TEXT,
+        stopped INTEGER NOT NULL DEFAULT 0
+      );
+      INSERT INTO local_chat_threads VALUES (
+        'session_legacy', 'project_legacy', 'Legacy',
+        '2026-07-01T00:00:00.000Z', '2026-07-01T00:00:00.000Z'
+      );
+      INSERT INTO local_chat_messages VALUES (
+        'user:legacy', 'session_legacy', 'project_legacy', 'user',
+        'Keep this message', '2026-07-01T00:00:00.000Z', NULL, 0
+      );
+    `);
+    legacy.close();
+
+    const migrated = new LocalChatStore(databasePath);
+    expect(migrated.get("project_legacy")?.messages).toEqual([
+      expect.objectContaining({
+        id: "user:legacy",
+        content: "Keep this message"
+      })
+    ]);
+    migrated.close();
   });
 
   it("rewinds a conversation from an edited user message", async () => {

@@ -8,6 +8,7 @@ import { projectBindingIdFor } from "@routemarket/work-worker-core";
 import type {
   ActivityItem,
   BrowserBounds,
+  DesktopChatAttachment,
   DesktopWorkflowDraft,
   DesktopWorkflowNodeRegistry,
   LocalTriggerInput,
@@ -36,7 +37,10 @@ import {
 } from "./local-data-manager";
 import { DesktopAuthManager } from "./desktop-auth-manager";
 import { DeviceCredentialStore } from "./device-credential-store";
-import { ProjectChatClient } from "./project-chat-client";
+import {
+  buildAttachmentMessageContent,
+  ProjectChatClient
+} from "./project-chat-client";
 import { RouteMarketApiClient } from "./routemarket-api-client";
 import { ProjectChatToolRunner } from "./project-chat-tool-runner";
 import {
@@ -60,6 +64,10 @@ import { WorkerClient } from "./worker-client";
 import { DESKTOP_APP_ID, desktopWindowIconPath } from "./desktop-brand";
 import { resolveRuntimeEndpoint } from "./runtime-endpoints";
 import { DesktopUpdateManager } from "./desktop-update-manager";
+import {
+  MAX_CHAT_ATTACHMENTS,
+  uploadSelectedChatAttachments
+} from "./chat-attachment-service";
 
 declare const __ROUTEMARKET_WORK_BUILD_ENVIRONMENT__:
   "development" | "test" | "production";
@@ -87,6 +95,7 @@ let cloudWorkerClient: CloudWorkerClient | null = null;
 let desktopAuthManager: DesktopAuthManager | null = null;
 let accountSyncTimer: NodeJS.Timeout | null = null;
 let projectChatClient: ProjectChatClient | null = null;
+let routeMarketApiClient: RouteMarketApiClient | null = null;
 let approvalStore: ApprovalStore | null = null;
 let activityStore: ActivityStore | null = null;
 let localChatStore: LocalChatStore | null = null;
@@ -99,6 +108,7 @@ const activeLocalChats = new Map<string, {
   agentName?: string;
   agentAvatarUrl?: string | null;
 }>();
+const selectedChatAttachments = new Map<string, DesktopChatAttachment>();
 let managedBrowser: ManagedBrowserManager | null = null;
 let localTriggerManager: LocalTriggerManager | null = null;
 let workflowDraftStore: WorkflowDraftStore | null = null;
@@ -735,6 +745,63 @@ function registerIpc(): void {
     });
     return project;
   });
+
+  ipcMain.handle("work:chat-attachments-choose", async (_event, maxCount: number) => {
+    if (!mainWindow || !routeMarketApiClient) return [];
+    const allowedCount = Number.isInteger(maxCount)
+      ? Math.min(MAX_CHAT_ATTACHMENTS, Math.max(0, maxCount))
+      : 0;
+    if (!allowedCount) return [];
+    const selection = await dialog.showOpenDialog(mainWindow, {
+      title: "添加对话附件",
+      buttonLabel: "添加附件",
+      properties: ["openFile", "multiSelections"]
+    });
+    if (selection.canceled || !selection.filePaths.length) return [];
+    if (selection.filePaths.length > allowedCount) {
+      throw new Error(`本次还可以添加 ${allowedCount} 个附件。`);
+    }
+    const attachments = await uploadSelectedChatAttachments(
+      routeMarketApiClient,
+      selection.filePaths
+    );
+    for (const attachment of attachments) {
+      selectedChatAttachments.set(attachment.id, attachment);
+    }
+    return attachments;
+  });
+
+  ipcMain.handle(
+    "work:chat-attachment-discard",
+    async (_event, attachmentId: string) => {
+      const attachment = selectedChatAttachments.get(attachmentId);
+      if (!attachment) return;
+      selectedChatAttachments.delete(attachmentId);
+      if (!routeMarketApiClient) return;
+      const response = await routeMarketApiClient.request(
+        "/api/app/v1/assets/references/release",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            asset_id: attachment.assetId,
+            reference_type: "chat_upload",
+            reference_id: attachment.id
+          })
+        },
+        "required"
+      );
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        const message =
+          payload && typeof payload === "object" &&
+          typeof (payload as Record<string, unknown>).message === "string"
+            ? (payload as Record<string, string>).message
+            : `附件引用释放失败（${response.status}）。`;
+        throw new Error(message);
+      }
+    }
+  );
 
   ipcMain.handle("work:create-project", async (_event, displayName: string): Promise<ProjectSummary> => {
     if (!workerClient) throw new Error("RouteMarket Worker is offline.");
@@ -1668,7 +1735,37 @@ function registerIpc(): void {
         : await workerClient.projectContext(project.localProjectId);
       if (!localChatStore) throw new Error("Local chat storage is unavailable.");
       const thread = localChatStore.getOrCreate(project.localProjectId, project.displayName);
-      const history = thread.messages.map(({ role, content }) => ({ role, content }));
+      const knownAttachments = new Map<string, DesktopChatAttachment>();
+      for (const message of thread.messages) {
+        for (const attachment of message.attachments ?? []) {
+          knownAttachments.set(attachment.id, attachment);
+        }
+      }
+      for (const attachment of selectedChatAttachments.values()) {
+        knownAttachments.set(attachment.id, attachment);
+      }
+      if (
+        (input.attachments?.length ?? 0) > MAX_CHAT_ATTACHMENTS ||
+        new Set((input.attachments ?? []).map((attachment) => attachment.id)).size !==
+          (input.attachments?.length ?? 0)
+      ) {
+        throw new Error("The chat attachment selection is invalid.");
+      }
+      const trustedAttachments = (input.attachments ?? []).map((attachment) => {
+        const trusted = knownAttachments.get(attachment.id);
+        if (!trusted) throw new Error("The selected chat attachment is no longer available.");
+        return trusted;
+      });
+      const history = thread.messages.map((message) => ({
+        role: message.role,
+        content:
+          message.role === "user" && message.attachments?.length
+            ? buildAttachmentMessageContent(
+                message.content,
+                message.attachments
+              ) as string
+            : message.content
+      }));
       localChatStore.append({
         id: `user:${input.requestId}`,
         sessionId: thread.sessionId,
@@ -1676,8 +1773,16 @@ function registerIpc(): void {
         role: "user",
         content: input.message,
         sentAt: input.sentAt,
-        ...(input.contextFile ? { contextFile: input.contextFile.relativePath } : {})
+        ...(input.contextFile
+          ? { contextFile: input.contextFile.relativePath }
+          : {}),
+        ...(trustedAttachments.length
+          ? { attachments: trustedAttachments }
+          : {})
       });
+      for (const attachment of trustedAttachments) {
+        selectedChatAttachments.delete(attachment.id);
+      }
       activeLocalChats.set(input.requestId, {
         sessionId: thread.sessionId,
         localProjectId: project.localProjectId,
@@ -1689,7 +1794,12 @@ function registerIpc(): void {
           ? { agentAvatarUrl: input.agent.agentAvatarUrl }
           : {})
       });
-      const trustedInput = { ...input };
+      const trustedInput = {
+        ...input,
+        ...(trustedAttachments.length
+          ? { attachments: trustedAttachments }
+          : { attachments: undefined })
+      };
       delete trustedInput.projectContext;
       void projectChatClient.send({
         ...trustedInput,
@@ -1801,6 +1911,7 @@ if (!hasSingleInstanceLock) {
       baseUrl: API_BASE_URL,
       appVersion: app.getVersion()
     });
+    routeMarketApiClient = apiClient;
     const cloudWorkflowClient = new CloudWorkflowClient({
       apiClient
     });
@@ -1967,4 +2078,5 @@ app.on("before-quit", () => {
   activityStore = null;
   localChatStore?.close();
   localChatStore = null;
+  routeMarketApiClient = null;
 });

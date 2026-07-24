@@ -1,6 +1,7 @@
 import type {
   AgentLocalToolGroup,
   ChatModel,
+  DesktopChatAttachment,
   DesktopAgentProfile,
   ProjectChatEvent,
   ProjectChatRequest
@@ -767,21 +768,75 @@ function escapeMarkupAttribute(value: string): string {
 }
 
 function buildMessageContent(input: ProjectChatRequest) {
-  if (!input.contextFile) return input.message;
-  const truncationNote = input.contextFile.truncated
-    ? "\n[The local file preview was truncated.]"
-    : "";
+  const sections: string[] = [];
+  if (input.contextFile) {
+    sections.push([
+      `Local file context: ${input.contextFile.relativePath}`,
+      `URI: ${input.contextFile.uri}`,
+      "```",
+      input.contextFile.text,
+      "```",
+      input.contextFile.truncated
+        ? "[The local file preview was truncated.]"
+        : ""
+    ].filter(Boolean).join("\n"));
+  }
+  const attachmentContent = buildAttachmentMessageContent(
+    input.message,
+    input.attachments ?? [],
+    input.modelSupportsVision === true
+  );
+  if (typeof attachmentContent !== "string") {
+    const prefix = sections.join("\n\n");
+    if (prefix) {
+      const first = attachmentContent[0];
+      if (first?.type === "text") {
+        first.text = `${prefix}\n\n${first.text}`;
+      } else {
+        attachmentContent.unshift({ type: "text", text: prefix });
+      }
+    }
+    return attachmentContent;
+  }
+  sections.push(attachmentContent);
+  return sections.filter(Boolean).join("\n\n");
+}
+
+export function buildAttachmentMessageContent(
+  message: string,
+  attachments: DesktopChatAttachment[],
+  supportsVision = false
+): string | Array<
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string } }
+> {
+  if (!attachments.length) return message;
+  const lines = attachments.map((attachment, index) => [
+    `${index + 1}. ${attachment.name} (${attachment.mimeType}, ${attachment.size} bytes)`,
+    `URL: ${attachment.downloadUrl}`,
+    attachment.textExcerpt
+      ? `Excerpt:\n${attachment.textExcerpt}`
+      : ""
+  ].filter(Boolean).join("\n"));
+  const text = [
+    message,
+    `The user explicitly attached ${attachments.length} file(s):`,
+    ...lines
+  ].filter(Boolean).join("\n\n");
+  const images = supportsVision
+    ? attachments.filter(
+        (attachment) =>
+          attachment.kind === "image" && attachment.downloadUrl
+      )
+    : [];
+  if (!images.length) return text;
   return [
-    `Local file context: ${input.contextFile.relativePath}`,
-    `URI: ${input.contextFile.uri}`,
-    "```",
-    input.contextFile.text,
-    "```",
-    truncationNote,
-    "",
-    "User request:",
-    input.message
-  ].join("\n");
+    { type: "text" as const, text },
+    ...images.map((attachment) => ({
+      type: "image_url" as const,
+      image_url: { url: attachment.downloadUrl }
+    }))
+  ];
 }
 
 function appendRoundText(existing: string, roundText: string): string {

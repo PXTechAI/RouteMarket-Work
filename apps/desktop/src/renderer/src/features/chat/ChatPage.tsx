@@ -16,6 +16,7 @@ import { useEffect, useRef } from "react";
 import type { DesktopAgentSkillAvailability } from "../../../../shared/agent-skill-availability";
 import type {
   ChatModel,
+  DesktopChatAttachment,
   DesktopAgentProfile,
   ProjectContext,
   ProjectSummary,
@@ -46,6 +47,7 @@ type ChatPageProps = {
   selectedFilePath: string | null;
   readResult: ReadResult | null;
   draft: string;
+  attachments: DesktopChatAttachment[];
   authStatus: WorkState["authStatus"];
   models: ChatModel[];
   selectedModelCode: string;
@@ -69,6 +71,8 @@ type ChatPageProps = {
   onChooseProject(): void;
   onAttachProjectFolder(): void;
   onDraftChange(value: string): void;
+  onChooseAttachments(): void;
+  onRemoveAttachment(attachmentId: string): void;
   onSend(): void;
   onRetry(messageId: string): void;
   onEditMessage(messageId: string): void;
@@ -92,6 +96,7 @@ export function ChatPage({
   selectedFilePath,
   readResult,
   draft,
+  attachments,
   authStatus,
   models,
   selectedModelCode,
@@ -111,6 +116,8 @@ export function ChatPage({
   onChooseProject,
   onAttachProjectFolder,
   onDraftChange,
+  onChooseAttachments,
+  onRemoveAttachment,
   onSend,
   onRetry,
   onEditMessage,
@@ -306,6 +313,24 @@ export function ChatPage({
               </button>
             </div>
           )}
+          {attachments.length ? (
+            <div className="composer-attachments" aria-label="待发送附件">
+              {attachments.map((attachment) => (
+                <div className="context-chip" key={attachment.id}>
+                  <Paperclip size={13} />
+                  <span>{attachment.name}</span>
+                  <small>{formatAttachmentSize(attachment.size)}</small>
+                  <button
+                    type="button"
+                    title={`移除附件 ${attachment.name}`}
+                    onClick={() => onRemoveAttachment(attachment.id)}
+                  >
+                    <X size={13} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : null}
           <div className="composer">
             <div className="composer-topbar">
               <ChatAgentPicker
@@ -422,6 +447,16 @@ export function ChatPage({
                     引用当前文件
                   </button>
                 )}
+                <button
+                  className="attach-button"
+                  type="button"
+                  title="选择的文件会上传到 RouteMarket，用于本次对话"
+                  disabled={Boolean(activeRequestId) || attachments.length >= 5}
+                  onClick={onChooseAttachments}
+                >
+                  <Paperclip size={14} />
+                  添加附件{attachments.length ? ` · ${attachments.length}/5` : ""}
+                </button>
                 <span className="composer-location">
                   {folderAvailable ? "本机文件夹" : `仅对话 · ${projectFolderLabel(selectedProject)}`}
                 </span>
@@ -441,7 +476,7 @@ export function ChatPage({
                   type="button"
                   title="发送"
                   disabled={
-                    !draft.trim() ||
+                    (!draft.trim() && !attachments.length) ||
                     !selectedModelCode ||
                     !selectedAgent ||
                     authStatus !== "signed_in"
@@ -468,4 +503,10 @@ export function ChatPage({
       )}
     </section>
   );
+}
+
+function formatAttachmentSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.ceil(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }

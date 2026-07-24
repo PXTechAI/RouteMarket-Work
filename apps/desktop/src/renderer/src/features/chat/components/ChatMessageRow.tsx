@@ -63,6 +63,16 @@ export function ChatMessageRow({
             {message.contextFile}
           </div>
         )}
+        {message.attachments?.length ? (
+          <div className="message-attachments" aria-label="消息附件">
+            {message.attachments.map((attachment) => (
+              <span className="message-context" key={attachment.id}>
+                <Paperclip size={12} />
+                {attachment.name}
+              </span>
+            ))}
+          </div>
+        ) : null}
         {message.tools?.length ? (
           <div className="message-tools" aria-label="本地工具活动">
             {message.tools.map((tool) => (
@@ -97,7 +107,8 @@ export function ChatMessageRow({
             ) : null}
           </div>
         )}
-        {(message.content || isError) && (message.role === "assistant" || onEdit) ? (
+        {(message.content || message.attachments?.length || isError) &&
+        (message.role === "assistant" || onEdit) ? (
           <div className="message-actions">
             {onEdit ? (
               <button type="button" onClick={onEdit} title="编辑消息" aria-label="编辑消息">

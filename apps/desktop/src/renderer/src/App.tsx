@@ -27,6 +27,7 @@ import type {
   AttachedBrowserState,
   AttachedBrowserTarget,
   ChatModel,
+  DesktopChatAttachment,
   DesktopWorkflowDraft,
   DesktopWorkflowDraftSummary,
   DesktopWorkflowNodeRegistry,
@@ -498,6 +499,20 @@ const previewApi: RouteMarketWorkApi = {
       bytesRead: 8
     };
   },
+  async chooseChatAttachments() {
+    return [{
+      id: `attachment_preview_${Date.now()}`,
+      name: "requirements.md",
+      mimeType: "text/markdown",
+      size: 1280,
+      kind: "file",
+      textExcerpt: "# Requirements",
+      assetId: "asset_preview_requirements",
+      downloadUrl: "https://console.routemarket.ai/api/assets/preview",
+      previewUrl: null
+    }];
+  },
+  async discardChatAttachment() {},
   async writeProjectFile(localProjectId, relativePath, text, expectedSha256) {
     return {
       uri: `project://${localProjectId}/${relativePath}`,
@@ -1062,6 +1077,8 @@ const unavailableApi: RouteMarketWorkApi = {
   searchProject: async () => desktopBridgeUnavailable(),
   readProjectFile: async () => desktopBridgeUnavailable(),
   readProjectAsset: async () => desktopBridgeUnavailable(),
+  chooseChatAttachments: async () => desktopBridgeUnavailable(),
+  discardChatAttachment: async () => desktopBridgeUnavailable(),
   writeProjectFile: async () => desktopBridgeUnavailable(),
   createProjectFile: async () => desktopBridgeUnavailable(),
   listProjectFileVersions: async () => desktopBridgeUnavailable(),
@@ -1228,6 +1245,9 @@ export function App() {
   const [selectedProjectSkillId, setSelectedProjectSkillId] = useState("");
   const [modelsLoading, setModelsLoading] = useState(false);
   const [draft, setDraft] = useState("");
+  const [pendingChatAttachments, setPendingChatAttachments] = useState<
+    DesktopChatAttachment[]
+  >([]);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [chatMessagesByProject, setChatMessagesByProject] = useState<
     Record<string, ChatMessage[]>
@@ -1237,6 +1257,7 @@ export function App() {
     Record<string, number>
   >({});
   const sessionIdsRef = useRef(new Map<string, string>());
+  const pendingChatAttachmentsRef = useRef<DesktopChatAttachment[]>([]);
   const activeRequestRef = useRef<{
     requestId: string;
     projectId: string;
@@ -1311,8 +1332,19 @@ export function App() {
   );
 
   useEffect(() => {
+    const abandoned = pendingChatAttachmentsRef.current;
+    if (!activeRequestRef.current) {
+      for (const attachment of abandoned) {
+        void api.discardChatAttachment(attachment.id).catch(() => undefined);
+      }
+    }
     setEditingMessageId(null);
+    setPendingChatAttachments([]);
   }, [selectedProjectId]);
+
+  useEffect(() => {
+    pendingChatAttachmentsRef.current = pendingChatAttachments;
+  }, [pendingChatAttachments]);
 
   useEffect(() => {
     if (!selectedChatModel) return;
@@ -1338,6 +1370,9 @@ export function App() {
             content: message.content,
             sentAt: message.sentAt,
             ...(message.contextFile ? { contextFile: message.contextFile } : {}),
+            ...(message.attachments?.length
+              ? { attachments: message.attachments }
+              : {}),
             ...(message.stopped ? { stopped: true } : {}),
             ...(message.agentId ? { agentId: message.agentId } : {}),
             ...(message.agentRevision ? { agentRevision: message.agentRevision } : {}),
@@ -2683,11 +2718,15 @@ export function App() {
     }
   }
 
-  async function sendMessage(messageOverride?: string) {
+  async function sendMessage(
+    messageOverride?: string,
+    attachmentOverride?: DesktopChatAttachment[]
+  ) {
     const message = (messageOverride ?? draft).trim();
+    const attachments = attachmentOverride ?? pendingChatAttachments;
     const selectedAgent = agentWorkspace.model.selectedAgent;
     if (
-      !message ||
+      (!message && !attachments.length) ||
       !selectedProject ||
       !selectedModelCode ||
       !selectedAgent ||
@@ -2768,6 +2807,7 @@ export function App() {
       role: "user",
       content: message,
       sentAt,
+      ...(attachments.length ? { attachments } : {}),
       ...(includeFileContext && selectedFilePath
         ? { contextFile: selectedFilePath }
         : {})
@@ -2792,6 +2832,7 @@ export function App() {
       ]
     }));
     setDraft("");
+    setPendingChatAttachments([]);
     setError(null);
     activeRequestRef.current = {
       requestId,
@@ -2806,7 +2847,9 @@ export function App() {
         sentAt,
         model: selectedModelCode,
         webSearchMode,
+        modelSupportsVision: selectedChatModel?.supportsVision === true,
         message,
+        ...(attachments.length ? { attachments } : {}),
         project: {
           localProjectId: selectedProject.localProjectId,
           displayName: selectedProject.displayName,
@@ -2858,10 +2901,46 @@ export function App() {
     if (assistantIndex < 0) return;
     for (let index = assistantIndex - 1; index >= 0; index -= 1) {
       const prior = chatMessages[index];
-      if (prior?.role === "user" && prior.content.trim()) {
-        void sendMessage(prior.content);
+      if (
+        prior?.role === "user" &&
+        (prior.content.trim() || prior.attachments?.length)
+      ) {
+        void sendMessage(prior.content, prior.attachments);
         return;
       }
+    }
+  }
+
+  async function chooseChatAttachments() {
+    if (activeRequestId) return;
+    setError(null);
+    try {
+      const selected = await api.chooseChatAttachments(
+        Math.max(0, 5 - pendingChatAttachments.length)
+      );
+      if (!selected.length) return;
+      setPendingChatAttachments((current) => {
+        return [...current, ...selected].slice(0, 5);
+      });
+    } catch (nextError) {
+      setError(
+        nextError instanceof Error ? nextError.message : "附件添加失败"
+      );
+    }
+  }
+
+  async function removeChatAttachment(attachmentId: string) {
+    setPendingChatAttachments((current) =>
+      current.filter((attachment) => attachment.id !== attachmentId)
+    );
+    try {
+      await api.discardChatAttachment(attachmentId);
+    } catch (nextError) {
+      setError(
+        nextError instanceof Error
+          ? nextError.message
+          : "附件临时引用释放失败"
+      );
     }
   }
 
@@ -3312,6 +3391,7 @@ export function App() {
               selectedFilePath={selectedFilePath}
               readResult={readResult}
               draft={draft}
+              attachments={pendingChatAttachments}
               authStatus={state.authStatus}
               models={models}
               selectedModelCode={selectedModelCode}
@@ -3333,6 +3413,10 @@ export function App() {
                 if (selectedProject) void attachProjectFolder(selectedProject.localProjectId);
               }}
               onDraftChange={setDraft}
+              onChooseAttachments={() => void chooseChatAttachments()}
+              onRemoveAttachment={(attachmentId) =>
+                void removeChatAttachment(attachmentId)
+              }
               onSend={() => void sendMessage()}
               onRetry={retryMessage}
               onEditMessage={(messageId) => {
@@ -3343,11 +3427,13 @@ export function App() {
                 if (!message) return;
                 setEditingMessageId(message.id);
                 setDraft(message.content);
+                setPendingChatAttachments(message.attachments ?? []);
                 setError(null);
               }}
               onCancelEdit={() => {
                 setEditingMessageId(null);
                 setDraft("");
+                setPendingChatAttachments([]);
               }}
               onStop={() => void stopMessage()}
               onModelChange={setSelectedModelCode}

@@ -509,6 +509,18 @@ export type ChatModel = {
 
 export type WebSearchMode = "agentic" | "native" | "off";
 
+export type DesktopChatAttachment = {
+  id: string;
+  name: string;
+  mimeType: string;
+  size: number;
+  kind: "image" | "audio" | "video" | "file";
+  textExcerpt: string | null;
+  assetId: string;
+  downloadUrl: string;
+  previewUrl: string | null;
+};
+
 export type DesktopAgentTool = {
   type: string;
   serverId?: string;
@@ -559,7 +571,9 @@ export type ProjectChatRequest = {
   sentAt: string;
   model: string;
   webSearchMode?: WebSearchMode;
+  modelSupportsVision?: boolean;
   message: string;
+  attachments?: DesktopChatAttachment[];
   history?: Array<{
     role: "user" | "assistant";
     content: string;
@@ -602,6 +616,7 @@ export type LocalProjectChatMessage = {
   content: string;
   sentAt: string;
   contextFile?: string;
+  attachments?: DesktopChatAttachment[];
   stopped?: boolean;
   agentId?: string;
   agentRevision?: number;
@@ -715,6 +730,8 @@ export type RouteMarketWorkApi = {
   searchProject(localProjectId: string, query: string): Promise<ProjectSearchResult>;
   readProjectFile(localProjectId: string, relativePath: string): Promise<ReadResult>;
   readProjectAsset(localProjectId: string, relativePath: string): Promise<ProjectAssetPreview>;
+  chooseChatAttachments(maxCount: number): Promise<DesktopChatAttachment[]>;
+  discardChatAttachment(attachmentId: string): Promise<void>;
   writeProjectFile(
     localProjectId: string,
     relativePath: string,

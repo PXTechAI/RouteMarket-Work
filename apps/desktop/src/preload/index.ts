@@ -34,6 +34,10 @@ const api: RouteMarketWorkApi = {
     ipcRenderer.invoke("work:read-project-file", localProjectId, relativePath),
   readProjectAsset: (localProjectId, relativePath) =>
     ipcRenderer.invoke("work:read-project-asset", localProjectId, relativePath),
+  chooseChatAttachments: (maxCount) =>
+    ipcRenderer.invoke("work:chat-attachments-choose", maxCount),
+  discardChatAttachment: (attachmentId) =>
+    ipcRenderer.invoke("work:chat-attachment-discard", attachmentId),
   writeProjectFile: (localProjectId, relativePath, text, expectedSha256) =>
     ipcRenderer.invoke(
       "work:write-project-file",

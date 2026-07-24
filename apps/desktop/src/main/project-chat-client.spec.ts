@@ -288,6 +288,47 @@ describe("ProjectChatClient", () => {
     }));
   });
 
+  it("sends uploaded images as vision blocks and includes attachment metadata", async () => {
+    let requestBody: Record<string, any> | null = null;
+    const fetchMock = vi.fn<typeof fetch>(async (_input, init) => {
+      requestBody = JSON.parse(String(init?.body));
+      return sseResponse(
+        'data: {"choices":[{"delta":{"content":"I can see the image."}}]}\n\n',
+        "data: [DONE]\n\n"
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createClient().send({
+      ...request,
+      requestId: "request_attachment_1",
+      modelSupportsVision: true,
+      attachments: [{
+        id: "attachment_1",
+        name: "diagram.png",
+        mimeType: "image/png",
+        size: 2048,
+        kind: "image",
+        textExcerpt: null,
+        assetId: "asset_1",
+        downloadUrl: "https://assets.example.test/diagram.png",
+        previewUrl: "https://assets.example.test/diagram-preview.png"
+      }]
+    });
+
+    const content = requestBody!.messages[0].content;
+    expect(content).toEqual([
+      expect.objectContaining({
+        type: "text",
+        text: expect.stringContaining("diagram.png (image/png, 2048 bytes)")
+      }),
+      {
+        type: "image_url",
+        image_url: { url: "https://assets.example.test/diagram.png" }
+      }
+    ]);
+  });
+
   it("normalizes Agent profiles and authorizes the Core Agent API request", async () => {
     const fetchMock = vi.fn<typeof fetch>(async () =>
       jsonResponse({

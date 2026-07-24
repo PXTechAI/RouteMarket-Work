@@ -1,6 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
-import type { LocalProjectChat, LocalProjectChatMessage } from "../shared/desktop-api";
+import type {
+  DesktopChatAttachment,
+  LocalProjectChat,
+  LocalProjectChatMessage
+} from "../shared/desktop-api";
 
 type MessageRow = {
   id: string;
@@ -10,6 +14,7 @@ type MessageRow = {
   content: string;
   sent_at: string;
   context_file: string | null;
+  attachments_json: string | null;
   stopped: number;
   agent_id: string | null;
   agent_revision: number | null;
@@ -39,6 +44,7 @@ export class LocalChatStore {
         content TEXT NOT NULL,
         sent_at TEXT NOT NULL,
         context_file TEXT,
+        attachments_json TEXT,
         stopped INTEGER NOT NULL DEFAULT 0,
         agent_id TEXT,
         agent_revision INTEGER,
@@ -55,6 +61,9 @@ export class LocalChatStore {
     );
     if (!messageColumns.has("agent_id")) {
       this.db.exec("ALTER TABLE local_chat_messages ADD COLUMN agent_id TEXT;");
+    }
+    if (!messageColumns.has("attachments_json")) {
+      this.db.exec("ALTER TABLE local_chat_messages ADD COLUMN attachments_json TEXT;");
     }
     if (!messageColumns.has("agent_name")) {
       this.db.exec("ALTER TABLE local_chat_messages ADD COLUMN agent_name TEXT;");
@@ -102,9 +111,10 @@ export class LocalChatStore {
   append(message: LocalProjectChatMessage): void {
     this.db.prepare(`
       INSERT OR REPLACE INTO local_chat_messages (
-        id, session_id, local_project_id, role, content, sent_at, context_file, stopped,
+        id, session_id, local_project_id, role, content, sent_at, context_file,
+        attachments_json, stopped,
         agent_id, agent_revision, agent_name, agent_avatar_url
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       message.id,
       message.sessionId,
@@ -113,6 +123,9 @@ export class LocalChatStore {
       message.content,
       message.sentAt,
       message.contextFile ?? null,
+      message.attachments?.length
+        ? JSON.stringify(message.attachments)
+        : null,
       message.stopped ? 1 : 0,
       message.agentId ?? null,
       message.agentRevision ?? null,
@@ -178,6 +191,7 @@ export class LocalChatStore {
 }
 
 function mapMessage(row: MessageRow): LocalProjectChatMessage {
+  const attachments = parseAttachments(row.attachments_json);
   return {
     id: row.id,
     sessionId: row.session_id,
@@ -186,10 +200,53 @@ function mapMessage(row: MessageRow): LocalProjectChatMessage {
     content: row.content,
     sentAt: row.sent_at,
     ...(row.context_file ? { contextFile: row.context_file } : {}),
+    ...(attachments.length ? { attachments } : {}),
     ...(row.stopped ? { stopped: true } : {}),
     ...(row.agent_id ? { agentId: row.agent_id } : {}),
     ...(row.agent_revision ? { agentRevision: row.agent_revision } : {}),
     ...(row.agent_name ? { agentName: row.agent_name } : {}),
     ...(row.agent_avatar_url ? { agentAvatarUrl: row.agent_avatar_url } : {})
   };
+}
+
+function parseAttachments(value: string | null): DesktopChatAttachment[] {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.flatMap((item) => {
+      if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+      const attachment = item as Record<string, unknown>;
+      if (
+        typeof attachment.id !== "string" ||
+        typeof attachment.name !== "string" ||
+        typeof attachment.mimeType !== "string" ||
+        typeof attachment.size !== "number" ||
+        !["image", "audio", "video", "file"].includes(String(attachment.kind)) ||
+        typeof attachment.assetId !== "string" ||
+        typeof attachment.downloadUrl !== "string"
+      ) {
+        return [];
+      }
+      return [{
+        id: attachment.id,
+        name: attachment.name,
+        mimeType: attachment.mimeType,
+        size: attachment.size,
+        kind: attachment.kind as DesktopChatAttachment["kind"],
+        textExcerpt:
+          typeof attachment.textExcerpt === "string"
+            ? attachment.textExcerpt
+            : null,
+        assetId: attachment.assetId,
+        downloadUrl: attachment.downloadUrl,
+        previewUrl:
+          typeof attachment.previewUrl === "string"
+            ? attachment.previewUrl
+            : null
+      }];
+    }).slice(0, 5);
+  } catch {
+    return [];
+  }
 }

@@ -1,3 +1,5 @@
+import type { DesktopChatAttachment } from "../../../../shared/desktop-api";
+
 export type ChatToolActivity = {
   toolCallId: string;
   toolName: string;
@@ -12,6 +14,7 @@ export type ChatMessage = {
   content: string;
   sentAt: string;
   contextFile?: string;
+  attachments?: DesktopChatAttachment[];
   stopped?: boolean;
   tools?: ChatToolActivity[];
   agentId?: string;
