@@ -1,6 +1,7 @@
 :root {
   font-family:
-    Inter, "SF Pro Text", "Segoe UI", "PingFang SC", "Microsoft YaHei",
+    "Segoe UI Variable Text", "Segoe UI Variable Display", Aptos, "Segoe UI",
+    "Microsoft YaHei UI", "PingFang SC", "Microsoft YaHei",
     sans-serif;
   color: var(--rm-text);
   background: var(--rm-bg);
@@ -27,6 +28,13 @@ input,
 select,
 textarea {
   font: inherit;
+}
+
+button {
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  line-height: 1.3;
+  text-rendering: optimizeLegibility;
 }
 
 button:focus-visible,

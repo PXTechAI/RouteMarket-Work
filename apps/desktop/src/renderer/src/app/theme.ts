@@ -12,6 +12,7 @@ export function getStoredThemePreference(): ThemePreference {
 
 export function setThemePreference(preference: ThemePreference) {
   window.localStorage.setItem(THEME_STORAGE_KEY, preference);
+  void window.routeMarketWork?.updatePreferences({ theme: preference });
   applyThemePreference(preference);
 }
 

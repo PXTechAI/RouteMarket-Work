@@ -1,11 +1,17 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   DesktopAgentProfile,
+  LocalApiGatewayUsage,
   ProjectChatEvent,
   ProjectChatRequest
 } from "../shared/desktop-api";
-import { ProjectChatClient } from "./project-chat-client";
+import {
+  buildStoredChatHistory,
+  isProjectChatAuthenticationError,
+  ProjectChatClient
+} from "./project-chat-client";
 import type { ProjectChatToolRunner } from "./project-chat-tool-runner";
+import type { ModelProviderStore } from "./model-provider-store";
 import { PROJECT_CHAT_TOOLS } from "./project-chat-tools";
 import { RouteMarketApiClient } from "./routemarket-api-client";
 
@@ -54,8 +60,40 @@ const request: ProjectChatRequest = {
   }
 };
 
+describe("stored chat history", () => {
+  it("closes interrupted user turns so a later request is not resumed implicitly", () => {
+    expect(buildStoredChatHistory([{
+      id: "user:old",
+      sessionId: "session_1",
+      localProjectId: "project_1",
+      role: "user",
+      content: "Generate the old workbook",
+      sentAt: "2026-08-13T00:00:00.000Z"
+    }])).toEqual([
+      { role: "user", content: "Generate the old workbook" },
+      {
+        role: "assistant",
+        content: "[This request was interrupted before a response was recorded. Do not resume or repeat it unless the user asks again.]"
+      }
+    ]);
+  });
+
+  it("marks stopped assistant turns as closed history", () => {
+    expect(buildStoredChatHistory([{
+      id: "assistant:old",
+      sessionId: "session_1",
+      localProjectId: "project_1",
+      role: "assistant",
+      content: "Partial result",
+      sentAt: "2026-08-13T00:00:00.000Z",
+      stopped: true
+    }])[0]?.content).toContain("Do not resume or repeat");
+  });
+});
+
 const agentProfilePayload = {
   id: "agent_builder",
+  fork_source_id: "fork_platform_builder",
   name: "Project Builder",
   description: "Build and verify project changes.",
   avatar_url: "https://assets.example.test/agent.png",
@@ -71,6 +109,8 @@ const agentProfilePayload = {
 const cachedAgentProfile: DesktopAgentProfile = {
   id: "agent_cached",
   revision: 7,
+  origin: "personal",
+  forkSourceId: null,
   name: "Cached Agent",
   description: null,
   avatarUrl: "https://assets.example.test/cached.png",
@@ -134,7 +174,9 @@ function createClient(
   agentCache?: {
     list(): DesktopAgentProfile[];
     replace(profiles: DesktopAgentProfile[]): void;
-  }
+  },
+  modelProviderStore?: Pick<ModelProviderStore, "listModels" | "resolveModel">,
+  recordUsage?: (record: LocalApiGatewayUsage) => Promise<void>
 ) {
   const apiClient = new RouteMarketApiClient({
     baseUrl: "https://api.example.test",
@@ -145,6 +187,8 @@ function createClient(
     apiClient,
     onEvent: (event) => events.push(event),
     ...(agentCache ? { agentCache } : {}),
+    ...(modelProviderStore ? { modelProviderStore } : {}),
+    ...(recordUsage ? { recordUsage } : {}),
     toolRunner
   });
 }
@@ -167,6 +211,181 @@ describe("ProjectChatClient", () => {
     vi.unstubAllGlobals();
   });
 
+  it("sends external OpenAI-compatible models directly through their configured endpoint", async () => {
+    const events: ProjectChatEvent[] = [];
+    const usage: LocalApiGatewayUsage[] = [];
+    const providerStore = {
+      listModels: vi.fn(async () => []),
+      resolveModel: vi.fn(async () => ({
+        provider: {
+          id: "provider_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          name: "OpenAI",
+          protocol: "openai-compatible" as const,
+          baseUrl: "https://api.openai.com/v1",
+          apiKey: "sk-provider-secret"
+        },
+        modelId: "gpt-5"
+      }))
+    };
+    const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+      expect(String(input)).toBe("https://api.openai.com/v1/chat/completions");
+      expect(new Headers(init?.headers).get("authorization")).toBe("Bearer sk-provider-secret");
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      expect(body).toMatchObject({ model: "gpt-5", stream: true });
+      return sseResponse(
+        'data: {"choices":[{"delta":{"content":"Direct response"}}]}\n\n',
+        "data: [DONE]\n\n"
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createClient(events, undefined, undefined, providerStore, async (record) => { usage.push(record); }).send({
+      ...request,
+      model: "external:provider_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:Z3B0LTU"
+    });
+
+    expect(events).toContainEqual(expect.objectContaining({ type: "complete", content: "Direct response" }));
+    expect(usage).toEqual([expect.objectContaining({
+      source: "desktop_chat",
+      providerName: "OpenAI",
+      resolvedModel: "gpt-5",
+      success: true,
+      status: 200
+    })]);
+  });
+
+  it("does not send local or search tools to a model marked as not supporting tools", async () => {
+    const providerStore = {
+      listModels: vi.fn(async () => []),
+      resolveModel: vi.fn(async () => ({
+        provider: {
+          id: "provider_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          name: "Compatible API",
+          protocol: "openai-compatible" as const,
+          baseUrl: "https://models.example.test/v1",
+          apiKey: "provider-secret"
+        },
+        modelId: "plain-chat"
+      }))
+    };
+    const toolRunner = {
+      listTools: vi.fn(async () => PROJECT_CHAT_TOOLS),
+      execute: vi.fn()
+    };
+    const fetchMock = vi.fn<typeof fetch>(async (_input, init) => {
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      expect(body.tools).toBeUndefined();
+      expect(body.tool_choice).toBeUndefined();
+      return sseResponse("data: [DONE]\n\n");
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createClient([], toolRunner, undefined, providerStore).send({
+      ...request,
+      model: "external:provider_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:cGxhaW4tY2hhdA",
+      modelSupportsTools: false,
+      webSearchMode: "agentic"
+    });
+
+    expect(toolRunner.listTools).not.toHaveBeenCalled();
+  });
+
+  it("converts Anthropic Messages responses into the existing chat event stream", async () => {
+    const events: ProjectChatEvent[] = [];
+    const providerStore = {
+      listModels: vi.fn(async () => []),
+      resolveModel: vi.fn(async () => ({
+        provider: {
+          id: "provider_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          name: "Anthropic",
+          protocol: "anthropic" as const,
+          baseUrl: "https://api.anthropic.com/v1",
+          apiKey: "anthropic-secret"
+        },
+        modelId: "claude-sonnet-4-5"
+      }))
+    };
+    const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+      expect(String(input)).toBe("https://api.anthropic.com/v1/messages");
+      const headers = new Headers(init?.headers);
+      expect(headers.get("x-api-key")).toBe("anthropic-secret");
+      expect(headers.get("anthropic-version")).toBe("2023-06-01");
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      expect(body).toMatchObject({ model: "claude-sonnet-4-5", max_tokens: 8192, stream: true });
+      return sseResponse(
+        'data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}\n\n',
+        'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Anthropic "}}\n\n',
+        'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"response"}}\n\n',
+        'data: {"type":"message_stop"}\n\n'
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createClient(events, undefined, undefined, providerStore).send({
+      ...request,
+      model: "external:provider_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb:Y2xhdWRlLXNvbm5ldC00LTU"
+    });
+
+    expect(events).toContainEqual(expect.objectContaining({ type: "complete", content: "Anthropic response" }));
+  });
+
+  it("keeps the local Tool loop when using the Anthropic protocol", async () => {
+    const events: ProjectChatEvent[] = [];
+    const providerStore = {
+      listModels: vi.fn(async () => []),
+      resolveModel: vi.fn(async () => ({
+        provider: {
+          id: "provider_cccccccccccccccccccccccccccccccc",
+          name: "Anthropic",
+          protocol: "anthropic" as const,
+          baseUrl: "https://api.anthropic.com/v1",
+          apiKey: "anthropic-secret"
+        },
+        modelId: "claude-sonnet-4-5"
+      }))
+    };
+    const toolRunner = {
+      execute: vi.fn(async () => ({ content: JSON.stringify({ files: ["README.md"] }), summary: "1 file", isError: false }))
+    };
+    let round = 0;
+    const fetchMock = vi.fn<typeof fetch>(async (_input, init) => {
+      round += 1;
+      const body = JSON.parse(String(init?.body)) as { messages: Array<{ role: string; content: unknown }> };
+      if (round === 2) {
+        expect(body.messages).toEqual(expect.arrayContaining([
+          expect.objectContaining({ role: "assistant", content: expect.arrayContaining([expect.objectContaining({ type: "tool_use", name: "project_list_files" })]) }),
+          expect.objectContaining({ role: "user", content: expect.arrayContaining([expect.objectContaining({ type: "tool_result", tool_use_id: "toolu_1" })]) })
+        ]));
+      }
+      return jsonResponse(round === 1
+        ? { content: [{ type: "tool_use", id: "toolu_1", name: "project_list_files", input: { path: "." } }] }
+        : { content: [{ type: "text", text: "README.md" }] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createClient(events, toolRunner, undefined, providerStore).send({
+      ...request,
+      model: "external:provider_cccccccccccccccccccccccccccccccc:Y2xhdWRlLXNvbm5ldC00LTU"
+    });
+
+    expect(toolRunner.execute).toHaveBeenCalledWith(
+      request.project!.localProjectId,
+      expect.objectContaining({ name: "project_list_files", arguments: '{"path":"."}' }),
+      expect.any(AbortSignal),
+      expect.any(Object)
+    );
+    expect(events).toContainEqual(expect.objectContaining({ type: "complete", content: "README.md" }));
+  });
+
+  it("returns an empty model catalog instead of rejecting during a transient outage", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>(async () => jsonResponse({ message: "Internal server error" }, 500))
+    );
+
+    await expect(createClient().listModels()).resolves.toEqual([]);
+  });
+
   it("normalizes supported chat models and ignores invalid entries", async () => {
     const fetchMock = vi.fn<typeof fetch>(async () =>
       jsonResponse({
@@ -177,6 +396,7 @@ describe("ProjectChatClient", () => {
             category: "chat",
             supports_tools: true,
             supports_native_web_search: true,
+            supports_reasoning_controls: true,
             preferred_chat_protocol: "openai_responses",
             supports_vision: false,
             supports_stream: true
@@ -200,21 +420,29 @@ describe("ProjectChatClient", () => {
       {
         code: "model_chat",
         displayName: "Chat Model",
+        source: "routemarket",
+        providerId: null,
+        providerName: "RouteMarket",
         category: "chat",
         supportsTools: true,
         supportsNativeWebSearch: true,
         supportsVision: false,
         supportsStream: true,
+        supportsReasoningSummary: true,
         preferredChatProtocol: "openai_responses"
       },
       {
         code: "model_reasoning",
         displayName: "Reasoning Model",
+        source: "routemarket",
+        providerId: null,
+        providerName: "RouteMarket",
         category: "reasoning",
         supportsTools: false,
         supportsNativeWebSearch: false,
         supportsVision: false,
         supportsStream: false,
+        supportsReasoningSummary: false,
         preferredChatProtocol: null
       }
     ]);
@@ -374,6 +602,8 @@ describe("ProjectChatClient", () => {
     await expect(createClient([], undefined, cache).listAgents()).resolves.toEqual([{
       id: "agent_builder",
       revision: 1,
+      origin: "template",
+      forkSourceId: "fork_platform_builder",
       name: "Project Builder",
       description: "Build and verify project changes.",
       avatarUrl: "https://assets.example.test/agent.png",
@@ -433,6 +663,15 @@ describe("ProjectChatClient", () => {
     expect(cache.replace).not.toHaveBeenCalled();
   });
 
+  it("returns an empty Agent catalog instead of rejecting when a transient outage has no cache", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>(async () => jsonResponse({ message: "Internal server error" }, 500))
+    );
+
+    await expect(createClient([]).listAgents()).resolves.toEqual([]);
+  });
+
   it("does not hide an authentication failure behind cached Agents", async () => {
     const cache = {
       list: vi.fn(() => [cachedAgentProfile]),
@@ -445,9 +684,21 @@ describe("ProjectChatClient", () => {
       )
     );
 
-    await expect(createClient([], undefined, cache).listAgents()).rejects
-      .toThrow("Authentication required.");
+    const error = await createClient([], undefined, cache).listAgents().catch((failure) => failure);
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toBe("Authentication required.");
+    expect(isProjectChatAuthenticationError(error)).toBe(true);
     expect(cache.list).not.toHaveBeenCalled();
+  });
+
+  it("recognizes the Core invalid-session response even when its status is not 401", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>(async () => jsonResponse({ message: "Invalid session" }, 400))
+    );
+
+    const error = await createClient([]).listAgents().catch((failure) => failure);
+    expect(isProjectChatAuthenticationError(error)).toBe(true);
   });
 
   it("streams OpenAI chat completion deltas and completes with accumulated text", async () => {
@@ -495,7 +746,7 @@ describe("ProjectChatClient", () => {
       execute: vi.fn()
     }).send({
       ...request,
-      project: { ...request.project, hasFolder: false },
+      project: { ...request.project!, hasFolder: false },
       contextFile: undefined,
       projectContext: undefined,
       projectSkill: undefined
@@ -526,6 +777,41 @@ describe("ProjectChatClient", () => {
       requestId: "request_1",
       type: "complete",
       content: "First second"
+    });
+  });
+
+  it("opts into and emits Responses API reasoning summaries", async () => {
+    const events: ProjectChatEvent[] = [];
+    let requestBody: Record<string, any> | null = null;
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (_input, init) => {
+      requestBody = JSON.parse(String(init?.body));
+      return sseResponse(
+        'data: {"type":"response.reasoning_summary_text.delta","delta":"Checking files"}\n\n',
+        'data: {"type":"response.reasoning_summary_text.delta","delta":" and tests."}\n\n',
+        'data: {"type":"response.output_text.delta","delta":"All good."}\n\n',
+        "data: [DONE]\n\n"
+      );
+    }));
+
+    await createClient(events).send({
+      ...request,
+      preferredChatProtocol: "openai_responses",
+      reasoningSummary: "auto"
+    });
+
+    expect(requestBody).toEqual(expect.objectContaining({
+      protocol: "openai_responses",
+      adapter_payload: { body: { reasoning: { summary: "auto" } } }
+    }));
+    expect(events).toContainEqual({
+      requestId: "request_1",
+      type: "reasoning",
+      content: "Checking files and tests."
+    });
+    expect(events.at(-1)).toEqual({
+      requestId: "request_1",
+      type: "complete",
+      content: "All good."
     });
   });
 

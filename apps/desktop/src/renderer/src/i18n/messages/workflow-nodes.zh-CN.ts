@@ -1,0 +1,21 @@
+export const zhCNWorkflowNodes: Record<string, { title: string; description: string }> = {
+  "local.fs.read": { title: "读取文件", description: "读取项目内文本文件。" },
+  "local.fs.search": { title: "搜索项目", description: "搜索项目路径和文本内容。" },
+  "local.fs.write": { title: "修改文件", description: "以乐观锁安全修改项目文件。" },
+  "local.fs.create": { title: "新建文件", description: "在项目中安全创建新文件。" },
+  "local.process.start": { title: "启动进程", description: "在项目目录启动受控进程。" },
+  "local.process.stop": { title: "停止进程", description: "停止受控进程树。" },
+  "local.browser.navigate": { title: "打开网页", description: "在可见的内置浏览器中打开网页。" },
+  "local.browser.click": { title: "点击网页", description: "点击内置浏览器中的元素。" },
+  "local.browser.type": { title: "网页输入", description: "向内置浏览器元素输入文本。" },
+  "local.browser.upload": { title: "上传文件", description: "把项目内文件上传到内置浏览器页面。" },
+  "local.browser.extract": { title: "提取网页", description: "提取内置浏览器中的文本。" },
+  "local.browser.product_extract": { title: "识别 Amazon 商品", description: "从内置浏览器当前页面识别单个商品的名称与价格。" },
+  "local.browser.screenshot": { title: "网页截图", description: "截取内置浏览器当前页面。" },
+  "local.data.csv_export": { title: "导出商品价格表", description: "把识别结果保存为 Excel 可直接打开的 UTF-8 CSV 文件。" },
+  "desktop.trigger.file_changed": { title: "文件变更触发", description: "项目内文件发生变化时启动工作流。" },
+  "desktop.trigger.folder_added": { title: "文件夹新增触发", description: "项目内新增文件夹时启动工作流。" },
+  "desktop.trigger.schedule": { title: "本地定时触发", description: "按当前设备的持久化时间间隔启动工作流。" },
+  "desktop.trigger.hotkey": { title: "快捷键触发", description: "通过当前设备的全局快捷键启动工作流。" },
+  "control.approval": { title: "人工审批", description: "等待本机用户批准后继续。" }
+};

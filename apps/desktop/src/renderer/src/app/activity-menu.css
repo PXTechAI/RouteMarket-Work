@@ -41,13 +41,13 @@
 }
 
 .rm-activity-menu > header strong {
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .rm-activity-menu > header span,
 .rm-activity-menu > header small {
   color: var(--rm-text-muted);
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .rm-activity-header-actions {
@@ -131,7 +131,7 @@
 
 .rm-activity-item strong {
   overflow: hidden;
-  font-size: 10px;
+  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -142,7 +142,7 @@
   color: var(--rm-warning);
   background: var(--rm-warning-soft);
   border-radius: 999px;
-  font-size: 8px;
+  font-size: 10px;
 }
 
 .rm-activity-item p {
@@ -150,7 +150,7 @@
   overflow: hidden;
   margin: 0;
   color: var(--rm-text-muted);
-  font-size: 9px;
+  font-size: 11px;
   line-height: 1.45;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
@@ -158,7 +158,7 @@
 
 .rm-activity-item time {
   color: var(--rm-text-weak);
-  font-size: 8px;
+  font-size: 10px;
 }
 
 .rm-activity-empty {
@@ -173,12 +173,12 @@
 
 .rm-activity-empty strong {
   color: var(--rm-text);
-  font-size: 11px;
+  font-size: 13px;
 }
 
 .rm-activity-empty span {
   max-width: 220px;
-  font-size: 9px;
+  font-size: 11px;
   line-height: 1.5;
 }
 

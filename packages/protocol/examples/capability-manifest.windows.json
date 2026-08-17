@@ -21,5 +21,7 @@
     }
   ],
   "projects": [],
-  "mcpServers": []
+  "mcpServers": [],
+  "signingKeys": [],
+  "localSkills": []
 }

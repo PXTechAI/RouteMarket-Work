@@ -1,6 +1,7 @@
 {
   "name": "@routemarket/work-worker-core",
   "version": "0.1.0",
+  "license": "Apache-2.0",
   "private": true,
   "type": "module",
   "exports": {
@@ -16,7 +17,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@routemarket/work-protocol": "workspace:*"
+    "@routemarket/work-protocol": "workspace:*",
+    "jszip": "3.10.1"
   },
   "devDependencies": {
     "@types/node": "^22.15.17",

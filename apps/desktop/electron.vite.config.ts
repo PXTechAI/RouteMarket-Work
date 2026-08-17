@@ -1,14 +1,23 @@
 import { resolve } from "node:path";
 import { defineConfig } from "electron-vite";
 import react from "@vitejs/plugin-react";
+import { loadEnv } from "vite";
 import {
+  resolveBuildAnalytics,
   resolveBuildEndpoints,
+  resolveBuildMarketplacePublisherKeys,
   resolveBuildUpdateFeed
 } from "./build-endpoints";
 
 export default defineConfig(({ mode }) => {
-  const endpoints = resolveBuildEndpoints(mode);
-  const updateFeed = resolveBuildUpdateFeed(mode);
+  const environment = {
+    ...loadEnv(mode, resolve(__dirname, "../.."), ""),
+    ...process.env
+  };
+  const endpoints = resolveBuildEndpoints(mode, environment);
+  const updateFeed = resolveBuildUpdateFeed(mode, environment);
+  const marketplacePublisherKeys = resolveBuildMarketplacePublisherKeys(mode, environment);
+  const analytics = resolveBuildAnalytics(mode, environment);
 
   return {
     main: {
@@ -16,9 +25,16 @@ export default defineConfig(({ mode }) => {
         __ROUTEMARKET_WORK_BUILD_ENVIRONMENT__: JSON.stringify(
           endpoints.buildEnvironment
         ),
+        __ROUTEMARKET_WORK_BUILD_ID__: JSON.stringify(
+          environment.ROUTEMARKET_WORK_BUILD_ID?.trim()
+          || environment.GITHUB_SHA?.trim()
+          || null
+        ),
         __ROUTEMARKET_WORK_DEFAULT_UPDATE_URL__: JSON.stringify(updateFeed),
         __ROUTEMARKET_WORK_DEFAULT_API_URL__: JSON.stringify(endpoints.apiBaseUrl),
-        __ROUTEMARKET_WORK_DEFAULT_WEB_URL__: JSON.stringify(endpoints.webBaseUrl)
+        __ROUTEMARKET_WORK_DEFAULT_WEB_URL__: JSON.stringify(endpoints.webBaseUrl),
+        __ROUTEMARKET_MARKETPLACE_PUBLISHER_KEYS__: JSON.stringify(marketplacePublisherKeys),
+        __ROUTEMARKET_WORK_ANALYTICS_CONFIG__: JSON.stringify(analytics)
       },
       build: {
         rollupOptions: {

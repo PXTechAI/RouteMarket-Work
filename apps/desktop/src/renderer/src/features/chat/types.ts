@@ -1,21 +1,18 @@
-import type { DesktopChatAttachment } from "../../../../shared/desktop-api";
+import type { DesktopChatAttachment, ProjectChatArtifact, ProjectChatToolActivity } from "../../../../shared/desktop-api";
 
-export type ChatToolActivity = {
-  toolCallId: string;
-  toolName: string;
-  title: string;
-  status: "running" | "completed" | "error";
-  detail?: string;
-};
+export type ChatToolActivity = ProjectChatToolActivity;
 
 export type ChatMessage = {
   id: string;
   role: "user" | "assistant";
   content: string;
+  reasoning?: string;
   sentAt: string;
   contextFile?: string;
   attachments?: DesktopChatAttachment[];
+  artifacts?: ProjectChatArtifact[];
   stopped?: boolean;
+  failed?: boolean;
   tools?: ChatToolActivity[];
   agentId?: string;
   agentRevision?: number;

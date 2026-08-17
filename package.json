@@ -1,9 +1,11 @@
 {
   "name": "routemarket-work",
   "version": "0.2.0",
+  "license": "Apache-2.0",
   "private": true,
   "packageManager": "pnpm@10.8.1",
   "scripts": {
+    "marketplace:sign-plugin": "node scripts/sign-marketplace-plugin.mjs",
     "build": "corepack pnpm -r run build",
     "dev": "corepack pnpm --filter @routemarket/work-desktop dev",
     "dev:web": "corepack pnpm --filter @routemarket/work-desktop dev:web",

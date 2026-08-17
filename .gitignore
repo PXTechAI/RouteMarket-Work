@@ -9,6 +9,7 @@ release/
 release-*/
 coverage/
 apps/.tmp/
+tmp/
 *.tsbuildinfo
 
 # Runtime data and logs
@@ -34,3 +35,7 @@ user-data/
 *.swp
 .DS_Store
 Thumbs.db
+
+# Internal planning and agent instructions
+docs/
+AGENTS.md

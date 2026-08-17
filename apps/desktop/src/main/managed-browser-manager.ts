@@ -1,3 +1,4 @@
+import { trMain } from "./i18n";
 import { randomUUID } from "node:crypto";
 import {
   WebContentsView,
@@ -54,6 +55,8 @@ type SessionDownloadListener = (
 
 type ManagedBrowserManagerOptions = {
   resolveProjectRoot?(localProjectId: string): Promise<string>;
+  dataScopeId?: string;
+  onPersistentPartition?(partition: string): void;
 };
 
 export type ManagedBrowserOperationContext = {
@@ -447,7 +450,7 @@ export class ManagedBrowserManager {
     const descriptor = this.getRetryDescriptor(localProjectId, operationId);
     const context: ManagedBrowserOperationContext = {
       source: "user",
-      title: `重试：${operation?.title ?? operationTitle(descriptor.kind)}`,
+      title: trMain("ui.9a3e34e1ba9c", [operation?.title ?? operationTitle(descriptor.kind)]),
       retryOfOperationId: operationId
     };
     if (descriptor.kind === "navigate") {
@@ -534,9 +537,11 @@ export class ManagedBrowserManager {
 
   private async buildPage(profile: ManagedBrowserProfile): Promise<BrowserPageRecord> {
     const pageId = `page_${randomUUID().replaceAll("-", "")}`;
+    const partition = browserPartition(profile, this.options.dataScopeId);
+    if (partition.startsWith("persist:")) this.options.onPersistentPartition?.(partition);
     const view = new WebContentsView({
       webPreferences: {
-        partition: browserPartition(profile),
+        partition,
         contextIsolation: true,
         nodeIntegration: false,
         sandbox: true,
@@ -832,16 +837,16 @@ function sanitizeBounds(value: Rectangle): Rectangle {
 
 function operationTitle(kind: ManagedBrowserOperationKind): string {
   const titles: Record<ManagedBrowserOperationKind, string> = {
-    navigate: "打开网页",
-    back: "后退",
-    forward: "前进",
-    reload: "刷新网页",
-    takeover: "切换浏览器控制模式",
-    click: "点击网页元素",
-    type: "填写网页内容",
-    upload: "上传项目文件",
-    extract: "读取网页内容",
-    screenshot: "截取网页画面"
+    navigate: trMain("ui.22d040b33dbe"),
+    back: trMain("ui.4cf4c11a1b0b"),
+    forward: trMain("ui.320ffeefca2c"),
+    reload: trMain("ui.75585e9bbca0"),
+    takeover: trMain("ui.e8260c135b8e"),
+    click: trMain("ui.21c2547386d0"),
+    type: trMain("ui.7b93ef577697"),
+    upload: trMain("ui.a40b283a86f3"),
+    extract: trMain("ui.074c72c437c6"),
+    screenshot: trMain("ui.963479826cf8")
   };
   return titles[kind];
 }
@@ -849,7 +854,7 @@ function operationTitle(kind: ManagedBrowserOperationKind): string {
 function operationDetail(descriptor: ManagedBrowserRetryDescriptor): string {
   if (descriptor.kind === "navigate") return descriptor.value;
   if (descriptor.kind === "takeover") {
-    return descriptor.value ? "用户接管" : "Agent 控制";
+    return descriptor.value ? trMain("ui.d73de59bf81e") : trMain("ui.f04c0211c92f");
   }
   if (
     descriptor.kind === "click" ||
@@ -859,12 +864,12 @@ function operationDetail(descriptor: ManagedBrowserRetryDescriptor): string {
     return descriptor.selector;
   }
   if (descriptor.kind === "upload") {
-    return `${descriptor.selector} · ${descriptor.relativePaths.length} 个项目文件`;
+    return trMain("ui.1f9b94ec2ee8", [descriptor.selector, descriptor.relativePaths.length]);
   }
-  if (descriptor.kind === "back") return "返回上一页";
-  if (descriptor.kind === "forward") return "前往下一页";
-  if (descriptor.kind === "reload") return "重新加载当前页面";
-  return "当前页面";
+  if (descriptor.kind === "back") return trMain("ui.b14f0fab768a");
+  if (descriptor.kind === "forward") return trMain("ui.705ebd023a30");
+  if (descriptor.kind === "reload") return trMain("ui.7ad6eb0c3a1b");
+  return trMain("ui.b2e23403971b");
 }
 
 function cloneRetryDescriptor(

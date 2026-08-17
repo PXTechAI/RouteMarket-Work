@@ -306,6 +306,161 @@
 .asset-preview-stage iframe { width: 100%; height: 100%; background: #fff; }
 .asset-preview-stage audio { width: min(560px, 100%); }
 
+.artifact-pdf-preview {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+  background: var(--rm-bg);
+}
+
+.artifact-pdf-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+  min-height: 38px;
+  padding: 6px 10px;
+  gap: 12px;
+  color: var(--rm-text-muted);
+  background: var(--rm-surface-muted);
+  border-bottom: 1px solid var(--rm-border);
+  font-size: 9px;
+}
+
+.artifact-pdf-security,
+.artifact-pdf-pagination { display: flex; align-items: center; gap: 7px; }
+.artifact-pdf-security { min-width: 0; color: var(--rm-success); }
+.artifact-pdf-pagination button {
+  display: grid;
+  width: 27px;
+  height: 27px;
+  padding: 0;
+  place-items: center;
+  color: var(--rm-text);
+  background: var(--rm-surface);
+  border: 1px solid var(--rm-border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.artifact-pdf-pagination button:disabled { opacity: .35; cursor: default; }
+
+.artifact-pdf-stage {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  padding: 22px;
+  place-items: start center;
+  overflow: auto;
+  background: color-mix(in srgb, var(--rm-bg) 88%, #000);
+}
+
+.artifact-pdf-stage img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  background: #fff;
+  box-shadow: 0 8px 30px rgb(0 0 0 / 24%);
+}
+
+.artifact-table-preview {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+}
+
+.artifact-sheet-tabs {
+  display: flex;
+  min-width: 0;
+  padding: 5px 8px 0;
+  gap: 3px;
+  overflow-x: auto;
+  background: var(--rm-surface-muted);
+  border-bottom: 1px solid var(--rm-border);
+}
+
+.artifact-sheet-tabs button {
+  flex: 0 0 auto;
+  max-width: 180px;
+  padding: 6px 11px 7px;
+  overflow: hidden;
+  color: var(--rm-text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  font-size: 9px;
+}
+
+.artifact-sheet-tabs button:hover { color: var(--rm-text); }
+.artifact-sheet-tabs button.active {
+  color: var(--rm-accent);
+  border-bottom-color: var(--rm-accent);
+}
+
+.artifact-table-stage {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  background: var(--rm-bg);
+}
+
+.artifact-table {
+  width: max-content;
+  min-width: 100%;
+  color: var(--rm-text);
+  background: var(--rm-surface);
+  border-spacing: 0;
+  table-layout: fixed;
+  font-size: 10px;
+}
+
+.artifact-table th,
+.artifact-table td {
+  min-width: 120px;
+  max-width: 320px;
+  height: 28px;
+  padding: 5px 8px;
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-right: 1px solid var(--rm-border);
+  border-bottom: 1px solid var(--rm-border);
+}
+
+.artifact-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  color: var(--rm-text);
+  background: var(--rm-surface-muted);
+  font-weight: 700;
+}
+
+.artifact-table .artifact-row-number {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  min-width: 44px;
+  width: 44px;
+  color: var(--rm-text-weak);
+  text-align: right;
+  background: var(--rm-surface-muted);
+  font-weight: 500;
+}
+
+.artifact-table thead .artifact-row-number { z-index: 3; }
+.artifact-table tbody tr:hover td { background: var(--rm-surface-strong); }
+
+.artifact-unavailable {
+  min-width: 0;
+  min-height: 0;
+}
+
 .changes-pane,
 .versions-pane {
   position: relative;

@@ -7,6 +7,7 @@ import type {
   ManagedProcessSummary,
   LocalSkillInvocationResult,
   McpServerSummary,
+  ProjectArtifactPreview,
   ProjectAssetPreview,
   ProjectFileTree,
   ProjectFileVersion,
@@ -16,24 +17,61 @@ import type {
   ReadResult,
   WriteResult
 } from "../shared/desktop-api";
-import type { JobRecoveryState } from "@routemarket/work-worker-core";
+import type {
+  JobRecoveryState,
+  LocalSkillInstallReceipt,
+  ProjectSkillPackageIdentity
+} from "@routemarket/work-worker-core";
 import type { ProjectContext } from "@routemarket/work-worker-core";
 
 type WorkerRequestInput =
   | { type: "projects.list" }
   | { type: "projects.create"; payload: { displayName: string } }
+  | { type: "projects.rename"; payload: { localProjectId: string; displayName: string } }
   | { type: "projects.bind"; payload: { rootPath: string } }
   | { type: "projects.attach"; payload: { localProjectId: string; rootPath: string } }
+  | { type: "projects.folder.remove"; payload: { localProjectId: string; folderId: string } }
   | { type: "projects.delete"; payload: { localProjectId: string } }
   | { type: "projects.root"; payload: { localProjectId: string } }
   | { type: "projects.files"; payload: { localProjectId: string } }
   | { type: "projects.search"; payload: { localProjectId: string; query: string } }
   | { type: "projects.context"; payload: { localProjectId: string } }
   | {
+      type: "local.skill.inspect";
+      payload: { localProjectId: string; skillId: string };
+    }
+  | {
       type: "local.skill.invoke";
       payload: { localProjectId: string; skillId: string; task: string };
     }
+  | {
+      type: "local.skill.invoke-authorized";
+      payload: {
+        job: Extract<DesktopJob, { executorKey: "local.skill.invoke" }>;
+      };
+    }
+  | {
+      type: "local.skill.receipts";
+      payload: { localProjectId: string };
+    }
+  | {
+      type: "local.skill.install";
+      payload: {
+        localProjectId: string;
+        sourcePath: string;
+        sourceLabel?: string;
+        sourceKind?: "local_archive" | "web_library";
+      };
+    }
+  | {
+      type: "local.skill.remove";
+      payload: { localProjectId: string; skillId: string };
+    }
   | { type: "projects.asset"; payload: { localProjectId: string; relativePath: string } }
+  | {
+      type: "projects.artifact-preview";
+      payload: { localProjectId: string; relativePath: string; selectedSheetId?: string; pageNumber?: number };
+    }
   | { type: "workflow.registry"; payload: { localProjectId: string } }
   | {
       type: "local.fs.read";
@@ -51,6 +89,47 @@ type WorkerRequestInput =
   | {
       type: "local.fs.create";
       payload: { localProjectId: string; relativePath: string; text: string };
+    }
+  | {
+      type: "spreadsheet.create";
+      payload: {
+        localProjectId: string;
+        relativePath: string;
+        sheetName?: string;
+        title?: string;
+        rows: Array<Array<string | number | boolean | null>>;
+        freezePane?: string;
+        columnWidths?: number[];
+      };
+    }
+  | {
+      type: "spreadsheet.inspect";
+      payload: { localProjectId: string; relativePath: string; sheetName?: string };
+    }
+  | {
+      type: "spreadsheet.read_range";
+      payload: { localProjectId: string; relativePath: string; sheetName?: string; range: string };
+    }
+  | {
+      type: "spreadsheet.write_range";
+      payload: {
+        localProjectId: string;
+        relativePath: string;
+        sheetName?: string;
+        range: string;
+        rows: Array<Array<string | number | boolean | null>>;
+        expectedSha256: string;
+      };
+    }
+  | {
+      type: "spreadsheet.export_csv";
+      payload: {
+        localProjectId: string;
+        relativePath: string;
+        outputPath: string;
+        sheetName?: string;
+        range?: string;
+      };
     }
   | { type: "versions.list"; payload: { localProjectId: string; relativePath: string } }
   | {
@@ -191,6 +270,13 @@ export class WorkerClient {
     });
   }
 
+  renameProject(localProjectId: string, displayName: string): Promise<ProjectSummary> {
+    return this.request<ProjectSummary>({
+      type: "projects.rename",
+      payload: { localProjectId, displayName }
+    });
+  }
+
   bindProject(rootPath: string): Promise<ProjectSummary> {
     return this.request<ProjectSummary>({
       type: "projects.bind",
@@ -202,6 +288,13 @@ export class WorkerClient {
     return this.request<ProjectSummary>({
       type: "projects.attach",
       payload: { localProjectId, rootPath }
+    });
+  }
+
+  removeProjectFolder(localProjectId: string, folderId: string): Promise<ProjectSummary> {
+    return this.request<ProjectSummary>({
+      type: "projects.folder.remove",
+      payload: { localProjectId, folderId }
     });
   }
 
@@ -237,6 +330,16 @@ export class WorkerClient {
     });
   }
 
+  inspectProjectSkill(
+    localProjectId: string,
+    skillId: string
+  ): Promise<ProjectSkillPackageIdentity> {
+    return this.request<ProjectSkillPackageIdentity>({
+      type: "local.skill.inspect",
+      payload: { localProjectId, skillId }
+    });
+  }
+
   invokeProjectSkill(
     localProjectId: string,
     skillId: string,
@@ -245,6 +348,51 @@ export class WorkerClient {
     return this.request<LocalSkillInvocationResult>({
       type: "local.skill.invoke",
       payload: { localProjectId, skillId, task }
+    });
+  }
+
+  invokeAuthorizedProjectSkill(
+    job: Extract<DesktopJob, { executorKey: "local.skill.invoke" }>
+  ): Promise<LocalSkillInvocationResult> {
+    return this.request<LocalSkillInvocationResult>({
+      type: "local.skill.invoke-authorized",
+      payload: { job }
+    });
+  }
+
+  listProjectSkillReceipts(
+    localProjectId: string
+  ): Promise<LocalSkillInstallReceipt[]> {
+    return this.request<LocalSkillInstallReceipt[]>({
+      type: "local.skill.receipts",
+      payload: { localProjectId }
+    });
+  }
+
+  installProjectSkillArchive(
+    localProjectId: string,
+    sourcePath: string,
+    sourceLabel?: string,
+    sourceKind?: "local_archive" | "web_library"
+  ): Promise<LocalSkillInstallReceipt> {
+    return this.request<LocalSkillInstallReceipt>({
+      type: "local.skill.install",
+      payload: {
+        localProjectId,
+        sourcePath,
+        ...(sourceLabel ? { sourceLabel } : {}),
+        ...(sourceKind ? { sourceKind } : {})
+      }
+    });
+  }
+
+  removeInstalledProjectSkill(
+    localProjectId: string,
+    skillId: string
+  ): Promise<{ removed: true }> {
+    return this.request<{ removed: true }>({
+      type: "local.skill.remove",
+      payload: { localProjectId, skillId }
     });
   }
 
@@ -269,6 +417,23 @@ export class WorkerClient {
     });
   }
 
+  previewProjectArtifact(
+    localProjectId: string,
+    relativePath: string,
+    selectedSheetId?: string,
+    pageNumber?: number
+  ): Promise<ProjectArtifactPreview> {
+    return this.request<ProjectArtifactPreview>({
+      type: "projects.artifact-preview",
+      payload: {
+        localProjectId,
+        relativePath,
+        ...(selectedSheetId ? { selectedSheetId } : {}),
+        ...(pageNumber ? { pageNumber } : {})
+      }
+    });
+  }
+
   writeProjectFile(
     localProjectId: string,
     relativePath: string,
@@ -290,6 +455,56 @@ export class WorkerClient {
       type: "local.fs.create",
       payload: { localProjectId, relativePath, text }
     });
+  }
+
+  createProjectSpreadsheet(input: {
+    localProjectId: string;
+    relativePath: string;
+    sheetName?: string;
+    title?: string;
+    rows: Array<Array<string | number | boolean | null>>;
+    freezePane?: string;
+    columnWidths?: number[];
+  }): Promise<import("@routemarket/work-worker-core").SpreadsheetCreateResult> {
+    return this.request({ type: "spreadsheet.create", payload: input });
+  }
+
+  inspectProjectSpreadsheet(input: {
+    localProjectId: string;
+    relativePath: string;
+    sheetName?: string;
+  }): Promise<import("@routemarket/work-worker-core").SpreadsheetInspectResult> {
+    return this.request({ type: "spreadsheet.inspect", payload: input });
+  }
+
+  readProjectSpreadsheetRange(input: {
+    localProjectId: string;
+    relativePath: string;
+    sheetName?: string;
+    range: string;
+  }): Promise<import("@routemarket/work-worker-core").SpreadsheetRangeResult> {
+    return this.request({ type: "spreadsheet.read_range", payload: input });
+  }
+
+  writeProjectSpreadsheetRange(input: {
+    localProjectId: string;
+    relativePath: string;
+    sheetName?: string;
+    range: string;
+    rows: Array<Array<string | number | boolean | null>>;
+    expectedSha256: string;
+  }): Promise<import("@routemarket/work-worker-core").SpreadsheetWriteRangeResult> {
+    return this.request({ type: "spreadsheet.write_range", payload: input });
+  }
+
+  exportProjectSpreadsheetCsv(input: {
+    localProjectId: string;
+    relativePath: string;
+    outputPath: string;
+    sheetName?: string;
+    range?: string;
+  }): Promise<import("@routemarket/work-worker-core").SpreadsheetExportCsvResult> {
+    return this.request({ type: "spreadsheet.export_csv", payload: input });
   }
 
   listProjectFileVersions(

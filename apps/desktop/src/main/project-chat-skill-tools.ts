@@ -1,3 +1,4 @@
+import { trMain } from "./i18n";
 import { createHash } from "node:crypto";
 import type {
   LocalSkillInvocationResult,
@@ -83,7 +84,7 @@ export class ProjectChatSkillRuntime {
             message: error instanceof Error ? error.message : "Unknown Skill Runtime error"
           }
         }),
-        summary: error instanceof Error ? error.message : "项目 Skill 加载失败",
+        summary: error instanceof Error ? error.message : trMain("ui.2ac734e987b3"),
         isError: true
       };
     }
@@ -107,7 +108,7 @@ export class ProjectChatSkillRuntime {
     skill: ProjectSkillSummary,
     operation: () => Promise<ProjectChatToolExecution>
   ): Promise<ProjectChatToolExecution> {
-    const title = `加载 Skill：${skill.name}`;
+    const title = trMain("ui.03a9e24c9bd1", [skill.name]);
     this.options.onActivity?.("job.started", title, skill.relativePath);
     try {
       const result = await operation();

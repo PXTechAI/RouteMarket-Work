@@ -1,228 +1,151 @@
-import {
-  CircleAlert,
-  CircleCheck,
-  Clock3,
-  ExternalLink,
-  FolderOpen,
-  Hand,
-  LoaderCircle,
-  Play,
-  RotateCcw,
-  Square
-} from "lucide-react";
-import type {
-  DesktopWorkflowNodeRun,
-  DesktopWorkflowRun
-} from "../../../../../shared/desktop-api";
+import { tr } from "../../../i18n";
+import { CircleAlert, CircleCheck, Clock3, ExternalLink, FolderOpen, Hand, LoaderCircle, Play, RotateCcw, Square } from "lucide-react";
+import type { DesktopWorkflowNodeRun, DesktopWorkflowRun } from "../../../../../shared/desktop-api";
 import type { WorkflowPageActions, WorkflowPageModel } from "../types";
-
-export function WorkflowRunPanel({
-  model,
-  actions
-}: {
-  model: WorkflowPageModel;
-  actions: WorkflowPageActions["canvas"];
+export function WorkflowRunPanel({ model, actions }: {
+    model: WorkflowPageModel;
+    actions: WorkflowPageActions["canvas"];
 }) {
-  const run = model.selectedRun;
-  const waitingForUser = run?.status === "waiting_for_user";
-  const artifact = workflowArtifact(run);
-  const running =
-    run?.status === "queued" ||
-    run?.status === "running" ||
-    waitingForUser;
-  const canRun = Boolean(
-    model.draft &&
-    model.draft.kind === "workflow" &&
-    model.draft.nodes.length &&
-    !model.draftDirty &&
-    !running &&
-    !model.runBusy
-  );
-
-  return (
-    <section className="workflow-run-panel" aria-label="Workflow 运行">
+    const run = model.selectedRun;
+    const waitingForUser = run?.status === "waiting_for_user";
+    const artifact = workflowArtifact(run);
+    const running = run?.status === "queued" ||
+        run?.status === "running" ||
+        waitingForUser;
+    const canRun = Boolean(model.draft &&
+        model.draft.kind === "workflow" &&
+        model.draft.nodes.length &&
+        !model.draftDirty &&
+        !running &&
+        !model.runBusy);
+    return (<section className="workflow-run-panel" aria-label={tr("ui.ede2b42f0c9e")}>
       <div className="workflow-run-controls">
         <label>
-          <span>运行输入</span>
-          <textarea
-            value={model.runInput}
-            spellCheck={false}
-            onChange={(event) => actions.onRunInputChange(event.target.value)}
-          />
+          <span>{tr("ui.bbc7628c6f5c")}</span>
+          <textarea value={model.runInput} spellCheck={false} onChange={(event) => actions.onRunInputChange(event.target.value)}/>
         </label>
         <div className="workflow-run-actions">
           <button type="button" disabled={!canRun} onClick={actions.onRun}>
             {model.runBusy
-              ? <LoaderCircle className="spin" size={13} />
-              : <Play size={13} />}
-            运行
-          </button>
-          <button
-            type="button"
-            disabled={!running || model.runBusy}
-            onClick={actions.onCancelRun}
-          >
-            <Square size={12} />
-            取消
-          </button>
-          <button
-            type="button"
-            disabled={!run || running || model.runBusy}
-            onClick={actions.onRetryRun}
-          >
-            <RotateCcw size={13} />
-            重试
-          </button>
+            ? <LoaderCircle className="spin" size={13}/>
+            : <Play size={13}/>}{tr("ui.0c3acd446f19")}</button>
+          <button type="button" disabled={!running || model.runBusy} onClick={actions.onCancelRun}>
+            <Square size={12}/>{tr("ui.4d0b4688c787")}</button>
+          <button type="button" disabled={!run || running || model.runBusy} onClick={actions.onRetryRun}>
+            <RotateCcw size={13}/>{tr("ui.e2d53a6d3a6a")}</button>
         </div>
-        {waitingForUser && (
-          <div className="workflow-user-action" role="status">
-            <Hand size={16} />
+        {waitingForUser && (<div className="workflow-user-action" role="status">
+            <Hand size={16}/>
             <div>
-              <strong>需要你在浏览器中完成操作</strong>
-              <small>完成登录或验证码后，从当前步骤继续；不会重新打开页面。</small>
+              <strong>{tr("ui.352047da964f")}</strong>
+              <small>{tr("ui.71dd334e28a4")}</small>
             </div>
-            <button
-              type="button"
-              disabled={model.runBusy}
-              onClick={actions.onResumeRun}
-            >
-              处理完成，继续
-            </button>
-          </div>
-        )}
+            <button type="button" disabled={model.runBusy} onClick={actions.onResumeRun}>{tr("ui.c57c2805980c")}</button>
+          </div>)}
         <div className={`workflow-run-summary ${run?.status ?? "idle"}`}>
-          <RunStatusIcon run={run} />
+          <RunStatusIcon run={run}/>
           <div>
-            <strong>{run ? statusLabel(run.status) : "尚未运行"}</strong>
+            <strong>{run ? statusLabel(run.status) : tr("ui.5afa7a985132")}</strong>
             <small>
               {run
-                ? `${run.nodeRuns.filter((node) => node.status === "succeeded").length}/${run.nodeRuns.length} 个节点完成`
-                : "保存工作流后即可在本机执行"}
+            ? tr("ui.76ab9c521029", [run.nodeRuns.filter((node) => node.status === "succeeded").length, run.nodeRuns.length]) : tr("ui.637b9bfc0904")}
             </small>
           </div>
         </div>
-        {artifact && (
-          <div className="workflow-run-artifact">
+        {artifact && (<div className="workflow-run-artifact">
             <div>
               <strong>{artifact.fileName}</strong>
               <small title={artifact.savedPath}>{artifact.savedPath}</small>
             </div>
-            <button
-              type="button"
-              disabled={model.runBusy}
-              onClick={() => actions.onOpenRunArtifact("open")}
-            >
-              <ExternalLink size={12} />
-              打开
-            </button>
-            <button
-              type="button"
-              disabled={model.runBusy}
-              onClick={() => actions.onOpenRunArtifact("reveal")}
-            >
-              <FolderOpen size={12} />
-              所在目录
-            </button>
-          </div>
-        )}
+            <button type="button" disabled={model.runBusy} onClick={() => actions.onOpenRunArtifact("open")}>
+              <ExternalLink size={12}/>{tr("ui.65fc81e16119")}</button>
+            <button type="button" disabled={model.runBusy} onClick={() => actions.onOpenRunArtifact("reveal")}>
+              <FolderOpen size={12}/>{tr("ui.786fef40f814")}</button>
+          </div>)}
       </div>
 
       <div className="workflow-run-timeline">
-        {run?.nodeRuns.map((node) => (
-          <NodeRunItem key={node.nodeRunId} node={node} />
-        ))}
-        {!run && (
-          <div className="workflow-run-empty">
-            运行记录会在这里显示每个节点的输入、输出与错误。
-          </div>
-        )}
+        {run?.nodeRuns.map((node) => (<NodeRunItem key={node.nodeRunId} node={node}/>))}
+        {!run && (<div className="workflow-run-empty">{tr("ui.ca0bd6db21cf")}</div>)}
       </div>
-    </section>
-  );
+    </section>);
 }
-
-function NodeRunItem({ node }: { node: DesktopWorkflowNodeRun }) {
-  return (
-    <article className={`workflow-node-run ${node.status}`}>
-      <span className="workflow-node-run-dot" />
+function NodeRunItem({ node }: {
+    node: DesktopWorkflowNodeRun;
+}) {
+    return (<article className={`workflow-node-run ${node.status}`}>
+      <span className="workflow-node-run-dot"/>
       <div>
         <strong>{node.title}</strong>
         <code>{node.executorKey}</code>
       </div>
       <span>{nodeStatusLabel(node.status)}</span>
-      {(node.error || node.output !== null) && (
-        <details>
-          <summary>{node.error ? "错误" : "结果"}</summary>
+      {(node.error || node.output !== null) && (<details>
+          <summary>{node.error ? tr("ui.b859c7be7501") : tr("ui.0a2c91cec6c8")}</summary>
           <pre>{node.error ?? formatValue(node.output)}</pre>
-        </details>
-      )}
-    </article>
-  );
+        </details>)}
+    </article>);
 }
-
-function RunStatusIcon({ run }: { run: DesktopWorkflowRun | null }) {
-  if (!run) return <Clock3 size={16} />;
-  if (run.status === "queued" || run.status === "running") {
-    return <LoaderCircle className="spin" size={16} />;
-  }
-  if (run.status === "waiting_for_user") return <Hand size={16} />;
-  if (run.status === "succeeded") return <CircleCheck size={16} />;
-  return <CircleAlert size={16} />;
+function RunStatusIcon({ run }: {
+    run: DesktopWorkflowRun | null;
+}) {
+    if (!run)
+        return <Clock3 size={16}/>;
+    if (run.status === "queued" || run.status === "running") {
+        return <LoaderCircle className="spin" size={16}/>;
+    }
+    if (run.status === "waiting_for_user")
+        return <Hand size={16}/>;
+    if (run.status === "succeeded")
+        return <CircleCheck size={16}/>;
+    return <CircleAlert size={16}/>;
 }
-
 function statusLabel(status: DesktopWorkflowRun["status"]): string {
-  return {
-    queued: "等待运行",
-    running: "正在运行",
-    waiting_for_user: "等待你处理",
-    succeeded: "运行成功",
-    failed: "运行失败",
-    canceled: "已取消"
-  }[status];
+    return {
+        queued: tr("ui.d925b1297a04"),
+        running: tr("ui.3488ded27c76"),
+        waiting_for_user: tr("ui.059f99450f1c"),
+        succeeded: tr("ui.1eefb128dddc"),
+        failed: tr("ui.f5f12f1d7a73"),
+        canceled: tr("ui.a5ffdc95eeb0")
+    }[status];
 }
-
 function nodeStatusLabel(status: DesktopWorkflowNodeRun["status"]): string {
-  return {
-    pending: "等待",
-    running: "运行中",
-    waiting_for_user: "等待你处理",
-    succeeded: "成功",
-    failed: "失败",
-    skipped: "已跳过",
-    canceled: "已取消"
-  }[status];
+    return {
+        pending: tr("ui.25d23b92b225"),
+        running: tr("ui.594249700590"),
+        waiting_for_user: tr("ui.059f99450f1c"),
+        succeeded: tr("ui.51991a5d111a"),
+        failed: tr("ui.3e3c8068bb0e"),
+        skipped: tr("ui.9f38afd41e89"),
+        canceled: tr("ui.a5ffdc95eeb0")
+    }[status];
 }
-
 function formatValue(value: unknown): string {
-  const serialized = JSON.stringify(value, null, 2);
-  return serialized && serialized.length > 4_000
-    ? `${serialized.slice(0, 4_000)}\n...`
-    : serialized ?? String(value);
+    const serialized = JSON.stringify(value, null, 2);
+    return serialized && serialized.length > 4000
+        ? `${serialized.slice(0, 4000)}\n...`
+        : serialized ?? String(value);
 }
-
 function workflowArtifact(run: DesktopWorkflowRun | null): {
-  fileName: string;
-  savedPath: string;
+    fileName: string;
+    savedPath: string;
 } | null {
-  if (run?.status !== "succeeded") return null;
-  const exportNode = [...run.nodeRuns].reverse().find(
-    (node) =>
-      node.executorKey === "local.data.csv_export" &&
-      node.status === "succeeded"
-  );
-  if (
-    !exportNode?.output ||
-    typeof exportNode.output !== "object" ||
-    Array.isArray(exportNode.output)
-  ) {
-    return null;
-  }
-  const output = exportNode.output as {
-    fileName?: unknown;
-    savedPath?: unknown;
-  };
-  return typeof output.fileName === "string" &&
-    typeof output.savedPath === "string"
-    ? { fileName: output.fileName, savedPath: output.savedPath }
-    : null;
+    if (run?.status !== "succeeded")
+        return null;
+    const exportNode = [...run.nodeRuns].reverse().find((node) => node.executorKey === "local.data.csv_export" &&
+        node.status === "succeeded");
+    if (!exportNode?.output ||
+        typeof exportNode.output !== "object" ||
+        Array.isArray(exportNode.output)) {
+        return null;
+    }
+    const output = exportNode.output as {
+        fileName?: unknown;
+        savedPath?: unknown;
+    };
+    return typeof output.fileName === "string" &&
+        typeof output.savedPath === "string"
+        ? { fileName: output.fileName, savedPath: output.savedPath }
+        : null;
 }

@@ -1,3 +1,4 @@
+import { trMain } from "./i18n";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import type {
   DeviceAccount,
@@ -43,6 +44,7 @@ type DesktopAuthManagerOptions = {
   openExternal(url: string): Promise<void>;
   onAccessToken(token: string | undefined): void;
   onSpaceChanged(teamId: string | null): void;
+  onDataScopeChanged(account: DeviceAccount | null): void;
 };
 
 type ExchangeSpace = {
@@ -152,12 +154,13 @@ export class DesktopAuthManager {
         await this.options.credentialStore.clear();
       }
       this.state = { authStatus: "signed_out", authError: null };
+      this.options.onDataScopeChanged(null);
     } catch (error) {
       this.setError(error);
     }
   }
 
-  async signIn(): Promise<void> {
+  async signIn(intent: "login" | "register" = "login"): Promise<void> {
     const generation = ++this.authorizationGeneration;
     const state = randomBytes(32).toString("base64url");
     const codeVerifier = randomBytes(32).toString("base64url");
@@ -181,7 +184,7 @@ export class DesktopAuthManager {
         account: this.credentials?.account,
         authError: null
       };
-      await this.options.openExternal(this.authorizationUrl(state, codeVerifier));
+      await this.options.openExternal(this.authorizationUrl(state, codeVerifier, intent));
     } catch (error) {
       if (this.isAuthorizationCurrent(generation)) {
         this.setError(error);
@@ -231,7 +234,7 @@ export class DesktopAuthManager {
   async switchSpace(spaceId: string): Promise<void> {
     const credentials = this.credentials;
     const space = credentials?.account.spaces?.find((candidate) => candidate.id === spaceId);
-    if (!credentials || !space) throw new Error("无法切换到这个空间，请重新登录后再试。");
+    if (!credentials || !space) throw new Error(trMain("ui.56cea1e733a6"));
     if (credentials.account.activeSpaceId === spaceId) return;
 
     const nextCredentials: DeviceCredentials = {
@@ -249,6 +252,7 @@ export class DesktopAuthManager {
   private applyActiveSpace(account: DeviceAccount): void {
     const active = account.spaces?.find((space) => space.id === account.activeSpaceId);
     this.options.onSpaceChanged(active?.teamId ?? null);
+    this.options.onDataScopeChanged(account);
   }
 
   private resolveAvatarUrl(value: unknown): string | null {
@@ -278,7 +282,7 @@ export class DesktopAuthManager {
         await this.signOut();
         this.state = {
           authStatus: "signed_out",
-          authError: "登录已失效或已在其他设备退出，请重新登录。"
+          authError: trMain("ui.9460f9e44c11")
         };
         return;
       }
@@ -286,7 +290,7 @@ export class DesktopAuthManager {
         await this.signOut();
         this.state = {
           authStatus: "signed_out",
-          authError: "当前账户暂时无法使用 RouteMarket，请前往网页端查看账户状态后重新登录。"
+          authError: trMain("ui.190ec5074f96")
         };
         return;
       }
@@ -296,8 +300,8 @@ export class DesktopAuthManager {
           account: credentials.account,
           authError:
             response.status >= 500
-              ? "RouteMarket 服务暂时不可用，账户信息将在服务恢复后自动同步。"
-              : "暂时无法同步账户状态，请稍后重试。"
+              ? trMain("ui.adf2a9925800")
+              : trMain("ui.f53162aa7485")
         };
         return;
       }
@@ -330,7 +334,7 @@ export class DesktopAuthManager {
       this.state = {
         authStatus: "signed_in",
         account: credentials.account,
-        authError: "当前网络不可用，已保留本地登录状态；联网后会自动恢复同步。"
+        authError: trMain("ui.21ce559635b4")
       };
     }
   }
@@ -430,7 +434,11 @@ export class DesktopAuthManager {
     return generation === this.authorizationGeneration;
   }
 
-  private authorizationUrl(state: string, codeVerifier: string) {
+  private authorizationUrl(
+    state: string,
+    codeVerifier: string,
+    intent: "login" | "register"
+  ) {
     const url = new URL(
       "/desktop-auth",
       this.options.webBaseUrl ?? this.options.apiClient.origin
@@ -442,6 +450,7 @@ export class DesktopAuthManager {
     );
     url.searchParams.set("code_challenge_method", "S256");
     url.searchParams.set("redirect_uri", CALLBACK_URL);
+    url.searchParams.set("auth_intent", intent);
     url.searchParams.set("installation_id", this.options.installationId);
     url.searchParams.set("device_name", this.options.deviceName);
     url.searchParams.set("platform", this.options.platform);
@@ -593,7 +602,7 @@ function normalizeSpaces(
   const personalId = `personal:${response.account.id}`;
   const personal: DeviceSpace = {
     id: personalId,
-    name: "个人空间",
+    name: trMain("ui.712b770f5105"),
     kind: "personal",
     teamId: null,
     avatarUrl: resolveAvatarUrl(response.account.avatar_url),

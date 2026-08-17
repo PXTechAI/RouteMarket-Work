@@ -33,9 +33,12 @@ export function normalizeBrowserProfileInput(
   };
 }
 
-export function browserPartition(profile: ManagedBrowserProfile): string {
+export function browserPartition(
+  profile: ManagedBrowserProfile,
+  dataScopeId = "device"
+): string {
   const digest = createHash("sha256")
-    .update(`${profile.localProjectId}:${profile.profileId}`)
+    .update(`${dataScopeId}:${profile.localProjectId}:${profile.profileId}`)
     .digest("hex")
     .slice(0, 32);
   return `${profile.persistence === "persistent" ? "persist:" : ""}routemarket-${digest}`;

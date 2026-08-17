@@ -15,20 +15,59 @@ import type { LocalDataInfo } from "../shared/desktop-api";
 const RECOVERY_RECORD = "last-database-recovery.json";
 
 export async function inspectLocalData(
-  dataPath: string
+  dataPath: string,
+  context: {
+    scope: LocalDataInfo["scope"];
+    accountName: string | null;
+    spaceName: string | null;
+    accountsRoot: string;
+  } = {
+    scope: "guest",
+    accountName: null,
+    spaceName: null,
+    accountsRoot: dataPath
+  }
 ): Promise<LocalDataInfo> {
   const databasePath = join(dataPath, "work.db");
-  const [totalBytes, databaseBytes, recovery] = await Promise.all([
-    directorySize(dataPath),
+  const [totalBytes, databaseBytes, recovery, scopeSummary] = await Promise.all([
+    localDataDirectorySize(dataPath),
     fileSize(databasePath),
-    readRecoveryRecord(dataPath)
+    readRecoveryRecord(dataPath),
+    inspectStoredScopes(context.accountsRoot)
   ]);
   return {
     dataPath,
+    scope: context.scope,
+    accountName: context.accountName,
+    spaceName: context.spaceName,
+    storedAccountCount: scopeSummary.accountCount,
+    storedSpaceCount: scopeSummary.spaceCount,
+    allScopesBytes: scopeSummary.totalBytes,
     totalBytes,
     databaseBytes,
     databaseHealth: await databaseHealth(databasePath),
     lastRecoveredAt: recovery?.recoveredAt ?? null
+  };
+}
+
+async function inspectStoredScopes(accountsRoot: string): Promise<{
+  accountCount: number;
+  spaceCount: number;
+  totalBytes: number;
+}> {
+  if (!(await exists(accountsRoot))) return { accountCount: 0, spaceCount: 0, totalBytes: 0 };
+  const accounts = (await readdir(accountsRoot, { withFileTypes: true }))
+    .filter((entry) => entry.isDirectory());
+  const spaceCounts = await Promise.all(accounts.map(async (account) => {
+    const spacesPath = join(accountsRoot, account.name, "spaces");
+    if (!(await exists(spacesPath))) return 0;
+    return (await readdir(spacesPath, { withFileTypes: true }))
+      .filter((entry) => entry.isDirectory()).length;
+  }));
+  return {
+    accountCount: accounts.filter((entry) => entry.name !== "guest").length,
+    spaceCount: spaceCounts.reduce((total, count) => total + count, 0),
+    totalBytes: await localDataDirectorySize(accountsRoot)
   };
 }
 
@@ -96,12 +135,12 @@ async function databaseHealth(
   }
 }
 
-async function directorySize(path: string): Promise<number> {
+export async function localDataDirectorySize(path: string): Promise<number> {
   if (!(await exists(path))) return 0;
   const entries = await readdir(path, { withFileTypes: true });
   const sizes = await Promise.all(entries.map(async (entry) => {
     const entryPath = join(path, entry.name);
-    if (entry.isDirectory()) return directorySize(entryPath);
+    if (entry.isDirectory()) return localDataDirectorySize(entryPath);
     if (!entry.isFile()) return 0;
     return fileSize(entryPath);
   }));

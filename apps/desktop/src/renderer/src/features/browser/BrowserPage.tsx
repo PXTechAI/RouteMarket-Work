@@ -1,19 +1,5 @@
-import {
-  ArrowLeft,
-  ArrowRight,
-  Camera,
-  CircleAlert,
-  Download,
-  Globe2,
-  History,
-  LoaderCircle,
-  LogOut,
-  Plug,
-  RefreshCw,
-  Search,
-  Settings2,
-  X
-} from "lucide-react";
+import { tr } from "../../i18n";
+import { ArrowLeft, ArrowRight, Camera, CircleAlert, Download, Globe2, History, LoaderCircle, LogOut, Plug, RefreshCw, Search, Settings2, X } from "lucide-react";
 import { useState } from "react";
 import { BrowserProfilePanel } from "./BrowserProfilePanel";
 import { BrowserDownloadPanel } from "./BrowserDownloadPanel";
@@ -21,28 +7,15 @@ import { BrowserOperationPanel } from "./BrowserOperationPanel";
 import { BrowserTabStrip } from "./BrowserTabStrip";
 import { WorkspaceState } from "../../app/WorkspaceState";
 import type { BrowserPageProps } from "./types";
-
 export function BrowserPage({ model, actions, viewportRef, addressRef }: BrowserPageProps) {
-  const [profilesOpen, setProfilesOpen] = useState(false);
-  const [downloadsOpen, setDownloadsOpen] = useState(false);
-  const [operationsOpen, setOperationsOpen] = useState(false);
-  const activeProfile = model.state?.profiles.find(
-    (profile) => profile.profileId === model.state?.activeProfileId
-  );
-
-  return (
-    <section className={`browser-pane browser-pane-${model.mode}`}>
-      {model.mode === "managed" && model.state && (
-        <BrowserTabStrip
-          state={model.state}
-          disabled={model.busy}
-          onCreatePage={() => actions.onCreatePage(model.state?.activeProfileId)}
-          onSelectPage={actions.onSelectPage}
-          onClosePage={actions.onClosePage}
-        />
-      )}
+    const [profilesOpen, setProfilesOpen] = useState(false);
+    const [downloadsOpen, setDownloadsOpen] = useState(false);
+    const [operationsOpen, setOperationsOpen] = useState(false);
+    const activeProfile = model.state?.profiles.find((profile) => profile.profileId === model.state?.activeProfileId);
+    return (<section className={`browser-pane browser-pane-${model.mode}`}>
+      {model.mode === "managed" && model.state && (<BrowserTabStrip state={model.state} disabled={model.busy} onCreatePage={() => actions.onCreatePage(model.state?.activeProfileId)} onSelectPage={actions.onSelectPage} onClosePage={actions.onClosePage}/>)}
       <div className="browser-toolbar">
-        <div className="browser-mode-switch" role="group" aria-label="浏览器模式">
+        <div className="browser-mode-switch" role="group" aria-label={tr("ui.94f19e8db8fb")}>
           <button type="button" className={model.mode === "managed" ? "active" : ""} onClick={() => actions.onModeChange("managed")}>
             Managed
           </button>
@@ -50,180 +23,105 @@ export function BrowserPage({ model, actions, viewportRef, addressRef }: Browser
             Attached
           </button>
         </div>
-        <button className="browser-icon-button" type="button" title="后退" disabled={model.mode === "attached" || !model.state?.canGoBack} onClick={() => actions.onNavigate("back")}>
-          <ArrowLeft size={15} />
+        <button className="browser-icon-button" type="button" title={tr("ui.4cf4c11a1b0b")} disabled={model.mode === "attached" || !model.state?.canGoBack} onClick={() => actions.onNavigate("back")}>
+          <ArrowLeft size={15}/>
         </button>
-        <button className="browser-icon-button" type="button" title="前进" disabled={model.mode === "attached" || !model.state?.canGoForward} onClick={() => actions.onNavigate("forward")}>
-          <ArrowRight size={15} />
+        <button className="browser-icon-button" type="button" title={tr("ui.320ffeefca2c")} disabled={model.mode === "attached" || !model.state?.canGoForward} onClick={() => actions.onNavigate("forward")}>
+          <ArrowRight size={15}/>
         </button>
-        <button className="browser-icon-button" type="button" title="刷新" disabled={model.mode === "attached"} onClick={() => actions.onNavigate("reload")}>
-          {model.state?.loading ? <LoaderCircle className="spin" size={15} /> : <RefreshCw size={15} />}
+        <button className="browser-icon-button" type="button" title={tr("ui.38108eaa1d32")} disabled={model.mode === "attached"} onClick={() => actions.onNavigate("reload")}>
+          {model.state?.loading ? <LoaderCircle className="spin" size={15}/> : <RefreshCw size={15}/>}
         </button>
         <div className="browser-address">
-          <Globe2 size={13} />
-          <input
-            ref={addressRef}
-            value={model.address}
-            aria-label="网页地址"
-            onChange={(event) => actions.onAddressChange(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") actions.onAddressSubmit();
-            }}
-          />
+          <Globe2 size={13}/>
+          <input ref={addressRef} value={model.address} aria-label={tr("ui.cce5fe3be41b")} onChange={(event) => actions.onAddressChange(event.target.value)} onKeyDown={(event) => {
+            if (event.key === "Enter")
+                actions.onAddressSubmit();
+        }}/>
         </div>
-        {model.mode === "managed" && (
-          <>
-            <button className={`browser-profile-button ${profilesOpen ? "active" : ""}`} type="button" title="浏览器 Profile 设置" onClick={() => {
-              setDownloadsOpen(false);
-              setOperationsOpen(false);
-              setProfilesOpen((open) => !open);
+        {model.mode === "managed" && (<>
+            <button className={`browser-profile-button ${profilesOpen ? "active" : ""}`} type="button" title={tr("ui.84aa25fe9b80")} onClick={() => {
+                setDownloadsOpen(false);
+                setOperationsOpen(false);
+                setProfilesOpen((open) => !open);
             }}>
-              <Settings2 size={14} />
+              <Settings2 size={14}/>
               <span>{activeProfile?.name ?? "Profile"}</span>
             </button>
-            <button className={`takeover-button ${model.state?.userTakeover ? "active" : ""}`} type="button" title="切换用户接管与 Agent 模式" onClick={actions.onToggleTakeover}>
-              {model.state?.userTakeover ? "用户接管" : "Agent 控制"}
+            <button className={`takeover-button ${model.state?.userTakeover ? "active" : ""}`} type="button" title={tr("ui.c667434c6465")} onClick={actions.onToggleTakeover}>
+              {model.state?.userTakeover ? tr("ui.d73de59bf81e") : tr("ui.f04c0211c92f")}
             </button>
-          </>
-        )}
-        <button className="browser-icon-button" type="button" title="截图" disabled={model.busy || !model.localProjectId} onClick={actions.onCaptureScreenshot}>
-          <Camera size={15} />
+          </>)}
+        <button className="browser-icon-button" type="button" title={tr("ui.49830b4f744c")} disabled={model.busy || !model.localProjectId} onClick={actions.onCaptureScreenshot}>
+          <Camera size={15}/>
         </button>
-        {model.mode === "managed" && (
-          <button
-            className={`browser-icon-button browser-download-button ${downloadsOpen ? "active" : ""}`}
-            type="button"
-            title="下载"
-            disabled={!model.localProjectId}
-            onClick={() => {
-              setProfilesOpen(false);
-              setOperationsOpen(false);
-              setDownloadsOpen((open) => !open);
-            }}
-          >
-            <Download size={15} />
-            {model.state && model.state.downloads.length > 0 && (
-              <span>{Math.min(model.state.downloads.length, 99)}</span>
-            )}
-          </button>
-        )}
-        {model.mode === "managed" && (
-          <button
-            className={`browser-icon-button browser-operation-button ${operationsOpen ? "active" : ""}`}
-            type="button"
-            title="操作记录"
-            aria-label="操作记录"
-            disabled={!model.localProjectId}
-            onClick={() => {
-              setProfilesOpen(false);
-              setDownloadsOpen(false);
-              setOperationsOpen((open) => !open);
-            }}
-          >
-            <History size={15} />
-            {model.state && model.state.operations.some(
-              (operation) => operation.status === "failed" || operation.status === "running"
-            ) && (
-              <span>
-                {Math.min(model.state.operations.filter(
-                  (operation) => operation.status === "failed" || operation.status === "running"
-                ).length, 99)}
-              </span>
-            )}
-          </button>
-        )}
+        {model.mode === "managed" && (<button className={`browser-icon-button browser-download-button ${downloadsOpen ? "active" : ""}`} type="button" title={tr("ui.2b9d013177da")} disabled={!model.localProjectId} onClick={() => {
+                setProfilesOpen(false);
+                setOperationsOpen(false);
+                setDownloadsOpen((open) => !open);
+            }}>
+            <Download size={15}/>
+            {model.state && model.state.downloads.length > 0 && (<span>{Math.min(model.state.downloads.length, 99)}</span>)}
+          </button>)}
+        {model.mode === "managed" && (<button className={`browser-icon-button browser-operation-button ${operationsOpen ? "active" : ""}`} type="button" title={tr("ui.6fcdba1f7183")} aria-label={tr("ui.6fcdba1f7183")} disabled={!model.localProjectId} onClick={() => {
+                setProfilesOpen(false);
+                setDownloadsOpen(false);
+                setOperationsOpen((open) => !open);
+            }}>
+            <History size={15}/>
+            {model.state && model.state.operations.some((operation) => operation.status === "failed" || operation.status === "running") && (<span>
+                {Math.min(model.state.operations.filter((operation) => operation.status === "failed" || operation.status === "running").length, 99)}
+              </span>)}
+          </button>)}
       </div>
 
       <div className="browser-content">
         <div className="browser-viewport" ref={viewportRef}>
-          {model.screenshot && (
-            <div className="browser-screenshot-preview">
+          {model.screenshot && (<div className="browser-screenshot-preview">
               <div>
-                <strong>网页截图</strong>
-                <button type="button" onClick={actions.onCloseScreenshot}><X size={14} />关闭预览</button>
+                <strong>{tr("ui.f9f41507ac2a")}</strong>
+                <button type="button" onClick={actions.onCloseScreenshot}><X size={14}/>{tr("ui.bf7630879471")}</button>
               </div>
-              <img src={model.screenshot} alt={`${model.mode === "managed" ? "Managed" : "Attached"} Browser screenshot`} />
-            </div>
-          )}
+              <img src={model.screenshot} alt={`${model.mode === "managed" ? "Managed" : "Attached"} Browser screenshot`}/>
+            </div>)}
 
-          {!model.screenshot && model.mode === "attached" && (
-            <div className="attached-browser-setup">
+          {!model.screenshot && model.mode === "attached" && (<div className="attached-browser-setup">
               <div className="attached-browser-card">
                 <div className="attached-browser-heading">
-                  <div><Globe2 size={22} /><div><h2>Attached Browser</h2><p>连接本机已开启调试端口的 Chromium 页面。</p></div></div>
-                  <span className={model.attachedState.connected ? "connected" : ""}>{model.attachedState.connected ? "已连接" : "未连接"}</span>
+                  <div><Globe2 size={22}/><div><h2>Attached Browser</h2><p>{tr("ui.58129bdd8424")}</p></div></div>
+                  <span className={model.attachedState.connected ? "connected" : ""}>{model.attachedState.connected ? tr("ui.65fe35c45e4e") : tr("ui.f2f3e9803ccb")}</span>
                 </div>
-                <label>本机发现地址</label>
+                <label>{tr("ui.24c58c042d1e")}</label>
                 <div className="attached-browser-row">
-                  <input value={model.attachedEndpoint} disabled={model.attachedState.connected} onChange={(event) => actions.onAttachedEndpointChange(event.target.value)} />
+                  <input value={model.attachedEndpoint} disabled={model.attachedState.connected} onChange={(event) => actions.onAttachedEndpointChange(event.target.value)}/>
                   <button type="button" disabled={model.busy || model.attachedState.connected} onClick={actions.onDiscoverAttachedTargets}>
-                    {model.busy ? <LoaderCircle className="spin" size={13} /> : <Search size={13} />}发现页面
-                  </button>
+                    {model.busy ? <LoaderCircle className="spin" size={13}/> : <Search size={13}/>}{tr("ui.3533405d7c38")}</button>
                 </div>
-                <label>页面目标</label>
+                <label>{tr("ui.a5249f3a6fdf")}</label>
                 <select value={model.selectedAttachedTargetId} disabled={model.attachedState.connected || model.attachedTargets.length === 0} onChange={(event) => actions.onSelectedAttachedTargetChange(event.target.value)}>
-                  {model.attachedTargets.length === 0 && <option value="">先发现页面</option>}
+                  {model.attachedTargets.length === 0 && <option value="">{tr("ui.685837752999")}</option>}
                   {model.attachedTargets.map((target) => <option key={target.targetId} value={target.targetId}>{target.title || target.url}</option>)}
                 </select>
                 <button className={`attached-connect-button ${model.attachedState.connected ? "disconnect" : ""}`} type="button" disabled={model.busy || (!model.attachedState.connected && !model.selectedAttachedTargetId)} onClick={actions.onToggleAttachedConnection}>
-                  {model.attachedState.connected ? <><LogOut size={14} />断开连接</> : <><Plug size={14} />连接所选页面</>}
+                  {model.attachedState.connected ? <><LogOut size={14}/>{tr("ui.eb7246121725")}</> : <><Plug size={14}/>{tr("ui.4378fc43b551")}</>}
                 </button>
-                {model.attachedState.target && <div className="attached-browser-target"><strong>{model.attachedState.target.title || "未命名页面"}</strong><span>{model.attachedState.target.url}</span></div>}
-                <p className="attached-browser-note">仅允许 localhost DevTools 发现地址与本机 WebSocket，不接受远程调试端点。</p>
+                {model.attachedState.target && <div className="attached-browser-target"><strong>{model.attachedState.target.title || tr("ui.5a131f787f5e")}</strong><span>{model.attachedState.target.url}</span></div>}
+                <p className="attached-browser-note">{tr("ui.0be313febcaa")}</p>
               </div>
-            </div>
-          )}
+            </div>)}
 
-          {!model.screenshot && model.mode === "managed" && !model.localProjectId && (
-            <WorkspaceState
-              kind="empty"
-              icon={<Globe2 size={24} />}
-              title="选择一个项目"
-              description="浏览器页面、登录状态和自动化操作都归属于项目。"
-            />
-          )}
-          {!model.screenshot && model.mode === "managed" && model.localProjectId && model.state?.url === "about:blank" && (
-            <WorkspaceState
-              kind="empty"
-              icon={<Globe2 size={24} />}
-              title="Managed Browser"
-              description="输入网址开始浏览；Agent 可以在当前项目页面中继续操作。"
-            />
-          )}
+          {!model.screenshot && model.mode === "managed" && !model.localProjectId && (<WorkspaceState kind="empty" icon={<Globe2 size={24}/>} title={tr("ui.54400ff0196d")} description={tr("ui.66c606575b1a")}/>)}
+          {!model.screenshot && model.mode === "managed" && model.localProjectId && model.state?.url === "about:blank" && (<WorkspaceState kind="empty" icon={<Globe2 size={24}/>} title="Managed Browser" description={tr("ui.9744fae766b5")}/>)}
         </div>
 
-        {profilesOpen && model.mode === "managed" && model.state && (
-          <BrowserProfilePanel
-            state={model.state}
-            busy={model.busy}
-            onClose={() => setProfilesOpen(false)}
-            onCreate={actions.onCreateProfile}
-            onUpdate={actions.onUpdateProfile}
-            onDelete={actions.onDeleteProfile}
-          />
-        )}
-        {downloadsOpen && model.mode === "managed" && model.state && (
-          <BrowserDownloadPanel
-            downloads={model.state.downloads}
-            onClose={() => setDownloadsOpen(false)}
-          />
-        )}
-        {operationsOpen && model.mode === "managed" && model.state && (
-          <BrowserOperationPanel
-            operations={model.state.operations}
-            busy={model.busy}
-            onRetry={actions.onRetryOperation}
-            onClose={() => setOperationsOpen(false)}
-          />
-        )}
+        {profilesOpen && model.mode === "managed" && model.state && (<BrowserProfilePanel state={model.state} busy={model.busy} onClose={() => setProfilesOpen(false)} onCreate={actions.onCreateProfile} onUpdate={actions.onUpdateProfile} onDelete={actions.onDeleteProfile}/>)}
+        {downloadsOpen && model.mode === "managed" && model.state && (<BrowserDownloadPanel downloads={model.state.downloads} onClose={() => setDownloadsOpen(false)}/>)}
+        {operationsOpen && model.mode === "managed" && model.state && (<BrowserOperationPanel operations={model.state.operations} busy={model.busy} onRetry={actions.onRetryOperation} onClose={() => setOperationsOpen(false)}/>)}
       </div>
 
-      {model.error && (
-        <div className="error-banner" role="alert">
-          <CircleAlert size={18} /><span>{model.error}</span>
-          <button type="button" title="关闭" onClick={actions.onDismissError}><X size={14} /></button>
-        </div>
-      )}
-    </section>
-  );
+      {model.error && (<div className="error-banner" role="alert">
+          <CircleAlert size={18}/><span>{model.error}</span>
+          <button type="button" title={tr("ui.6c14bd7f6f9e")} onClick={actions.onDismissError}><X size={14}/></button>
+        </div>)}
+    </section>);
 }

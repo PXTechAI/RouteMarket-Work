@@ -1,0 +1,21 @@
+export const enUSWorkflowNodes: Record<string, { title: string; description: string }> = {
+  "local.fs.read": { title: "Read file", description: "Read a text file in the project." },
+  "local.fs.search": { title: "Search project", description: "Search project paths and text content." },
+  "local.fs.write": { title: "Edit file", description: "Safely edit a project file with optimistic locking." },
+  "local.fs.create": { title: "Create file", description: "Safely create a new file in the project." },
+  "local.process.start": { title: "Start process", description: "Start a managed process in the project folder." },
+  "local.process.stop": { title: "Stop process", description: "Stop a managed process tree." },
+  "local.browser.navigate": { title: "Open page", description: "Open a page in the visible built-in browser." },
+  "local.browser.click": { title: "Click page", description: "Click an element in the built-in browser." },
+  "local.browser.type": { title: "Enter text", description: "Enter text into an element in the built-in browser." },
+  "local.browser.upload": { title: "Upload file", description: "Upload a project file to the built-in browser page." },
+  "local.browser.extract": { title: "Extract page", description: "Extract text from the built-in browser." },
+  "local.browser.product_extract": { title: "Identify Amazon product", description: "Identify a product name and price on the current built-in browser page." },
+  "local.browser.screenshot": { title: "Capture page", description: "Capture the current built-in browser page." },
+  "local.data.csv_export": { title: "Export price table", description: "Save identified products as a UTF-8 CSV file that opens directly in Excel." },
+  "desktop.trigger.file_changed": { title: "File change trigger", description: "Start a workflow when a file changes in the project." },
+  "desktop.trigger.folder_added": { title: "Folder added trigger", description: "Start a workflow when a folder is added to the project." },
+  "desktop.trigger.schedule": { title: "Local schedule trigger", description: "Start a workflow at a persistent interval on this device." },
+  "desktop.trigger.hotkey": { title: "Hotkey trigger", description: "Start a workflow with a global hotkey on this device." },
+  "control.approval": { title: "Human approval", description: "Wait for approval from the local user before continuing." }
+};

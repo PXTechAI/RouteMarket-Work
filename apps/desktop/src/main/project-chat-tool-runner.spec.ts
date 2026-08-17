@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import type { PluginManifest } from "@routemarket/work-protocol";
 import type {
   ManagedBrowserState,
   ManagedProcessSummary,
@@ -7,6 +8,7 @@ import type {
 import { LocalToolBroker } from "./tool-broker";
 import { ProjectChatToolRunner } from "./project-chat-tool-runner";
 import { PROJECT_CHAT_TOOLS } from "./project-chat-tools";
+import type { WorkerClient } from "./worker-client";
 
 const projectProcess: ManagedProcessSummary = {
   processId: "process_1",
@@ -107,6 +109,85 @@ function createWorker() {
       sha256: "b".repeat(64),
       created: true as const
     })),
+    createProjectSpreadsheet: vi.fn(async (
+      input: Parameters<WorkerClient["createProjectSpreadsheet"]>[0]
+    ) => ({
+      uri: `routemarket-work://project/project_1/${input.relativePath}`,
+      relativePath: input.relativePath,
+      filename: input.relativePath.split("/").at(-1)!,
+      mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" as const,
+      bytes: 4_096,
+      sha256: `sha256:${"c".repeat(64)}`,
+      sheetName: input.sheetName ?? "Sheet1",
+      rowCount: input.rows.length,
+      columnCount: Math.max(...input.rows.map((row) => row.length))
+    })),
+    inspectProjectSpreadsheet: vi.fn(async (
+      input: Parameters<WorkerClient["inspectProjectSpreadsheet"]>[0]
+    ) => ({
+      uri: `project://${input.localProjectId}/${input.relativePath}`,
+      relativePath: input.relativePath,
+      filename: input.relativePath.split("/").at(-1)!,
+      mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" as const,
+      bytes: 4_096,
+      sha256: `sha256:${"c".repeat(64)}`,
+      sheets: [{ id: "rId1", name: input.sheetName ?? "Data" }],
+      activeSheetId: "rId1",
+      activeSheetName: input.sheetName ?? "Data",
+      usedRange: "A1:B3",
+      rowCount: 3,
+      columnCount: 2,
+      truncated: false
+    })),
+    readProjectSpreadsheetRange: vi.fn(async (
+      input: Parameters<WorkerClient["readProjectSpreadsheetRange"]>[0]
+    ) => ({
+      uri: `project://${input.localProjectId}/${input.relativePath}`,
+      relativePath: input.relativePath,
+      filename: input.relativePath.split("/").at(-1)!,
+      mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" as const,
+      bytes: 4_096,
+      sha256: `sha256:${"c".repeat(64)}`,
+      sheets: [{ id: "rId1", name: input.sheetName ?? "Data" }],
+      activeSheetId: "rId1",
+      activeSheetName: input.sheetName ?? "Data",
+      usedRange: "A1:B3",
+      rowCount: 3,
+      columnCount: 2,
+      truncated: false,
+      range: input.range,
+      rows: [["Name", "Value"], ["Alpha", "1"]]
+    })),
+    writeProjectSpreadsheetRange: vi.fn(async (
+      input: Parameters<WorkerClient["writeProjectSpreadsheetRange"]>[0]
+    ) => ({
+      uri: `project://${input.localProjectId}/${input.relativePath}`,
+      relativePath: input.relativePath,
+      filename: input.relativePath.split("/").at(-1)!,
+      mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" as const,
+      bytes: 4_200,
+      previousSha256: input.expectedSha256,
+      sha256: `sha256:${"d".repeat(64)}`,
+      changed: true,
+      sheetName: input.sheetName ?? "Data",
+      range: input.range.includes(":") ? input.range : `${input.range}:${input.range}`,
+      rowCount: input.rows.length,
+      columnCount: Math.max(...input.rows.map((row) => row.length))
+    })),
+    exportProjectSpreadsheetCsv: vi.fn(async (
+      input: Parameters<WorkerClient["exportProjectSpreadsheetCsv"]>[0]
+    ) => ({
+      uri: `project://${input.localProjectId}/${input.outputPath}`,
+      relativePath: input.outputPath,
+      filename: input.outputPath.split("/").at(-1)!,
+      mimeType: "text/csv" as const,
+      bytes: 128,
+      sha256: `sha256:${"e".repeat(64)}`,
+      sheetName: input.sheetName ?? "Data",
+      range: input.range ?? "A1:B3",
+      rowCount: 3,
+      columnCount: 2
+    })),
     startProcess: vi.fn(async () => projectProcess),
     listProcesses: vi.fn(async () => [
       projectProcess,
@@ -195,6 +276,179 @@ function createSkillClient() {
 }
 
 describe("ProjectChatToolRunner", () => {
+  it("exposes Spreadsheet through the Plugin registry without the development-only legacy name", async () => {
+    const runner = new ProjectChatToolRunner({
+      workerClient: createWorker(),
+      toolBroker: new LocalToolBroker(async () => true)
+    });
+
+    const tools = await runner.listTools("project_1");
+    const names = tools.map((tool) => tool.function.name);
+    const spreadsheet = tools.find((tool) => tool.function.name === "spreadsheet");
+
+    expect(names).toContain("spreadsheet");
+    expect(names).not.toContain("spreadsheet_create");
+    expect(spreadsheet?.function.parameters.required).toEqual(["operation", "path"]);
+  });
+
+  it("routes spreadsheet create through the Plugin runtime and returns a conversation artifact", async () => {
+    const confirm = vi.fn(async () => true);
+    const worker = createWorker();
+    const runner = new ProjectChatToolRunner({
+      workerClient: worker,
+      toolBroker: new LocalToolBroker(confirm)
+    });
+
+    const result = await runner.execute("project_1", {
+      id: "call_spreadsheet",
+      name: "spreadsheet",
+      arguments: JSON.stringify({
+        operation: "create",
+        path: "reports/multiplication.xlsx",
+        sheet_name: "乘法口诀",
+        rows: [["×", 1, 2], [1, "1×1=1", "1×2=2"]],
+        freeze_pane: "A2",
+        column_widths: [12, 18, 18]
+      })
+    });
+
+    expect(result).toMatchObject({
+      isError: false,
+      artifacts: [{
+        filename: "multiplication.xlsx",
+        relativePath: "reports/multiplication.xlsx",
+        providerId: "ai.routemarket.spreadsheet"
+      }]
+    });
+    expect(JSON.parse(result.content)).toMatchObject({
+      operation: "create",
+      created: true,
+      output_files: [{ relative_path: "reports/multiplication.xlsx" }]
+    });
+    expect(confirm).toHaveBeenCalledWith(expect.objectContaining({
+      capability: "local.spreadsheet.write",
+      risk: "R2",
+      projectId: "project_1"
+    }));
+    expect(worker.createProjectSpreadsheet).toHaveBeenCalledWith(expect.objectContaining({
+      localProjectId: "project_1",
+      relativePath: "reports/multiplication.xlsx",
+      sheetName: "乘法口诀",
+      freezePane: "A2",
+      columnWidths: [12, 18, 18]
+    }));
+  });
+
+  it("rejects spreadsheet calls that omit the explicit operation", async () => {
+    const worker = createWorker();
+    const runner = new ProjectChatToolRunner({
+      workerClient: worker,
+      toolBroker: new LocalToolBroker(async () => true)
+    });
+
+    const result = await runner.execute("project_1", {
+      id: "call_spreadsheet_invalid",
+      name: "spreadsheet",
+      arguments: JSON.stringify({ path: "report.xlsx", rows: [[1]] })
+    });
+
+    expect(result.isError).toBe(true);
+    expect(worker.createProjectSpreadsheet).not.toHaveBeenCalled();
+  });
+
+  it("runs spreadsheet inspect and read_range at R0 without prompting", async () => {
+    const confirm = vi.fn(async () => true);
+    const worker = createWorker();
+    const runner = new ProjectChatToolRunner({
+      workerClient: worker,
+      toolBroker: new LocalToolBroker(confirm)
+    });
+
+    const inspected = await runner.execute("project_1", {
+      id: "call_spreadsheet_inspect",
+      name: "spreadsheet",
+      arguments: JSON.stringify({ operation: "inspect", path: "table.xlsx" })
+    });
+    const read = await runner.execute("project_1", {
+      id: "call_spreadsheet_read",
+      name: "spreadsheet",
+      arguments: JSON.stringify({ operation: "read_range", path: "table.xlsx", range: "A1:B2" })
+    });
+
+    expect(inspected.isError).toBe(false);
+    expect(JSON.parse(inspected.content)).toMatchObject({ operation: "inspect", used_range: "A1:B3" });
+    expect(read.isError).toBe(false);
+    expect(JSON.parse(read.content)).toMatchObject({ operation: "read_range", range: "A1:B2" });
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
+  it("guards spreadsheet write_range with R2 approval and returns the updated workbook", async () => {
+    const confirm = vi.fn(async () => true);
+    const worker = createWorker();
+    const runner = new ProjectChatToolRunner({
+      workerClient: worker,
+      toolBroker: new LocalToolBroker(confirm)
+    });
+    const expectedSha256 = `sha256:${"c".repeat(64)}`;
+
+    const result = await runner.execute("project_1", {
+      id: "call_spreadsheet_write",
+      name: "spreadsheet",
+      arguments: JSON.stringify({
+        operation: "write_range",
+        path: "table.xlsx",
+        sheet_name: "Data",
+        range: "B2",
+        rows: [[42]],
+        expected_sha256: expectedSha256
+      })
+    });
+
+    expect(result).toMatchObject({
+      isError: false,
+      artifacts: [{ relativePath: "table.xlsx", providerId: "ai.routemarket.spreadsheet" }]
+    });
+    expect(confirm).toHaveBeenCalledWith(expect.objectContaining({
+      capability: "local.spreadsheet.write",
+      risk: "R2",
+      projectId: "project_1"
+    }));
+    expect(worker.writeProjectSpreadsheetRange).toHaveBeenCalledWith(expect.objectContaining({
+      range: "B2",
+      rows: [[42]],
+      expectedSha256
+    }));
+  });
+
+  it("exports spreadsheet CSV through R2 approval and returns a new file artifact", async () => {
+    const confirm = vi.fn(async () => true);
+    const worker = createWorker();
+    const runner = new ProjectChatToolRunner({
+      workerClient: worker,
+      toolBroker: new LocalToolBroker(confirm)
+    });
+
+    const result = await runner.execute("project_1", {
+      id: "call_spreadsheet_export",
+      name: "spreadsheet",
+      arguments: JSON.stringify({
+        operation: "export_csv",
+        path: "table.xlsx",
+        output_path: "exports/table.csv",
+        range: "A1:B3"
+      })
+    });
+
+    expect(result).toMatchObject({
+      isError: false,
+      artifacts: [{ filename: "table.csv", mimeType: "text/csv" }]
+    });
+    expect(confirm).toHaveBeenCalledWith(expect.objectContaining({
+      capability: "local.spreadsheet.write",
+      risk: "R2"
+    }));
+  });
+
   it("runs project reads at R0 without prompting", async () => {
     const confirm = vi.fn(async () => true);
     const worker = createWorker();
@@ -658,7 +912,11 @@ describe("ProjectChatToolRunner", () => {
       onActivity
     });
 
-    await expect(runner.listTools("project_1")).resolves.toEqual(PROJECT_CHAT_TOOLS);
+    const tools = await runner.listTools("project_1");
+    expect(tools.map((tool) => tool.function.name)).toEqual(expect.arrayContaining([
+      ...PROJECT_CHAT_TOOLS.map((tool) => tool.function.name),
+      "spreadsheet"
+    ]));
     expect(onActivity).toHaveBeenCalledWith(
       "job.failed",
       "Local MCP Tools 暂不可用",
@@ -727,7 +985,11 @@ describe("ProjectChatToolRunner", () => {
       onActivity
     });
 
-    await expect(runner.listTools("project_1")).resolves.toEqual(PROJECT_CHAT_TOOLS);
+    const tools = await runner.listTools("project_1");
+    expect(tools.map((tool) => tool.function.name)).toEqual(expect.arrayContaining([
+      ...PROJECT_CHAT_TOOLS.map((tool) => tool.function.name),
+      "spreadsheet"
+    ]));
     expect(onActivity).toHaveBeenCalledWith(
       "job.failed",
       "项目 Skills 暂不可用",
@@ -764,5 +1026,38 @@ describe("ProjectChatToolRunner", () => {
       "review",
       "Review current changes."
     );
+  });
+
+  it("activates and removes signed declarative tools through host capability adapters", async () => {
+    const runner = new ProjectChatToolRunner({
+      workerClient: createWorker(),
+      toolBroker: new LocalToolBroker(async () => true)
+    });
+    const manifest = {
+      schemaVersion: 1,
+      id: "ai.example.tables",
+      name: "Tables",
+      description: "Spreadsheet helper.",
+      version: "1.0.0",
+      publisher: "Example",
+      kind: "declarative_plugin",
+      status: "available",
+      distribution: { source: "marketplace", packageFormat: "declarative" },
+      engines: { routemarketWork: ">=0.2.0" },
+      permissions: ["project.read", "project.write", "artifact.write"],
+      activationEvents: ["onTool:tables"],
+      contributes: {
+        viewers: [],
+        tools: [{ name: "tables", title: "Tables", status: "available", description: "Work with tables.", capability: "local.spreadsheet.write", risk: "R2" }],
+        workflowNodes: [],
+        connectors: []
+      }
+    } as const satisfies PluginManifest;
+
+    runner.setMarketplacePluginManifests([manifest]);
+    expect((await runner.listTools("project_1")).map((tool) => tool.function.name)).toContain("tables");
+
+    runner.setMarketplacePluginManifests([]);
+    expect((await runner.listTools("project_1")).map((tool) => tool.function.name)).not.toContain("tables");
   });
 });

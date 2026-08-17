@@ -1,3 +1,4 @@
+import { trMain } from "./i18n";
 import type { BrowserWindow } from "electron";
 import { dialog } from "electron";
 import { autoUpdater } from "electron-updater";
@@ -45,18 +46,18 @@ export class DesktopUpdateManager {
     autoUpdater.on("error", (error) => {
       this.onActivity(
         "job.failed",
-        "桌面更新检查失败",
+        trMain("ui.25b06be4ccfa"),
         error.message
       );
     });
     autoUpdater.on("update-available", (info) => {
       void this.promptForDownload(info.version).catch((error) =>
-        this.reportError("桌面更新下载失败", error)
+        this.reportError(trMain("ui.f23403014a2e"), error)
       );
     });
     autoUpdater.on("update-downloaded", (info) => {
       void this.promptForRestart(info.version).catch((error) =>
-        this.reportError("桌面更新安装提示失败", error)
+        this.reportError(trMain("ui.382b8734b9dc"), error)
       );
     });
     this.initialTimer = setTimeout(
@@ -77,13 +78,23 @@ export class DesktopUpdateManager {
     autoUpdater.removeAllListeners();
   }
 
+  getInfo(): { enabled: boolean; channel: "stable" | "beta" } {
+    return { enabled: this.policy.enabled, channel: this.policy.channel };
+  }
+
+  async checkNow(): Promise<boolean> {
+    if (!this.policy.enabled) return false;
+    await autoUpdater.checkForUpdates();
+    return true;
+  }
+
   private async check(): Promise<void> {
     try {
-      await autoUpdater.checkForUpdates();
+      await this.checkNow();
     } catch (error) {
       this.onActivity(
         "job.failed",
-        "桌面更新检查失败",
+        trMain("ui.25b06be4ccfa"),
         error instanceof Error ? error.message : "Unknown update error"
       );
     }
@@ -105,17 +116,17 @@ export class DesktopUpdateManager {
     try {
       const result = await dialog.showMessageBox(window, {
         type: "info",
-        title: "RouteMarket Work 更新",
-        message: `发现新版本 ${version}`,
+        title: trMain("ui.e835fb998e3a"),
+        message: trMain("ui.0db03464c288", [version]),
         detail:
-          "更新包会先完成签名与完整性校验，下载期间可以继续工作。",
-        buttons: ["稍后", "下载更新"],
+          trMain("ui.37c8fa15a15a"),
+        buttons: [trMain("ui.479fcc1cc066"), trMain("ui.c1f18f4e0a0d")],
         defaultId: 1,
         cancelId: 0,
         noLink: true
       });
       if (result.response !== 1) return;
-      this.onActivity("job.started", "正在下载桌面更新", version);
+      this.onActivity("job.started", trMain("ui.58cc34112c7e"), version);
       await autoUpdater.downloadUpdate();
     } finally {
       this.prompting = false;
@@ -128,13 +139,13 @@ export class DesktopUpdateManager {
     if (!window) return;
     this.prompting = true;
     try {
-      this.onActivity("job.succeeded", "桌面更新已下载", version);
+      this.onActivity("job.succeeded", trMain("ui.346224f66468"), version);
       const result = await dialog.showMessageBox(window, {
         type: "info",
-        title: "RouteMarket Work 更新已就绪",
-        message: `版本 ${version} 已准备完成`,
-        detail: "立即重启会安装更新；选择稍后可在正常退出后自动安装。",
-        buttons: ["稍后", "重启并安装"],
+        title: trMain("ui.be493d7e0b78"),
+        message: trMain("ui.6c37ba61f5f5", [version]),
+        detail: trMain("ui.c843aed0d102"),
+        buttons: [trMain("ui.479fcc1cc066"), trMain("ui.33292ab3427c")],
         defaultId: 1,
         cancelId: 0,
         noLink: true

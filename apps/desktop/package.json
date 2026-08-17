@@ -3,6 +3,7 @@
   "version": "0.2.0",
   "description": "Local-first desktop workspace for RouteMarket workflows, projects, agents and browser tasks.",
   "author": "PX Labs",
+  "license": "Apache-2.0",
   "private": true,
   "type": "module",
   "main": "./out/main/index.js",
@@ -88,16 +89,20 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@embedpdf/pdfium": "^2.15.0",
     "@routemarket/work-protocol": "workspace:*",
     "@routemarket/work-worker-core": "workspace:*",
+    "@xyflow/react": "^12.10.2",
     "electron-updater": "6.6.2",
     "lucide-react": "^0.468.0",
+    "pngjs": "^7.0.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "ws": "^8.21.1"
   },
   "devDependencies": {
     "@types/node": "^22.15.17",
+    "@types/pngjs": "^6.0.5",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@types/ws": "^8.18.1",

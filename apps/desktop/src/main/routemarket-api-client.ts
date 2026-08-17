@@ -3,6 +3,10 @@ export type RouteMarketApiAuth = "none" | "required";
 export type RouteMarketApiClientOptions = {
   baseUrl: string;
   appVersion: string;
+  platform?: "windows" | "macos";
+  arch?: "x64" | "arm64";
+  releaseChannel?: "stable" | "beta" | "development" | "test";
+  buildId?: string | null;
   fetchImpl?: typeof fetch;
 };
 
@@ -46,6 +50,7 @@ export class RouteMarketApiClient {
   getWebSocketHeaders(accessToken: string): Record<string, string> {
     return {
       Authorization: `Bearer ${accessToken}`,
+      ...this.clientIdentityHeaders(),
       ...(this.teamId ? { "X-RouteMarket-Team-Id": this.teamId } : {})
     };
   }
@@ -75,13 +80,29 @@ export class RouteMarketApiClient {
       ...init,
       headers: {
         Accept: "application/json",
-        "X-RouteMarket-Client": "desktop",
-        "X-RouteMarket-Client-Version": this.options.appVersion,
+        ...this.clientIdentityHeaders(),
         ...toHeaderRecord(init.headers),
         ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
         ...(accessToken && this.teamId ? { "X-RouteMarket-Team-Id": this.teamId } : {})
       }
     });
+  }
+
+  private clientIdentityHeaders(): Record<string, string> {
+    return {
+      "X-RouteMarket-Client": "desktop",
+      "X-RouteMarket-Client-Version": this.options.appVersion,
+      ...(this.options.platform
+        ? { "X-RouteMarket-Client-Platform": this.options.platform }
+        : {}),
+      ...(this.options.arch ? { "X-RouteMarket-Client-Arch": this.options.arch } : {}),
+      ...(this.options.releaseChannel
+        ? { "X-RouteMarket-Client-Release-Channel": this.options.releaseChannel }
+        : {}),
+      ...(this.options.buildId
+        ? { "X-RouteMarket-Client-Build-Id": this.options.buildId }
+        : {})
+    };
   }
 }
 

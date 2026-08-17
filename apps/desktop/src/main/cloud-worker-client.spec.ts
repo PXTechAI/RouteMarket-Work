@@ -1,9 +1,14 @@
 import { EventEmitter } from "node:events";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DesktopJob, JobEvent } from "@routemarket/work-protocol";
+import {
+  projectBindingIdFor,
+  type ProjectSkillPackageIdentity
+} from "@routemarket/work-worker-core";
 import WebSocket from "ws";
 import {
   CloudWorkerClient,
+  type CloudSkillSigner,
   type CloudWorkerTransport
 } from "./cloud-worker-client";
 import { RouteMarketApiClient } from "./routemarket-api-client";
@@ -74,7 +79,11 @@ function createClient(
     leaseEpoch: number,
     signal: AbortSignal,
     emitEvents: (events: JobEvent[]) => Promise<void>
-  ) => Promise<JobEvent[]>
+  ) => Promise<JobEvent[]>,
+  skillSigner: CloudSkillSigner = {
+    signManifest: vi.fn(async () => ({ signingKeys: [], localSkills: [] })),
+    assertAuthorizedJob: vi.fn()
+  }
 ): CloudWorkerClient {
   return new CloudWorkerClient({
     apiClient: new RouteMarketApiClient({
@@ -88,6 +97,7 @@ function createClient(
     appVersion: "0.1.0",
     workerVersion: "0.1.0",
     workerClient,
+    skillSigner,
     onActivity,
     executeDesktopJob,
     socketFactory: false
@@ -258,6 +268,16 @@ describe("CloudWorkerClient", () => {
   });
 
   it("uploads projects and acknowledges pending outbox events", async () => {
+    const projectBindingId = projectBindingIdFor("project_local_1");
+    const packageIdentity = {
+      skillId: "review",
+      version: "1.0.0",
+      packageDigest: `sha256:${"a".repeat(64)}`,
+      projectBindingId,
+      permissions: ["project.read" as const],
+      operations: ["invoke"],
+      relativePath: ".codex/skills/review/SKILL.md"
+    };
     const pendingEvent: JobEvent = {
       eventId: "event_1",
       jobId: "job_1",
@@ -289,6 +309,23 @@ describe("CloudWorkerClient", () => {
           updatedAt: "2026-07-17T00:00:00.000Z"
         }
       ]),
+      projectContext: vi.fn(async () => ({
+        instructions: null,
+        readme: null,
+        settings: {
+          defaultAgent: null,
+          defaultModel: null,
+          cloudProjectId: null,
+          ignore: []
+        },
+        skills: [{
+          id: "review",
+          name: "Review",
+          description: "Review this project",
+          relativePath: packageIdentity.relativePath
+        }]
+      })),
+      inspectProjectSkill: vi.fn(async () => packageIdentity),
       pendingEvents: vi.fn(async () => [pendingEvent]),
       acknowledgeEvent
     });
@@ -318,7 +355,27 @@ describe("CloudWorkerClient", () => {
       throw new Error(`Unexpected request: ${url}`);
     });
     vi.stubGlobal("fetch", fetchMock);
-    const client = createClient(worker);
+    const client = createClient(worker, vi.fn(), undefined, {
+      signManifest: vi.fn(async (identities: ProjectSkillPackageIdentity[]) => ({
+        signingKeys: [{
+          keyId: "device_0123456789abcdef01234567",
+          algorithm: "ed25519" as const,
+          publicKey: Buffer.alloc(32, 1).toString("base64"),
+          trust: "device" as const
+        }],
+        localSkills: identities.map((identity) => ({
+          skillId: identity.skillId,
+          version: identity.version,
+          packageDigest: identity.packageDigest,
+          signingKeyId: "device_0123456789abcdef01234567",
+          signature: Buffer.alloc(64, 2).toString("base64"),
+          projectBindingId: identity.projectBindingId,
+          permissions: identity.permissions,
+          operations: identity.operations
+        }))
+      })),
+      assertAuthorizedJob: vi.fn()
+    });
 
     await signIn(client);
 
@@ -334,7 +391,7 @@ describe("CloudWorkerClient", () => {
             risk: "R0",
             operations: ["read_text", "stat", "list"]
           },
-          expect.objectContaining({ key: "local.skill.invoke", risk: "R0" }),
+          expect.objectContaining({ key: "local.skill.invoke", risk: "R3" }),
           expect.objectContaining({ key: "local.browser.navigate", risk: "R1" }),
           expect.objectContaining({ key: "local.browser.upload", risk: "R3" }),
           expect.objectContaining({ key: "local.mcp.call", risk: "R2" })
@@ -345,6 +402,20 @@ describe("CloudWorkerClient", () => {
             access: ["read"],
             rootFingerprint: "sha256:test"
           }
+        ],
+        signingKeys: [
+          expect.objectContaining({
+            keyId: "device_0123456789abcdef01234567",
+            algorithm: "ed25519"
+          })
+        ],
+        localSkills: [
+          expect.objectContaining({
+            skillId: "review",
+            version: "1.0.0",
+            packageDigest: packageIdentity.packageDigest,
+            projectBindingId
+          })
         ]
       }
     });
@@ -358,7 +429,6 @@ describe("CloudWorkerClient", () => {
             local_project_id: "project_local_1",
             capabilities: expect.arrayContaining([
               "local.fs.read",
-              "local.skill.invoke",
               "local.browser.navigate",
               "local.browser.upload",
               "local.mcp.call"
@@ -379,7 +449,7 @@ describe("CloudWorkerClient", () => {
     client.stop();
   });
 
-  it("routes local Skill Desktop Jobs directly through the Worker runtime", async () => {
+  it("routes signed local Skill Desktop Jobs through the external R3 approval runtime", async () => {
     const skillJob: DesktopJob = {
       jobId: "job_skill_1",
       workflowRunId: "workflow_skill_1",
@@ -388,10 +458,17 @@ describe("CloudWorkerClient", () => {
       projectBindingId: "binding_skill_1",
       executorKey: "local.skill.invoke",
       executorVersion: 1,
-      input: { skillId: "review", task: "Review the current changes." },
+      input: {
+        skillId: "review",
+        version: "1.0.0",
+        packageDigest: `sha256:${"a".repeat(64)}`,
+        signingKeyId: "device_0123456789abcdef01234567",
+        operation: "invoke",
+        task: "Review the current changes."
+      },
       requiredCapabilities: ["local.skill.invoke"],
-      executionClass: "pure_read",
-      approvalPolicy: { risk: "R0", mode: "project_grant" },
+      executionClass: "external_side_effect",
+      approvalPolicy: { risk: "R3", mode: "invocation" },
       idempotencyKey: `sha256:${"d".repeat(64)}`,
       deadlineAt: "2026-07-19T00:00:00.000Z",
       maxInlineResultBytes: 65_536
@@ -409,7 +486,8 @@ describe("CloudWorkerClient", () => {
       data: { output: { skillId: "review" } }
     };
     const executeJob = vi.fn(async () => [succeeded]);
-    const executeDesktopJob = vi.fn(async () => []);
+    const executeDesktopJob = vi.fn(async () => [succeeded]);
+    const assertAuthorizedJob = vi.fn();
     const worker = createWorker({ executeJob });
     let offered = false;
     vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input) => {
@@ -425,12 +503,22 @@ describe("CloudWorkerClient", () => {
       if (url.endsWith("/jobs/job_skill_1/events")) return jsonResponse({ acknowledged: true });
       throw new Error(`Unexpected request: ${url}`);
     }));
-    const client = createClient(worker, vi.fn(), executeDesktopJob);
+    const client = createClient(worker, vi.fn(), executeDesktopJob, {
+      signManifest: vi.fn(async () => ({ signingKeys: [], localSkills: [] })),
+      assertAuthorizedJob
+    });
 
     await signIn(client);
 
-    expect(executeJob).toHaveBeenCalledWith(skillJob, "lease_skill_1", 1);
-    expect(executeDesktopJob).not.toHaveBeenCalled();
+    expect(assertAuthorizedJob).toHaveBeenCalledWith(skillJob);
+    expect(executeJob).not.toHaveBeenCalled();
+    expect(executeDesktopJob).toHaveBeenCalledWith(
+      skillJob,
+      "lease_skill_1",
+      1,
+      expect.any(AbortSignal),
+      expect.any(Function)
+    );
     client.stop();
   });
 

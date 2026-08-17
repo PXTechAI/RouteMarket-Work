@@ -5,8 +5,97 @@ import desktopJobSchema from "../schemas/desktop-job.schema.json";
 import desktopNodeRegistrySchema from "../schemas/desktop-node-registry.schema.json";
 import envelopeSchema from "../schemas/envelope.schema.json";
 import jobEventSchema from "../schemas/job-event.schema.json";
+import pluginManifestSchema from "../schemas/plugin-manifest.schema.json";
+
+export type PluginPermission =
+  | LocalSkillPermission
+  | "browser.read"
+  | "browser.interact"
+  | "artifact.read"
+  | "artifact.write";
+
+export type PluginViewerContribution = {
+  id: string;
+  title: string;
+  status: "available" | "planned" | "disabled";
+  extensions: string[];
+  mimeTypes: string[];
+  mode: "readonly" | "editable";
+};
+
+export type PluginToolContribution = {
+  name: string;
+  title: string;
+  status: "available" | "planned" | "disabled";
+  description: string;
+  capability: string;
+  risk: "R0" | "R1" | "R2" | "R3";
+};
+
+export type PluginWorkflowNodeContribution = {
+  executorKey: string;
+  title: string;
+  status: "available" | "planned" | "disabled";
+  description: string;
+};
+
+export type PluginConnectorContribution = {
+  id: string;
+  title: string;
+  status: "available" | "planned" | "disabled";
+  kind: "browser_provider" | "native_app" | "remote_service";
+};
+
+export type PluginDistribution =
+  | {
+      source: "bundled";
+      packageFormat: "declarative";
+    }
+  | {
+      source: "marketplace";
+      packageFormat: "declarative";
+    };
+
+export type PluginManifest = {
+  schemaVersion: 1;
+  id: string;
+  name: string;
+  description: string;
+  version: string;
+  publisher: string;
+  kind: "host_runtime" | "declarative_plugin";
+  status: "available" | "planned" | "disabled";
+  distribution: PluginDistribution;
+  engines: { routemarketWork: string };
+  permissions: PluginPermission[];
+  activationEvents: string[];
+  contributes: {
+    viewers: PluginViewerContribution[];
+    tools: PluginToolContribution[];
+    workflowNodes: PluginWorkflowNodeContribution[];
+    connectors: PluginConnectorContribution[];
+  };
+};
 
 export const WORK_PROTOCOL = "routemarket-work/1" as const;
+
+export type LocalSkillPermission =
+  | "project.read"
+  | "project.write"
+  | "network"
+  | "process"
+  | "external_apps";
+
+export type LocalSkillIdentity = {
+  skillId: string;
+  version: string;
+  packageDigest: string;
+  signingKeyId: string;
+  signature: string;
+  projectBindingId: string | null;
+  permissions: LocalSkillPermission[];
+  operations: string[];
+};
 
 export type WorkMessageType =
   | "session.ready"
@@ -105,10 +194,17 @@ export type DesktopJob = DesktopJobBase & (
     }
   | {
       executorKey: "local.skill.invoke";
-      input: { skillId: string; task: string };
+      input: {
+        skillId: string;
+        version: string;
+        packageDigest: string;
+        signingKeyId: string;
+        operation: string;
+        task: string;
+      };
       requiredCapabilities: ["local.skill.invoke"];
-      executionClass: "pure_read";
-      approvalPolicy: { risk: "R0"; mode: "project_grant" };
+      executionClass: "external_side_effect";
+      approvalPolicy: { risk: "R3"; mode: "invocation" };
     }
   | {
       executorKey: "local.app.open";
@@ -180,6 +276,7 @@ const validateCapabilityManifest = ajv.compile(capabilityManifestSchema);
 const validateDesktopJob = ajv.compile(desktopJobSchema);
 const validateDesktopNodeRegistry = ajv.compile(desktopNodeRegistrySchema);
 const validateJobEvent = ajv.compile(jobEventSchema);
+const validatePluginManifest = ajv.compile(pluginManifestSchema);
 
 function runValidation(validate: ValidateFunction, value: unknown): ValidationResult {
   return validate(value)
@@ -205,6 +302,17 @@ export function checkDesktopNodeRegistry(value: unknown): ValidationResult {
 
 export function checkJobEvent(value: unknown): ValidationResult {
   return runValidation(validateJobEvent, value);
+}
+
+export function checkPluginManifest(value: unknown): ValidationResult {
+  return runValidation(validatePluginManifest, value);
+}
+
+export function assertPluginManifest(value: unknown): asserts value is PluginManifest {
+  const result = checkPluginManifest(value);
+  if (!result.ok) {
+    throw new Error(`Invalid plugin manifest: ${ajv.errorsText(result.errors)}`);
+  }
 }
 
 export function assertDesktopJob(value: unknown): asserts value is DesktopJob {

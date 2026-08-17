@@ -26,6 +26,10 @@ describe("RouteMarketApiClient", () => {
     const client = new RouteMarketApiClient({
       baseUrl: "https://console.example.test",
       appVersion: "0.2.0",
+      platform: "windows",
+      arch: "x64",
+      releaseChannel: "stable",
+      buildId: "build_123",
       fetchImpl
     });
     client.setAccessToken("rmw_dt_test");
@@ -47,12 +51,22 @@ describe("RouteMarketApiClient", () => {
           "X-Request-ID": "request_1",
           "X-RouteMarket-Client": "desktop",
           "X-RouteMarket-Client-Version": "0.2.0",
+          "X-RouteMarket-Client-Platform": "windows",
+          "X-RouteMarket-Client-Arch": "x64",
+          "X-RouteMarket-Client-Release-Channel": "stable",
+          "X-RouteMarket-Client-Build-Id": "build_123",
           "X-RouteMarket-Team-Id": "team_design"
         })
       })
     );
     expect(client.getWebSocketHeaders("rmw_dt_test")).toEqual({
       Authorization: "Bearer rmw_dt_test",
+      "X-RouteMarket-Client": "desktop",
+      "X-RouteMarket-Client-Version": "0.2.0",
+      "X-RouteMarket-Client-Platform": "windows",
+      "X-RouteMarket-Client-Arch": "x64",
+      "X-RouteMarket-Client-Release-Channel": "stable",
+      "X-RouteMarket-Client-Build-Id": "build_123",
       "X-RouteMarket-Team-Id": "team_design"
     });
   });

@@ -18,6 +18,8 @@ function agent(revision = 3): DesktopAgentProfile {
   return {
     id: "agent_builder",
     revision,
+    origin: "template",
+    forkSourceId: "fork_platform_builder",
     name: "Project Builder",
     description: "Build projects",
     avatarUrl: "https://assets.example.test/agent-builder.png",

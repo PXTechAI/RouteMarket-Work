@@ -1,3 +1,4 @@
+import { trMain } from "./i18n";
 import { createHash } from "node:crypto";
 import type { McpServerSummary, McpTool } from "../shared/desktop-api";
 import type { LocalToolBroker } from "./tool-broker";
@@ -78,12 +79,12 @@ export class ProjectChatMcpToolRuntime {
       const resolved = await this.resolve(localProjectId, call.name);
       const title = resolved.tool.title ?? resolved.tool.name;
       const detail = `${resolved.server.name} · ${title}`;
-      return await this.runWithActivity(`调用 MCP：${title}`, detail, () =>
+      return await this.runWithActivity(trMain("ui.eaed5d1baccf", [title]), detail, () =>
         this.options.toolBroker.run(
           {
             capability: "local.mcp.call",
             risk: "R2",
-            title: `允许 AI 调用 Local MCP Tool：${title}？`,
+            title: trMain("ui.4e44bd178ca0", [title]),
             detail,
             auditDetail: `${resolved.server.serverId} · ${resolved.tool.name}`,
             approvalKey: `${resolved.server.serverId}:${resolved.tool.name}:${sha256(JSON.stringify(args))}`,
@@ -115,7 +116,7 @@ export class ProjectChatMcpToolRuntime {
             message: error instanceof Error ? error.message : "Unknown MCP Tool error"
           }
         }),
-        summary: error instanceof Error ? error.message : "Local MCP Tool 调用失败",
+        summary: error instanceof Error ? error.message : trMain("ui.f96ff9cd1312"),
         isError: true
       };
     }

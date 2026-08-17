@@ -1,3 +1,4 @@
+import { trMain } from "./i18n";
 import { open, stat } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import type { ManagedBrowserManager } from "./managed-browser-manager";
@@ -53,13 +54,13 @@ export async function extractProductPrice(
   ]);
   if (!productTitle) {
     throw Object.assign(
-      new Error("页面尚未显示商品信息。请在内置浏览器完成登录或验证后继续运行。"),
+      new Error(trMain("ui.16d0ced04f6a")),
       { code: "WORKFLOW_USER_ACTION_REQUIRED" }
     );
   }
   if (!priceText) {
     throw Object.assign(
-      new Error("页面需要你完成登录或验证。请在内置浏览器处理后继续运行。"),
+      new Error(trMain("ui.44a0bca15ce4")),
       { code: "WORKFLOW_USER_ACTION_REQUIRED" }
     );
   }
@@ -84,16 +85,16 @@ export async function exportProductPriceCsv(input: {
   rowCount: 1;
 }> {
   if (!isAbsolute(input.outputDirectory)) {
-    throw new Error("输出目录必须是通过系统目录选择器选择的绝对路径。");
+    throw new Error(trMain("ui.4d1a280bca0b"));
   }
   const directory = await stat(input.outputDirectory).catch(() => null);
   if (!directory?.isDirectory()) {
-    throw new Error("输出目录不存在或不可访问，请重新选择目录。");
+    throw new Error(trMain("ui.f366227dbf58"));
   }
   const requestedName = sanitizeCsvFileName(input.fileName);
   const allocation = await allocateCsvPath(input.outputDirectory, requestedName);
   const csv = [
-    ["商品名称", "价格文本", "价格数值", "币种", "商品链接", "采集时间"],
+    [trMain("ui.47b74133f281"), trMain("ui.c0c20e92fda4"), trMain("ui.eab42da09cbe"), trMain("ui.a81ab5e10006"), trMain("ui.0bf014430dbe"), trMain("ui.f9fb10d4a84e")],
     [
       input.record.productTitle,
       input.record.priceText,
@@ -152,7 +153,7 @@ function normalizeSelectors(
         selector.length > 2_048
     )
   ) {
-    throw new Error("商品识别选择器必须是 1 至 16 个有效 CSS selector。");
+    throw new Error(trMain("ui.d6a8c711d2a2"));
   }
   return values.map((selector) => selector.trim());
 }
@@ -231,7 +232,7 @@ async function allocateCsvPath(
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
     }
   }
-  throw new Error("无法为导出表格分配可用文件名。");
+  throw new Error(trMain("ui.2dbb4d9732e8"));
 }
 
 function csvCell(value: string | number): string {

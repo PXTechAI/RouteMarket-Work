@@ -56,7 +56,11 @@ const test = spawnSync(
       ...process.env,
       ROUTEMARKET_CORE_DIR: coreRoot,
       ROUTEMARKET_CORE_E2E: "1",
-      ROUTEMARKET_CORE_E2E_PORT: process.env.ROUTEMARKET_CORE_E2E_PORT || "43101"
+      ROUTEMARKET_CORE_E2E_PORT: process.env.ROUTEMARKET_CORE_E2E_PORT || "43101",
+      // Docker release builds intentionally generate a client without bundled
+      // engines. This local real-Core suite connects to a direct PostgreSQL
+      // database and must select the already-installed native library engine.
+      PRISMA_CLIENT_ENGINE_TYPE: "library"
     },
     stdio: "inherit"
   }

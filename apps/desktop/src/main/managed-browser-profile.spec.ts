@@ -38,5 +38,7 @@ describe("managed browser profiles", () => {
     );
     expect(browserPartition({ ...base, localProjectId: "project_b", persistence: "persistent" }))
       .not.toBe(browserPartition({ ...base, persistence: "persistent" }));
+    expect(browserPartition({ ...base, persistence: "persistent" }, "scope_b"))
+      .not.toBe(browserPartition({ ...base, persistence: "persistent" }, "scope_a"));
   });
 });

@@ -1,4 +1,6 @@
+import { trMain } from "./i18n";
 import { createHash } from "node:crypto";
+import type { PluginManifest } from "@routemarket/work-protocol";
 import type {
   ManagedProcessSummary,
   ManagedBrowserState,
@@ -8,8 +10,12 @@ import type {
 } from "../shared/desktop-api";
 import type { ManagedBrowserManager } from "./managed-browser-manager";
 import { ProjectChatMcpToolRuntime } from "./project-chat-mcp-tools";
+import { ProjectChatPluginRegistry } from "./project-chat-plugin-registry";
 import { ProjectChatSkillRuntime } from "./project-chat-skill-tools";
-import type { LocalToolBroker, ToolApprovalMode } from "./tool-broker";
+import { createSpreadsheetChatPlugin } from "./spreadsheet-chat-plugin";
+import { createPdfChatPlugin } from "./pdf-chat-plugin";
+import type { ProjectPdfResult } from "./project-pdf-service";
+import type { LocalToolBroker, ToolApprovalMode, ToolRisk } from "./tool-broker";
 import type { WorkerClient } from "./worker-client";
 import type {
   ProjectChatToolCall,
@@ -58,7 +64,14 @@ type ProjectChatToolRunnerOptions = {
     | "startProcess"
     | "listProcesses"
     | "stopProcess"
-  >;
+  > & Partial<Pick<
+    WorkerClient,
+    | "createProjectSpreadsheet"
+    | "inspectProjectSpreadsheet"
+    | "readProjectSpreadsheetRange"
+    | "writeProjectSpreadsheetRange"
+    | "exportProjectSpreadsheetCsv"
+  >>;
   toolBroker: LocalToolBroker;
   getBrowser?: () => ProjectChatBrowser;
   mcpClient?: Pick<
@@ -66,6 +79,14 @@ type ProjectChatToolRunnerOptions = {
     "listMcpServers" | "startMcpServer" | "callMcpTool"
   >;
   skillClient?: Pick<WorkerClient, "projectContext" | "invokeProjectSkill">;
+  pdfClient?: {
+    createProjectPdf(input: {
+      localProjectId: string;
+      relativePath: string;
+      title?: string;
+      content: string;
+    }): Promise<ProjectPdfResult>;
+  };
   onActivity?: (
     type: "job.started" | "job.succeeded" | "job.failed",
     title: string,
@@ -75,9 +96,21 @@ type ProjectChatToolRunnerOptions = {
 
 export class ProjectChatToolRunner {
   private readonly mcpRuntime: ProjectChatMcpToolRuntime | null;
+  private readonly pluginRegistry = new ProjectChatPluginRegistry();
   private readonly skillRuntime: ProjectChatSkillRuntime | null;
+  private marketplacePluginIds = new Set<string>();
 
   constructor(private readonly options: ProjectChatToolRunnerOptions) {
+    this.pluginRegistry.register(createSpreadsheetChatPlugin({
+      workerClient: options.workerClient,
+      runAuthorized: (...args) => this.runAuthorized(...args)
+    }));
+    if (options.pdfClient) {
+      this.pluginRegistry.register(createPdfChatPlugin({
+        createProjectPdf: (input) => options.pdfClient!.createProjectPdf(input),
+        runAuthorized: (...args) => this.runAuthorized(...args)
+      }));
+    }
     this.mcpRuntime = options.mcpClient
       ? new ProjectChatMcpToolRuntime({
           client: options.mcpClient,
@@ -93,16 +126,48 @@ export class ProjectChatToolRunner {
       : null;
   }
 
+  setMarketplacePluginManifests(manifests: PluginManifest[]): void {
+    for (const pluginId of this.marketplacePluginIds) this.pluginRegistry.removeByPluginId(pluginId);
+    this.marketplacePluginIds = new Set();
+    for (const manifest of manifests) {
+      if (
+        manifest.kind !== "declarative_plugin" || manifest.status !== "available" ||
+        manifest.distribution.source !== "marketplace"
+      ) continue;
+      for (const contribution of manifest.contributes.tools) {
+        if (
+          contribution.status !== "available" ||
+          contribution.capability !== "local.spreadsheet.write" ||
+          contribution.risk !== "R2" ||
+          !manifest.permissions.includes("project.read") ||
+          !manifest.permissions.includes("project.write") ||
+          contribution.name === "spreadsheet" ||
+          this.pluginRegistry.find(contribution.name)
+        ) continue;
+        this.pluginRegistry.register(createSpreadsheetChatPlugin({
+          workerClient: this.options.workerClient,
+          runAuthorized: (...args) => this.runAuthorized(...args),
+          identity: {
+            pluginId: manifest.id,
+            toolName: contribution.name,
+            description: contribution.description
+          }
+        }));
+        this.marketplacePluginIds.add(manifest.id);
+      }
+    }
+  }
+
   async listTools(localProjectId: string): Promise<ProjectChatToolDefinition[]> {
-    const tools = [...PROJECT_CHAT_TOOLS];
+    const tools = [...PROJECT_CHAT_TOOLS, ...this.pluginRegistry.listDefinitions()];
     if (this.skillRuntime) {
       try {
         tools.push(...await this.skillRuntime.listDefinitions(localProjectId));
       } catch (error) {
         this.options.onActivity?.(
           "job.failed",
-          "项目 Skills 暂不可用",
-          error instanceof Error ? error.message : "无法读取项目 Skill 列表"
+          trMain("ui.9919374825db"),
+          error instanceof Error ? error.message : trMain("ui.f3dd08f8354c")
         );
       }
     }
@@ -112,8 +177,8 @@ export class ProjectChatToolRunner {
       } catch (error) {
         this.options.onActivity?.(
           "job.failed",
-          "Local MCP Tools 暂不可用",
-          error instanceof Error ? error.message : "无法读取 Local MCP Tool 列表"
+          trMain("ui.75917bd0a669"),
+          error instanceof Error ? error.message : trMain("ui.0f7d86c07118")
         );
       }
     }
@@ -139,12 +204,22 @@ export class ProjectChatToolRunner {
     try {
       throwIfAborted(signal);
       const args = parseArguments(call.arguments);
+      const pluginTool = this.pluginRegistry.find(call.name);
+      if (pluginTool) {
+        return await pluginTool.execute({
+          localProjectId,
+          call,
+          args,
+          signal,
+          approvalMode
+        });
+      }
       if (call.name === "project_list_files") {
         assertNoUnexpectedKeys(args, []);
         return await this.runRead(
           localProjectId,
-          "查看项目文件",
-          "项目文件树",
+          trMain("ui.cc7dcd4bb00a"),
+          trMain("ui.90ced4b2a468"),
           async () => {
             const result = await this.options.workerClient.listProjectFiles(localProjectId);
             const paths = flattenEntries(result.entries).slice(0, MAX_LISTED_PATHS);
@@ -154,7 +229,7 @@ export class ProjectChatToolRunner {
                 total_entries: result.totalEntries,
                 truncated: result.truncated || paths.length >= MAX_LISTED_PATHS
               }),
-              summary: `${paths.length} 个路径`
+              summary: trMain("ui.cc5a5f079912", [paths.length])
             };
           },
           approvalMode
@@ -166,7 +241,7 @@ export class ProjectChatToolRunner {
         const query = requiredString(args, "query", 256);
         return await this.runRead(
           localProjectId,
-          "搜索项目",
+          trMain("ui.b617f05c84e4"),
           query,
           async () => {
             const result = await this.options.workerClient.searchProject(
@@ -180,7 +255,7 @@ export class ProjectChatToolRunner {
                 files_scanned: result.filesScanned,
                 truncated: result.truncated
               }),
-              summary: `${result.matches.length} 个结果`
+              summary: trMain("ui.d8917e1f1771", [result.matches.length])
             };
           },
           approvalMode
@@ -192,7 +267,7 @@ export class ProjectChatToolRunner {
         const path = requiredPath(args);
         return await this.runRead(
           localProjectId,
-          "读取项目文件",
+          trMain("ui.87e4a3b9a477"),
           path,
           async () => {
             const result = await this.options.workerClient.readProjectFile(
@@ -220,11 +295,11 @@ export class ProjectChatToolRunner {
           localProjectId,
           {
             capability: "local.fs.write",
-            title: `允许 AI 修改 ${path}？`,
+            title: trMain("ui.5e6df975d599", [path]),
             detail: path,
             approvalKey: `${expectedSha256}:${sha256(text)}`
           },
-          "修改项目文件",
+          trMain("ui.d477365c5d2b"),
           path,
           async () => {
             const result = await this.options.workerClient.writeProjectFile(
@@ -241,7 +316,7 @@ export class ProjectChatToolRunner {
                 sha256: result.sha256,
                 previous_sha256: result.previousSha256
               }),
-              summary: result.changed ? `已修改 ${path}` : `${path} 没有变化`
+              summary: result.changed ? trMain("ui.feff086bf00b", [path]) : trMain("ui.790807fa7319", [path])
             };
           },
           approvalMode
@@ -256,11 +331,11 @@ export class ProjectChatToolRunner {
           localProjectId,
           {
             capability: "local.fs.create",
-            title: `允许 AI 新建 ${path}？`,
+            title: trMain("ui.9eeaed8bf736", [path]),
             detail: path,
             approvalKey: `${path}:${sha256(text)}`
           },
-          "新建项目文件",
+          trMain("ui.54c7ecfd638a"),
           path,
           async () => {
             const result = await this.options.workerClient.createProjectFile(
@@ -268,14 +343,26 @@ export class ProjectChatToolRunner {
               path,
               text
             );
+            const artifact = {
+              id: `artifact_${sha256(`${localProjectId}:${path}:${result.sha256}`).slice(0, 24)}`,
+              kind: "file" as const,
+              relativePath: path,
+              filename: path.split("/").at(-1)!,
+              mimeType: mimeTypeForPath(path),
+              size: result.bytesRead,
+              uri: result.uri,
+              providerId: "ai.routemarket.project-file"
+            };
             return {
               content: stringifyToolResult({
                 path,
                 created: true,
                 bytes_read: result.bytesRead,
-                sha256: result.sha256
+                sha256: result.sha256,
+                output_files: [artifact]
               }),
-              summary: `已创建 ${path}`
+              summary: trMain("ui.ba6e03befdaf", [path]),
+              artifacts: [artifact]
             };
           },
           approvalMode
@@ -304,12 +391,12 @@ export class ProjectChatToolRunner {
           {
             capability: "local.process.start",
             risk: "R2",
-            title: `允许 AI 在项目中启动 ${executable}？`,
+            title: trMain("ui.e70203761fbb", [executable]),
             detail: clipDetail(command),
             auditDetail: executable,
             approvalKey: sha256(JSON.stringify([executable, ...processArgs]))
           },
-          "启动项目进程",
+          trMain("ui.72729d85ab04"),
           clipDetail(command),
           async () => {
             throwIfAborted(signal);
@@ -340,7 +427,7 @@ export class ProjectChatToolRunner {
         return await this.runPassive(
           localProjectId,
           "local.process.list",
-          "查看项目进程",
+          trMain("ui.18cf322cd643"),
           localProjectId,
           async () => {
             const processes = (await this.options.workerClient.listProcesses())
@@ -348,7 +435,7 @@ export class ProjectChatToolRunner {
               .map(sanitizeProcess);
             return {
               content: stringifyToolResult({ processes }),
-              summary: `${processes.length} 个项目进程`
+              summary: trMain("ui.e95f25a7aa52", [processes.length])
             };
           },
           approvalMode
@@ -364,18 +451,18 @@ export class ProjectChatToolRunner {
           {
             capability: "local.process.stop",
             risk: "R2",
-            title: `允许 AI 停止 ${process.executable}？`,
+            title: trMain("ui.e6198cb7ead1", [process.executable]),
             detail: processId,
             auditDetail: process.executable,
             approvalKey: processId
           },
-          "停止项目进程",
+          trMain("ui.d86dd8ca7d2b"),
           processId,
           async () => {
             const result = await this.options.workerClient.stopProcess(processId);
             return {
               content: stringifyToolResult(sanitizeProcess(result)),
-              summary: `已停止 ${result.executable} · ${result.processId}`
+              summary: trMain("ui.d300444035b6", [result.executable, result.processId])
             };
           },
           approvalMode
@@ -387,13 +474,13 @@ export class ProjectChatToolRunner {
         return await this.runPassive(
           localProjectId,
           "local.browser.read",
-          "查看浏览器页面",
+          trMain("ui.3a0191f541dd"),
           localProjectId,
           async () => {
             const state = await this.requireBrowser().getState(localProjectId);
             return {
               content: stringifyToolResult(sanitizeBrowserState(state)),
-              summary: `${state.pages.length} 个浏览器页面`
+              summary: trMain("ui.0391ccac18e5", [state.pages.length])
             };
           },
           approvalMode
@@ -419,12 +506,12 @@ export class ProjectChatToolRunner {
           {
             capability: "local.browser.navigate",
             risk: "R1",
-            title: "允许 AI 新建浏览器页面？",
+            title: trMain("ui.b4196f0460fb"),
             detail,
             auditDetail: "Managed Browser",
             approvalKey: `${profileId ?? "default"}:${detail}`
           },
-          "新建浏览器页面",
+          trMain("ui.92ab1f079b05"),
           detail,
           async () => {
             throwIfAborted(signal);
@@ -459,12 +546,12 @@ export class ProjectChatToolRunner {
           {
             capability: "local.browser.navigate",
             risk: "R1",
-            title: "允许 AI 打开网页？",
+            title: trMain("ui.bc8abfe2af95"),
             detail: clipDetail(url),
             auditDetail: "Managed Browser",
             approvalKey: `${pageId ?? "active"}:${url}`
           },
-          "打开网页",
+          trMain("ui.22d040b33dbe"),
           clipDetail(url),
           async () => {
             throwIfAborted(signal);
@@ -490,12 +577,12 @@ export class ProjectChatToolRunner {
           {
             capability: "local.browser.click",
             risk: "R2",
-            title: "允许 AI 点击网页元素？",
+            title: trMain("ui.6e1ae20aaf13"),
             detail: clipDetail(selector),
             auditDetail: "Managed Browser DOM selector",
             approvalKey: `${pageId ?? "active"}:${selector}`
           },
-          "点击网页元素",
+          trMain("ui.21c2547386d0"),
           clipDetail(selector),
           async () => {
             throwIfAborted(signal);
@@ -511,7 +598,7 @@ export class ProjectChatToolRunner {
                 page_id: before.activePageId,
                 url: before.url
               }),
-              summary: `已点击 ${selector}`
+              summary: trMain("ui.1c98c9041630", [selector])
             };
           },
           approvalMode
@@ -530,12 +617,12 @@ export class ProjectChatToolRunner {
           {
             capability: "local.browser.type",
             risk: "R2",
-            title: "允许 AI 填写网页内容？",
+            title: trMain("ui.9d9aba09b60a"),
             detail: clipDetail(selector),
             auditDetail: "Managed Browser DOM input",
             approvalKey: `${pageId ?? "active"}:${selector}:${sha256(text)}`
           },
-          "填写网页内容",
+          trMain("ui.7b93ef577697"),
           clipDetail(selector),
           async () => {
             throwIfAborted(signal);
@@ -552,7 +639,7 @@ export class ProjectChatToolRunner {
                 url: before.url,
                 characters: text.length
               }),
-              summary: `已填写 ${text.length} 个字符`
+              summary: trMain("ui.a73c079e96e6", [text.length])
             };
           },
           approvalMode
@@ -571,12 +658,12 @@ export class ProjectChatToolRunner {
           {
             capability: "local.browser.upload",
             risk: "R3",
-            title: "允许 AI 向网页上传项目文件？",
-            detail: `${clipDetail(selector)} · ${relativePaths.length} 个文件`,
+            title: trMain("ui.b6a06fc0943a"),
+            detail: trMain("ui.b569fc78af6f", [clipDetail(selector), relativePaths.length]),
             auditDetail: relativePaths.join(", "),
             approvalKey: `${pageId ?? "active"}:${selector}:${sha256(JSON.stringify(relativePaths))}`
           },
-          "上传项目文件",
+          trMain("ui.a40b283a86f3"),
           relativePaths.join(", "),
           async () => {
             throwIfAborted(signal);
@@ -595,7 +682,7 @@ export class ProjectChatToolRunner {
                 url: result.url,
                 relative_paths: result.relativePaths
               }),
-              summary: `已选择 ${result.relativePaths.length} 个项目文件`
+              summary: trMain("ui.e8b348e887de", [result.relativePaths.length])
             };
           },
           approvalMode
@@ -613,12 +700,12 @@ export class ProjectChatToolRunner {
           {
             capability: "local.browser.extract",
             risk: "R1",
-            title: "允许 AI 读取网页内容？",
+            title: trMain("ui.d3bc20c2ed37"),
             detail: clipDetail(selector),
             auditDetail: "Managed Browser DOM selector",
             approvalKey: `${pageId ?? "active"}:${selector}`
           },
-          "读取网页内容",
+          trMain("ui.074c72c437c6"),
           clipDetail(selector),
           async () => {
             throwIfAborted(signal);
@@ -638,7 +725,7 @@ export class ProjectChatToolRunner {
                 text: extracted.text,
                 truncated: extracted.truncated
               }),
-              summary: `读取 ${extracted.text.length} 个字符`
+              summary: trMain("ui.864b87e5af1e", [extracted.text.length])
             };
           },
           approvalMode
@@ -655,7 +742,7 @@ export class ProjectChatToolRunner {
             message: error instanceof Error ? error.message : "Unknown local tool error"
           }
         }),
-        summary: error instanceof Error ? error.message : "本地工具执行失败",
+        summary: error instanceof Error ? error.message : trMain("ui.e6afb576b3db"),
         isError: true
       };
     }
@@ -733,7 +820,7 @@ export class ProjectChatToolRunner {
     localProjectId: string,
     authorization: {
       capability: string;
-      risk: "R1" | "R2" | "R3";
+      risk: ToolRisk;
       title: string;
       detail: string;
       auditDetail?: string;
@@ -1047,10 +1134,10 @@ function browserPageSummary(state: ManagedBrowserState): string {
 
 function processSummary(process: ManagedProcessSummary): string {
   if (process.status === "running") {
-    return `${process.executable} 正在运行 · ${process.processId}`;
+    return trMain("ui.49f955ab20c4", [process.executable, process.processId]);
   }
-  const exit = process.exitCode === null ? process.status : `退出码 ${process.exitCode}`;
-  return `${process.executable} 已结束 · ${exit}`;
+  const exit = process.exitCode === null ? process.status : trMain("ui.332406fe86d2", [process.exitCode]);
+  return trMain("ui.6592e1093c7b", [process.executable, exit]);
 }
 
 function formatCommand(executable: string, args: string[]): string {
@@ -1082,6 +1169,16 @@ function stringifyToolResult(value: unknown): string {
 
 function sha256(value: string): string {
   return createHash("sha256").update(value).digest("hex");
+}
+
+function mimeTypeForPath(path: string): string {
+  const extension = path.split(".").at(-1)?.toLocaleLowerCase();
+  if (extension === "md" || extension === "txt") return "text/plain";
+  if (extension === "json") return "application/json";
+  if (extension === "csv") return "text/csv";
+  if (extension === "html" || extension === "htm") return "text/html";
+  if (extension === "svg") return "image/svg+xml";
+  return "application/octet-stream";
 }
 
 function readErrorCode(error: unknown): string {

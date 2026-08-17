@@ -1,0 +1,157 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.routemarket.ai/work/v1/plugin-manifest.schema.json",
+  "title": "RouteMarket Work Plugin Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion", "id", "name", "description", "version", "publisher",
+    "kind", "status", "distribution", "engines", "permissions", "activationEvents", "contributes"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9.-]{2,127}$"
+    },
+    "name": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "description": { "type": "string", "maxLength": 2048 },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+(?:-[a-z0-9.-]+)?$"
+    },
+    "publisher": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "kind": { "enum": ["host_runtime", "declarative_plugin"] },
+    "status": { "enum": ["available", "planned", "disabled"] },
+    "distribution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "packageFormat"],
+      "properties": {
+        "source": { "enum": ["bundled", "marketplace"] },
+        "packageFormat": { "const": "declarative" },
+        "integrity": false,
+        "signature": false
+      }
+    },
+    "engines": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["routemarketWork"],
+      "properties": {
+        "routemarketWork": { "type": "string", "minLength": 1, "maxLength": 64 }
+      }
+    },
+    "permissions": {
+      "type": "array",
+      "maxItems": 32,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "project.read", "project.write", "network", "process", "external_apps",
+          "browser.read", "browser.interact", "artifact.read", "artifact.write"
+        ]
+      }
+    },
+    "activationEvents": {
+      "type": "array",
+      "maxItems": 64,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 3, "maxLength": 256 }
+    },
+    "contributes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["viewers", "tools", "workflowNodes", "connectors"],
+      "properties": {
+        "viewers": {
+          "type": "array",
+          "maxItems": 32,
+          "items": { "$ref": "#/$defs/viewer" }
+        },
+        "tools": {
+          "type": "array",
+          "maxItems": 256,
+          "items": { "$ref": "#/$defs/tool" }
+        },
+        "workflowNodes": {
+          "type": "array",
+          "maxItems": 256,
+          "items": { "$ref": "#/$defs/workflowNode" }
+        },
+        "connectors": {
+          "type": "array",
+          "maxItems": 64,
+          "items": { "$ref": "#/$defs/connector" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "viewer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "status", "extensions", "mimeTypes", "mode"],
+      "properties": {
+        "id": { "$ref": "#/$defs/contributionId" },
+        "title": { "$ref": "#/$defs/title" },
+        "status": { "$ref": "#/$defs/contributionStatus" },
+        "extensions": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^\\.[a-z0-9][a-z0-9.-]{0,15}$" }
+        },
+        "mimeTypes": {
+          "type": "array",
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[a-z0-9.+-]+/[a-z0-9.+-]+$" }
+        },
+        "mode": { "enum": ["readonly", "editable"] }
+      }
+    },
+    "tool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "title", "status", "description", "capability", "risk"],
+      "properties": {
+        "name": { "$ref": "#/$defs/contributionId" },
+        "title": { "$ref": "#/$defs/title" },
+        "status": { "$ref": "#/$defs/contributionStatus" },
+        "description": { "type": "string", "maxLength": 2048 },
+        "capability": { "$ref": "#/$defs/contributionId" },
+        "risk": { "enum": ["R0", "R1", "R2", "R3"] }
+      }
+    },
+    "workflowNode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["executorKey", "title", "status", "description"],
+      "properties": {
+        "executorKey": { "$ref": "#/$defs/contributionId" },
+        "title": { "$ref": "#/$defs/title" },
+        "status": { "$ref": "#/$defs/contributionStatus" },
+        "description": { "type": "string", "maxLength": 2048 }
+      }
+    },
+    "connector": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "status", "kind"],
+      "properties": {
+        "id": { "$ref": "#/$defs/contributionId" },
+        "title": { "$ref": "#/$defs/title" },
+        "status": { "$ref": "#/$defs/contributionStatus" },
+        "kind": { "enum": ["browser_provider", "native_app", "remote_service"] }
+      }
+    },
+    "contributionId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{2,255}$"
+    },
+    "contributionStatus": { "enum": ["available", "planned", "disabled"] },
+    "title": { "type": "string", "minLength": 1, "maxLength": 256 }
+  }
+}

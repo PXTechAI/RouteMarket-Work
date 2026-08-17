@@ -28,6 +28,13 @@ describe("local data manager", () => {
     database.close();
 
     const info = await inspectLocalData(dataPath);
+    expect(info).toMatchObject({
+      scope: "guest",
+      accountName: null,
+      spaceName: null,
+      storedAccountCount: 0,
+      storedSpaceCount: 0
+    });
     expect(info.databaseHealth).toBe("healthy");
     expect(info.databaseBytes).toBeGreaterThan(0);
     expect(info.totalBytes).toBeGreaterThanOrEqual(info.databaseBytes);

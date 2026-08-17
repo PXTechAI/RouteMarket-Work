@@ -1,3 +1,4 @@
+import { trMain } from "./i18n";
 import { createHash } from "node:crypto";
 import type {
   DesktopWorkflowDraftNode,
@@ -181,8 +182,8 @@ async function executeNode(
       localProjectId,
       key,
       "R2",
-      "允许工作流把商品价格表保存到所选目录吗？",
-      `${outputDirectory} / ${fileName ?? "自动文件名"}`,
+      trMain("ui.ec6d2050fe47"),
+      `${outputDirectory} / ${fileName ?? trMain("ui.5a55273c56e8")}`,
       hash(JSON.stringify({ outputDirectory, fileName, record })),
       () => exportProductPriceCsv({ outputDirectory, fileName, record })
     );

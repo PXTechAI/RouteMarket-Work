@@ -35,6 +35,7 @@ function createManager(webBaseUrl?: string) {
   });
   const onAccessToken = vi.fn((token: string | undefined) => apiClient.setAccessToken(token));
   const onSpaceChanged = vi.fn();
+  const onDataScopeChanged = vi.fn();
   const manager = new DesktopAuthManager({
     apiClient,
     ...(webBaseUrl ? { webBaseUrl } : {}),
@@ -46,9 +47,17 @@ function createManager(webBaseUrl?: string) {
     credentialStore,
     openExternal,
     onAccessToken,
-    onSpaceChanged
+    onSpaceChanged,
+    onDataScopeChanged
   });
-  return { manager, credentialStore, openExternal, onAccessToken, onSpaceChanged };
+  return {
+    manager,
+    credentialStore,
+    openExternal,
+    onAccessToken,
+    onSpaceChanged,
+    onDataScopeChanged
+  };
 }
 
 describe("DesktopAuthManager", () => {
@@ -82,6 +91,16 @@ describe("DesktopAuthManager", () => {
     expect(authorizationUrl.searchParams.get("redirect_uri")).toBe(
       "routemarket-work://auth/callback"
     );
+    expect(authorizationUrl.searchParams.get("auth_intent")).toBe("login");
+  });
+
+  it("carries a registration intent to the web authorization page", async () => {
+    const { manager, openExternal } = createManager();
+
+    await manager.signIn("register");
+
+    const authorizationUrl = new URL(openExternal.mock.calls[0]![0]);
+    expect(authorizationUrl.searchParams.get("auth_intent")).toBe("register");
   });
 
   it("opens the web login origin while keeping API exchange separate", async () => {
@@ -112,7 +131,13 @@ describe("DesktopAuthManager", () => {
   });
 
   it("exchanges a valid callback and stores the Device Token", async () => {
-    const { manager, credentialStore, onAccessToken, onSpaceChanged } = createManager();
+    const {
+      manager,
+      credentialStore,
+      onAccessToken,
+      onSpaceChanged,
+      onDataScopeChanged
+    } = createManager();
     await manager.signIn();
     const pending = credentialStore.payload.pendingAuthorization!;
     const fetchMock = vi.fn<typeof fetch>(async () =>
@@ -172,6 +197,9 @@ describe("DesktopAuthManager", () => {
     });
     expect(onAccessToken).toHaveBeenCalledWith(`rmw_dt_${"a".repeat(43)}`);
     expect(onSpaceChanged).toHaveBeenCalledWith("team_design");
+    expect(onDataScopeChanged).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "account_test", activeSpaceId: "team_design" })
+    );
     expect(manager.getState()).toMatchObject({
       authStatus: "signed_in",
       account: {
@@ -187,10 +215,13 @@ describe("DesktopAuthManager", () => {
       "personal:account_test"
     );
     expect(onSpaceChanged).toHaveBeenLastCalledWith(null);
+    expect(onDataScopeChanged).toHaveBeenLastCalledWith(
+      expect.objectContaining({ activeSpaceId: "personal:account_test" })
+    );
   });
 
   it("clears credentials and disables cloud access on sign-out", async () => {
-    const { manager, credentialStore, onAccessToken } = createManager();
+    const { manager, credentialStore, onAccessToken, onDataScopeChanged } = createManager();
     credentialStore.payload = {
       credentials: {
         accessToken: `rmw_dt_${"a".repeat(43)}`,
@@ -205,11 +236,13 @@ describe("DesktopAuthManager", () => {
     };
     await manager.initialize();
     onAccessToken.mockClear();
+    onDataScopeChanged.mockClear();
 
     await manager.signOut();
 
     expect(credentialStore.payload).toEqual({});
     expect(onAccessToken).toHaveBeenCalledWith(undefined);
+    expect(onDataScopeChanged).not.toHaveBeenCalled();
     expect(manager.getState()).toEqual({
       authStatus: "signed_out",
       authError: null

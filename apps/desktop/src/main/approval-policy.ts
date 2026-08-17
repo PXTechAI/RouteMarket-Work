@@ -1,3 +1,4 @@
+import { trMain } from "./i18n";
 import type { ApprovalPolicy } from "../shared/desktop-api";
 import type { ToolAuthorizationRequest } from "./tool-broker";
 
@@ -34,8 +35,8 @@ export function approvalDialogChoices(
 }
 
 export function approvalDialogLabel(choice: ApprovalDialogChoice): string {
-  if (choice === "allow_once") return "允许一次";
-  if (choice === "allow_project") return "项目内始终允许";
-  if (choice === "deny_project") return "项目内始终拒绝";
-  return "拒绝本次";
+  if (choice === "allow_once") return trMain("ui.0273f6d38de4");
+  if (choice === "allow_project") return trMain("ui.d773b7c38355");
+  if (choice === "deny_project") return trMain("ui.a5b922a59964");
+  return trMain("ui.85791ec841d3");
 }

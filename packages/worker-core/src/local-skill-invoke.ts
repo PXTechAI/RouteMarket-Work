@@ -4,6 +4,7 @@ import { assertDesktopJob } from "@routemarket/work-protocol";
 import { WorkerError } from "./errors";
 import { projectBindingIdFor } from "./project-binding";
 import { loadProjectContext } from "./project-context";
+import { assertProjectSkillPackageIdentity } from "./local-skill-package";
 import { ProjectRegistry } from "./project-registry";
 import { resolveProjectFile } from "./project-uri";
 
@@ -13,6 +14,8 @@ const MAX_SKILL_INSTRUCTION_BYTES = 64 * 1024;
 
 export type LocalSkillInvocationResult = {
   skillId: string;
+  version?: string;
+  packageDigest?: string;
   name: string;
   description: string;
   relativePath: string;
@@ -114,12 +117,22 @@ export async function executeLocalSkillInvoke(
       "The Job project binding does not authorize an available project."
     );
   }
-  return invokeProjectSkill(registry, {
+  const identity = await assertProjectSkillPackageIdentity(registry, project.localProjectId, {
+    skillId: job.input.skillId,
+    version: job.input.version,
+    packageDigest: job.input.packageDigest,
+    operation: job.input.operation
+  });
+  const result = await invokeProjectSkill(registry, {
     localProjectId: project.localProjectId,
     skillId: job.input.skillId,
-    task: job.input.task,
-    maxInlineResultBytes: job.maxInlineResultBytes
+    task: job.input.task
   });
+  return fitInlineResult({
+    ...result,
+    version: identity.version,
+    packageDigest: identity.packageDigest
+  }, job.maxInlineResultBytes);
 }
 
 function fitInlineResult(

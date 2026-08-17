@@ -168,15 +168,33 @@
         "executorKey": { "const": "local.skill.invoke" },
         "input": {
           "type": "object", "additionalProperties": false,
-          "required": ["skillId", "task"],
+          "required": ["skillId", "version", "packageDigest", "signingKeyId", "operation", "task"],
           "properties": {
-            "skillId": { "type": "string", "minLength": 1, "maxLength": 256 },
+            "skillId": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_.-]{2,99}$",
+              "maxLength": 100
+            },
+            "version": {
+              "type": "string",
+              "pattern": "^\\d+\\.\\d+\\.\\d+(?:-[a-z0-9.-]+)?$",
+              "maxLength": 80
+            },
+            "packageDigest": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "signingKeyId": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{3,256}$"
+            },
+            "operation": { "type": "string", "minLength": 1, "maxLength": 120 },
             "task": { "type": "string", "minLength": 1, "maxLength": 16000 }
           }
         },
         "requiredCapabilities": { "const": ["local.skill.invoke"] },
-        "executionClass": { "const": "pure_read" },
-        "approvalPolicy": { "const": { "risk": "R0", "mode": "project_grant" } }
+        "executionClass": { "const": "external_side_effect" },
+        "approvalPolicy": { "const": { "risk": "R3", "mode": "invocation" } }
       }
     },
     {

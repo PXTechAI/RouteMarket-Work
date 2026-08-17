@@ -11,11 +11,15 @@ function model(
   return {
     code: "model",
     displayName: "Model",
+    source: "routemarket",
+    providerId: null,
+    providerName: "RouteMarket",
     category: "chat",
     supportsTools: true,
     supportsNativeWebSearch: false,
     supportsVision: false,
     supportsStream: true,
+    supportsReasoningSummary: false,
     preferredChatProtocol: null,
     ...input
   };

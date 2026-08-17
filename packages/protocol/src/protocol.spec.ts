@@ -5,7 +5,8 @@ import {
   checkCapabilityManifest,
   checkDesktopJob,
   checkDesktopNodeRegistry,
-  checkEnvelope
+  checkEnvelope,
+  checkPluginManifest
 } from "./index";
 
 async function readExample(name: string) {
@@ -117,7 +118,7 @@ describe("RouteMarket Work protocol fixtures", () => {
     expect(checkDesktopJob({ ...appJob, input: { connectorId: "unknown" } }).ok).toBe(false);
   });
 
-  it("accepts a project Skill invocation only as an R0 pure read", async () => {
+  it("accepts a signed project Skill invocation only as an R3 one-time approval", async () => {
     const envelope = await readExample("job-offer.read-readme.json") as {
       payload: Record<string, unknown>;
     };
@@ -126,21 +127,113 @@ describe("RouteMarket Work protocol fixtures", () => {
       executorKey: "local.skill.invoke",
       input: {
         skillId: "review",
+        version: "1.0.0",
+        packageDigest: `sha256:${"a".repeat(64)}`,
+        signingKeyId: "device_key_123",
+        operation: "invoke",
         task: "Review the current project changes."
       },
       requiredCapabilities: ["local.skill.invoke"],
-      executionClass: "pure_read",
-      approvalPolicy: { risk: "R0", mode: "project_grant" }
+      executionClass: "external_side_effect",
+      approvalPolicy: { risk: "R3", mode: "invocation" }
     };
 
     expect(checkDesktopJob(skillJob)).toEqual({ ok: true });
     expect(checkDesktopJob({
       ...skillJob,
-      approvalPolicy: { risk: "R2", mode: "invocation" }
+      approvalPolicy: { risk: "R0", mode: "project_grant" }
     }).ok).toBe(false);
     expect(checkDesktopJob({
       ...skillJob,
-      input: { skillId: "review", task: "", unexpected: true }
+      input: { ...skillJob.input, task: "", unexpected: true }
+    }).ok).toBe(false);
+  });
+
+  it("accepts declarative plugins without executable entry points", () => {
+    expect(checkPluginManifest({
+      schemaVersion: 1,
+      id: "ai.routemarket.spreadsheet",
+      name: "Spreadsheet",
+      description: "Spreadsheet document capabilities.",
+      version: "0.1.0",
+      publisher: "PXTechAI",
+      kind: "declarative_plugin",
+      status: "planned",
+      distribution: { source: "bundled", packageFormat: "declarative" },
+      engines: { routemarketWork: "^0.2.0" },
+      permissions: ["project.read", "project.write", "artifact.write"],
+      activationEvents: ["onFile:.xlsx", "onTool:spreadsheet.inspect"],
+      contributes: {
+        viewers: [{
+          id: "spreadsheet.viewer",
+          title: "Spreadsheet Preview",
+          status: "available",
+          extensions: [".xlsx", ".csv"],
+          mimeTypes: ["application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"],
+          mode: "readonly"
+        }],
+        tools: [{
+          name: "spreadsheet.inspect",
+          title: "Inspect spreadsheet",
+          status: "planned",
+          description: "Inspect workbook metadata.",
+          capability: "local.spreadsheet.read",
+          risk: "R0"
+        }],
+        workflowNodes: [],
+        connectors: []
+      }
+    })).toEqual({ ok: true });
+  });
+
+  it("rejects plugin executable entry points and undeclared permissions", () => {
+    const base = {
+      schemaVersion: 1,
+      id: "ai.routemarket.unsafe",
+      name: "Unsafe",
+      description: "",
+      version: "1.0.0",
+      publisher: "PXTechAI",
+      kind: "declarative_plugin",
+      status: "disabled",
+      distribution: { source: "bundled", packageFormat: "declarative" },
+      engines: { routemarketWork: "^0.2.0" },
+      permissions: ["root"],
+      activationEvents: [],
+      contributes: { viewers: [], tools: [], workflowNodes: [], connectors: [] },
+      main: "index.js"
+    };
+    expect(checkPluginManifest(base).ok).toBe(false);
+  });
+
+  it("keeps package integrity and signatures out of the in-archive manifest", () => {
+    const manifest = {
+      schemaVersion: 1,
+      id: "ai.example.marketplace-plugin",
+      name: "Marketplace Plugin",
+      description: "A signed declarative plugin.",
+      version: "1.0.0",
+      publisher: "Example",
+      kind: "declarative_plugin",
+      status: "available",
+      engines: { routemarketWork: "^0.2.0" },
+      permissions: ["project.read"],
+      activationEvents: [],
+      contributes: { viewers: [], tools: [], workflowNodes: [], connectors: [] }
+    };
+
+    expect(checkPluginManifest({
+      ...manifest,
+      distribution: { source: "marketplace", packageFormat: "declarative" }
+    })).toEqual({ ok: true });
+
+    expect(checkPluginManifest({
+      ...manifest,
+      distribution: {
+        source: "marketplace",
+        packageFormat: "declarative",
+        integrity: `sha256:${"a".repeat(64)}`
+      }
     }).ok).toBe(false);
   });
 });

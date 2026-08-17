@@ -1,3 +1,4 @@
+import { trMain } from "./i18n";
 import { randomUUID } from "node:crypto";
 import { watch, type FSWatcher } from "node:fs";
 import { realpath, stat } from "node:fs/promises";
@@ -164,7 +165,7 @@ export class LocalTriggerManager {
         this.disposers.set(triggerId, () => clearInterval(timer));
       } else if (trigger.kind === "hotkey") {
         if (!this.hotkeys.register(trigger.accelerator!, () => void this.fire(triggerId, "hotkey"))) {
-          throw new Error(`快捷键 ${trigger.accelerator} 注册失败或已被占用。`);
+          throw new Error(trMain("ui.b32b5d4d444a", [trigger.accelerator]));
         }
         this.disposers.set(triggerId, () => this.hotkeys.unregister(trigger.accelerator!));
       } else {

@@ -8,18 +8,21 @@ type MutableToolCall = {
 
 export type ProjectChatStreamResult = {
   text: string;
+  reasoning: string;
   toolCalls: ProjectChatToolCall[];
 };
 
 export async function readProjectChatStream(
   body: ReadableStream<Uint8Array>,
   signal: AbortSignal,
-  onText: (text: string) => void
+  onText: (text: string) => void,
+  onReasoning: (reasoning: string) => void = () => undefined
 ): Promise<ProjectChatStreamResult> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
   const toolCalls = new Map<string, MutableToolCall>();
   let text = "";
+  let reasoning = "";
   let buffer = "";
 
   try {
@@ -31,19 +34,27 @@ export async function readProjectChatStream(
       const lines = buffer.split("\n");
       buffer = lines.pop() ?? "";
       for (const line of lines) {
-        const nextText = consumeSseLine(line, text, toolCalls);
-        if (nextText !== text) {
-          text = nextText;
+        const next = consumeSseLine(line, text, reasoning, toolCalls);
+        if (next.text !== text) {
+          text = next.text;
           onText(text);
+        }
+        if (next.reasoning !== reasoning) {
+          reasoning = next.reasoning;
+          onReasoning(reasoning);
         }
       }
     }
     buffer += decoder.decode();
     if (buffer.trim()) {
-      const nextText = consumeSseLine(buffer, text, toolCalls);
-      if (nextText !== text) {
-        text = nextText;
+      const next = consumeSseLine(buffer, text, reasoning, toolCalls);
+      if (next.text !== text) {
+        text = next.text;
         onText(text);
+      }
+      if (next.reasoning !== reasoning) {
+        reasoning = next.reasoning;
+        onReasoning(reasoning);
       }
     }
   } finally {
@@ -52,6 +63,7 @@ export async function readProjectChatStream(
 
   return {
     text,
+    reasoning,
     toolCalls: [...toolCalls.values()].filter((call) => call.name)
   };
 }
@@ -59,34 +71,52 @@ export async function readProjectChatStream(
 function consumeSseLine(
   rawLine: string,
   currentText: string,
+  currentReasoning: string,
   toolCalls: Map<string, MutableToolCall>
-): string {
+): { text: string; reasoning: string } {
   const line = rawLine.trim();
-  if (!line.startsWith("data:")) return currentText;
+  if (!line.startsWith("data:")) {
+    return { text: currentText, reasoning: currentReasoning };
+  }
   const data = line.slice("data:".length).trim();
   if (!data || data === "[DONE]" || data.startsWith("[DONE_WITH_META]")) {
-    return currentText;
+    return { text: currentText, reasoning: currentReasoning };
   }
 
   let payload: Record<string, unknown>;
   try {
     const value = JSON.parse(data) as unknown;
     if (!value || typeof value !== "object" || Array.isArray(value)) {
-      return currentText;
+      return { text: currentText, reasoning: currentReasoning };
     }
     payload = value as Record<string, unknown>;
   } catch {
-    return currentText;
+    return { text: currentText, reasoning: currentReasoning };
   }
 
   consumeChatCompletionToolCalls(payload, toolCalls);
   consumeResponsesToolCalls(payload, toolCalls);
 
+  let text = currentText;
+  let reasoning = currentReasoning;
+
   const delta = extractTextDelta(payload);
-  if (delta) return currentText + delta;
+  if (delta) text += delta;
   const fallback = extractTextFallback(payload);
-  if (fallback && !currentText.includes(fallback)) return currentText + fallback;
-  return currentText;
+  if (fallback && !text.includes(fallback)) text += fallback;
+
+  const reasoningDelta = extractReasoningDelta(payload);
+  if (reasoningDelta) reasoning += reasoningDelta;
+  if (
+    payload.type === "response.reasoning_summary_part.added" &&
+    reasoning.trim()
+  ) {
+    reasoning += "\n\n";
+  }
+  const reasoningFallback = extractReasoningFallback(payload);
+  if (reasoningFallback) reasoning = mergeFallback(reasoning, reasoningFallback);
+
+  return { text, reasoning };
 }
 
 function consumeChatCompletionToolCalls(
@@ -191,6 +221,41 @@ function extractTextDelta(payload: Record<string, unknown>) {
   const firstChoice = firstRecord(payload.choices);
   const delta = firstRecord(firstChoice?.delta);
   return typeof delta?.content === "string" ? delta.content : "";
+}
+
+function extractReasoningDelta(payload: Record<string, unknown>): string {
+  const eventType = typeof payload.type === "string" ? payload.type : "";
+  if (eventType === "response.reasoning_summary_text.delta") {
+    return typeof payload.delta === "string" ? payload.delta : "";
+  }
+  return "";
+}
+
+function mergeFallback(current: string, fallback: string): string {
+  if (!current) return fallback;
+  if (fallback.startsWith(current)) return fallback;
+  if (current.includes(fallback)) return current;
+  return current + fallback;
+}
+
+function extractReasoningFallback(payload: Record<string, unknown>): string {
+  if (
+    payload.type === "response.reasoning_summary_text.done" &&
+    typeof payload.text === "string"
+  ) {
+    return payload.text.trim();
+  }
+  if (payload.type !== "response.completed") return "";
+  const response = firstRecord(payload.response);
+  const output = Array.isArray(response?.output) ? response.output : [];
+  return output
+    .flatMap((item) => {
+      if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+      const record = item as Record<string, unknown>;
+      return record.type === "reasoning" ? collectText(record.summary) : [];
+    })
+    .join("\n\n")
+    .trim();
 }
 
 function extractTextFallback(payload: Record<string, unknown>) {

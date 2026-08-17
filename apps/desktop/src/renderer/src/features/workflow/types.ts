@@ -20,13 +20,14 @@ export type WorkflowPageModel = {
   drafts: DesktopWorkflowDraftSummary[];
   draftDirty: boolean;
   draftBusy: boolean;
+  canUndoDraft: boolean;
+  canRedoDraft: boolean;
+  fitViewRevision: number;
   runs: DesktopWorkflowRun[];
   selectedRun: DesktopWorkflowRun | null;
   runInput: string;
   runBusy: boolean;
   addExecutor: string;
-  edgeSource: string;
-  edgeTarget: string;
   selectedProjectId: string | null;
   selectedFilePath: string | null;
   triggers: LocalTriggerSummary[];
@@ -48,13 +49,25 @@ export type WorkflowPageActions = {
     onSelectDraft(workflowId: string): void;
     onCreateDraft(kind: DesktopWorkflowDraft["kind"]): void;
     onDraftNameChange(value: string): void;
+    onUndoDraft(): void;
+    onRedoDraft(): void;
     onAddExecutorChange(value: string): void;
     onAddNode(): void;
-    onEdgeSourceChange(value: string): void;
-    onEdgeTargetChange(value: string): void;
-    onConnectNodes(): void;
+    onMoveNodes(
+      positions: Array<{ nodeId: string; x: number; y: number }>
+    ): void;
+    onConnectNodes(
+      sourceNodeId: string,
+      targetNodeId: string,
+      sourcePortId?: string,
+      targetPortId?: string
+    ): void;
+    onRemoveEdges(edgeIds: string[]): void;
     onClearEdges(): void;
     onRemoveNode(nodeId: string): void;
+    onRemoveNodes(nodeIds: string[]): void;
+    onDuplicateNodes(nodeIds: string[]): string[];
+    onAutoLayout(): void;
     onUpdateNodeConfig(nodeId: string, config: Record<string, unknown>): void;
     onChooseOutputDirectory(): Promise<string | null>;
     onCreateWorkflowSkill(

@@ -1,4 +1,9 @@
-import { createHash, randomUUID } from "node:crypto";
+import {
+  createHash,
+  generateKeyPairSync,
+  randomUUID,
+  sign
+} from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
@@ -10,13 +15,21 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import WebSocket from "ws";
 import type { DesktopJob, JobEvent } from "@routemarket/work-protocol";
 import {
+  executeLocalSkillInvoke,
+  inspectProjectSkillPackage,
   JobStore,
+  loadProjectContext,
   ProjectRegistry,
   projectBindingIdFor,
-  type LocalProject
+  type LocalProject,
+  type ProjectSkillPackageIdentity
 } from "@routemarket/work-worker-core";
 import { CloudJobRuntime } from "../worker/cloud-job-runtime";
-import { CloudWorkerClient, type CloudWorkerTransport } from "./cloud-worker-client";
+import {
+  CloudWorkerClient,
+  type CloudSkillSigner,
+  type CloudWorkerTransport
+} from "./cloud-worker-client";
 import { RouteMarketApiClient } from "./routemarket-api-client";
 
 const E2E_ENABLED = process.env.ROUTEMARKET_CORE_E2E === "1";
@@ -79,6 +92,7 @@ describe.runIf(E2E_ENABLED)("CloudWorkerClient with a real local Core", () => {
   let externalJobControl: ExternalJobControl | null = null;
   let approvalJobControl: ApprovalJobControl | null = null;
   let runtimeChannelOpened: Deferred;
+  let skillSigning: ReturnType<typeof createE2ESkillSigner>;
 
   beforeAll(async () => {
     if (CORE_PORT === 3001) {
@@ -98,10 +112,25 @@ describe.runIf(E2E_ENABLED)("CloudWorkerClient with a real local Core", () => {
       "RouteMarket Work real Core E2E fixture.\n",
       "utf8"
     );
+    const skillRoot = resolve(projectRoot, ".routemarket", "skills", "review");
+    await mkdir(skillRoot, { recursive: true });
+    await writeFile(
+      resolve(skillRoot, "SKILL.md"),
+      [
+        "---",
+        "name: Core E2E review",
+        "description: Verify the signed local Skill control-plane path.",
+        "version: 1.0.0",
+        "---",
+        "Review the bound project and return a concise report."
+      ].join("\n"),
+      "utf8"
+    );
     registry = new ProjectRegistry(resolve(tempRoot, "work.db"));
     project = await registry.bindFolder(projectRoot);
     jobStore = new JobStore(resolve(tempRoot, "work.db"));
     worker = new CloudJobRuntime(registry, jobStore);
+    skillSigning = createE2ESkillSigner();
 
     const startedCore = startCore(coreRoot);
     coreProcess = startedCore;
@@ -120,13 +149,15 @@ describe.runIf(E2E_ENABLED)("CloudWorkerClient with a real local Core", () => {
       arch: "x64",
       appVersion: "0.1.0-e2e",
       workerVersion: "0.1.0-e2e",
-      workerClient: createTransport(project, worker),
+      workerClient: createTransport(project, registry, worker),
+      skillSigner: skillSigning.signer,
       onActivity: (kind, title, detail) => {
         workerActivities.push({ kind, title, detail });
       },
       executeDesktopJob: (job, leaseId, leaseEpoch, signal, emitEvents) =>
         executeControlledExternalJob(
           worker,
+          registry,
           externalJobControl,
           approvalJobControl,
           job,
@@ -342,6 +373,78 @@ describe.runIf(E2E_ENABLED)("CloudWorkerClient with a real local Core", () => {
     expect(persistedRun).toMatchObject({
       status: "succeeded"
     });
+  }, 60_000);
+
+  it("executes a device-signed local Skill through Core after R3 approval", async () => {
+    const state = client.getState();
+    const identity = skillSigning.current();
+    expect(identity).toBeTruthy();
+    const control = createApprovalJobControl();
+    approvalJobControl = control;
+    let created: { jobId: string } | null = null;
+
+    try {
+      created = await workRequest<{ jobId: string }>("/jobs", {
+        method: "POST",
+        body: {
+          runtime_id: state.runtimeId,
+          project_binding_id: identity.projectBindingId,
+          workflow_run_id: null,
+          workflow_node_run_id: null,
+          executor_key: "local.skill.invoke",
+          executor_version: 1,
+          input: {
+            skillId: identity.skillId,
+            version: identity.version,
+            packageDigest: identity.packageDigest,
+            signingKeyId: skillSigning.keyId,
+            operation: "invoke",
+            task: "Review the Core E2E fixture."
+          },
+          required_capabilities: ["local.skill.invoke"],
+          execution_class: "external_side_effect",
+          approval_policy: { risk: "R3", mode: "invocation" },
+          idempotency_key: `sha256:${createHash("sha256")
+            .update(`core-e2e-local-skill:${identity.packageDigest}`)
+            .digest("hex")}`,
+          deadline_at: new Date(Date.now() + 60_000).toISOString(),
+          max_inline_result_bytes: 262_144
+        }
+      });
+      await control.requested.promise;
+      control.resolveDecision("approved");
+      await control.resolved.promise;
+      control.release.resolve();
+
+      await waitFor(async () => {
+        const job = await prisma.desktopJob.findUnique({
+          where: { jobId: created!.jobId }
+        });
+        return job?.status === "succeeded";
+      }, "Signed local Skill job did not complete.", 20_000);
+
+      const persistedJob = await prisma.desktopJob.findUnique({
+        where: { jobId: created.jobId },
+        include: { events: { orderBy: { sequence: "asc" } } }
+      });
+      expect(persistedJob.output).toMatchObject({
+        skillId: "review",
+        version: "1.0.0",
+        task: "Review the Core E2E fixture.",
+        instructions: expect.stringContaining("Review the bound project")
+      });
+      expect(persistedJob.events.map((event: { type: string }) => event.type)).toEqual([
+        "job.accepted",
+        "job.started",
+        "approval.requested",
+        "approval.resolved",
+        "job.succeeded"
+      ]);
+    } finally {
+      control.resolveDecision("denied");
+      control.release.resolve();
+      approvalJobControl = null;
+    }
   }, 60_000);
 
   it("cancels a running Desktop Job through the runtime channel", async () => {
@@ -752,11 +855,24 @@ function resolveCoreRoot() {
   const root = resolve(
     process.env.ROUTEMARKET_CORE_DIR || resolve(workRoot, "..", "..", "RouteMarket-Core")
   );
-  const mainPath = resolve(root, "apps", "core-api", "dist", "main.js");
+  const mainPath = resolveCoreMainPath(root);
   if (!existsSync(mainPath)) {
     throw new Error(`Built RouteMarket Core was not found at ${mainPath}.`);
   }
   return root;
+}
+
+function resolveCoreMainPath(root: string) {
+  return resolve(
+    root,
+    "apps",
+    "core-api",
+    "dist",
+    "apps",
+    "core-api",
+    "src",
+    "main.js"
+  );
 }
 
 function loadCoreEnvironment(root: string) {
@@ -823,7 +939,7 @@ async function seedIdentity(client: PrismaClientLike) {
 }
 
 function startCore(root: string) {
-  const mainPath = resolve(root, "apps", "core-api", "dist", "main.js");
+  const mainPath = resolveCoreMainPath(root);
   const child = spawn(process.execPath, [mainPath], {
     cwd: root,
     env: {
@@ -886,6 +1002,7 @@ async function collectDiagnostics(input: {
 
 function createTransport(
   localProject: LocalProject,
+  registry: ProjectRegistry,
   runtime: CloudJobRuntime
 ): CloudWorkerTransport {
   return {
@@ -899,6 +1016,9 @@ function createTransport(
       }
     ],
     listMcpServers: async () => [],
+    projectContext: (localProjectId) => loadProjectContext(registry, localProjectId),
+    inspectProjectSkill: (localProjectId, skillId) =>
+      inspectProjectSkillPackage(registry, localProjectId, skillId),
     executeJob: (job, leaseId, leaseEpoch) =>
       runtime.executeJob({ job, leaseId, leaseEpoch }),
     cancelJob: async (jobId, leaseId, leaseEpoch) =>
@@ -912,6 +1032,7 @@ function createTransport(
 
 async function executeControlledExternalJob(
   runtime: CloudJobRuntime,
+  registry: ProjectRegistry,
   control: ExternalJobControl | null,
   approvalControl: ApprovalJobControl | null,
   job: DesktopJob,
@@ -963,6 +1084,15 @@ async function executeControlledExternalJob(
         }
       });
     }
+    if (job.executorKey === "local.skill.invoke") {
+      const result = await executeLocalSkillInvoke(registry, job);
+      return runtime.completeExternalJob({
+        job,
+        leaseId,
+        leaseEpoch,
+        result
+      });
+    }
     const outputUrl =
       "url" in job.input && typeof job.input.url === "string"
         ? job.input.url
@@ -1006,6 +1136,87 @@ async function executeControlledExternalJob(
       code: "TOOL_CANCELED",
       message: "Desktop Job was canceled by the real Core E2E."
     }
+  });
+}
+
+function createE2ESkillSigner(): {
+  signer: CloudSkillSigner;
+  keyId: string;
+  current: () => ProjectSkillPackageIdentity;
+} {
+  const pair = generateKeyPairSync("ed25519");
+  const publicDer = pair.publicKey.export({ format: "der", type: "spki" }) as Buffer;
+  const publicKey = publicDer.subarray(-32).toString("base64");
+  const keyId = `device_${createHash("sha256").update(publicKey).digest("hex").slice(0, 24)}`;
+  let latest: ProjectSkillPackageIdentity | null = null;
+  const authorized = new Map<string, {
+    version: string;
+    packageDigest: string;
+    operations: string[];
+  }>();
+  const signer: CloudSkillSigner = {
+    async signManifest(identities) {
+      latest = identities[0] ?? null;
+      authorized.clear();
+      const localSkills = identities.map((identity) => {
+        authorized.set(`${identity.projectBindingId}:${identity.skillId}`, {
+          version: identity.version,
+          packageDigest: identity.packageDigest,
+          operations: identity.operations
+        });
+        return {
+          skillId: identity.skillId,
+          version: identity.version,
+          packageDigest: identity.packageDigest,
+          signingKeyId: keyId,
+          signature: sign(
+            null,
+            Buffer.from(localSkillSigningPayload(identity)),
+            pair.privateKey
+          ).toString("base64"),
+          projectBindingId: identity.projectBindingId,
+          permissions: identity.permissions,
+          operations: identity.operations
+        };
+      });
+      return {
+        signingKeys: localSkills.length
+          ? [{ keyId, algorithm: "ed25519", publicKey, trust: "device" }]
+          : [],
+        localSkills
+      };
+    },
+    assertAuthorizedJob(job) {
+      const identity = authorized.get(`${job.projectBindingId}:${job.input.skillId}`);
+      if (
+        !identity ||
+        identity.version !== job.input.version ||
+        identity.packageDigest !== job.input.packageDigest ||
+        !identity.operations.includes(job.input.operation)
+      ) {
+        throw new Error("The local Skill job does not match the signed E2E manifest.");
+      }
+      return identity;
+    }
+  };
+  return {
+    signer,
+    keyId,
+    current: () => {
+      if (!latest) throw new Error("The E2E local Skill was not advertised.");
+      return latest;
+    }
+  };
+}
+
+function localSkillSigningPayload(input: ProjectSkillPackageIdentity): string {
+  return JSON.stringify({
+    skillId: input.skillId,
+    version: input.version,
+    packageDigest: input.packageDigest,
+    projectBindingId: input.projectBindingId,
+    permissions: [...input.permissions].sort(),
+    operations: [...input.operations].sort()
   });
 }
 

@@ -1,20 +1,27 @@
+import { randomUUID } from "node:crypto";
+import { trMain } from "./i18n";
 import type {
   AgentLocalToolGroup,
   ChatModel,
   DesktopChatAttachment,
   DesktopAgentProfile,
+  LocalProjectChatMessage,
+  LocalApiGatewayUsage,
   ProjectChatEvent,
   ProjectChatRequest
 } from "../shared/desktop-api";
 import { resolveDesktopAgentSkillAvailability } from "../shared/agent-skill-availability";
 import { readProjectChatStream } from "./project-chat-stream";
+import { extractProjectOutputArtifacts } from "./project-chat-artifacts";
 import type { RouteMarketApiClient } from "./routemarket-api-client";
+import { modelProviderRequestHeaders, type ModelProviderStore, type ResolvedModelProvider } from "./model-provider-store";
 import type { ProjectChatToolRunner } from "./project-chat-tool-runner";
 import {
   PROJECT_CHAT_TOOLS,
   projectChatToolTitle,
   type ProjectChatToolCall,
-  type ProjectChatToolDefinition
+  type ProjectChatToolDefinition,
+  type ProjectChatToolExecution
 } from "./project-chat-tools";
 
 type ProjectChatClientOptions = {
@@ -27,6 +34,8 @@ type ProjectChatClientOptions = {
   toolRunner?: Pick<ProjectChatToolRunner, "execute"> & {
     listTools?: ProjectChatToolRunner["listTools"];
   };
+  modelProviderStore?: Pick<ModelProviderStore, "listModels" | "resolveModel">;
+  recordUsage?(record: LocalApiGatewayUsage): Promise<void>;
 };
 
 type ModelsResponse = {
@@ -59,20 +68,48 @@ const WEB_SEARCH_TOOL: ProjectChatToolDefinition = {
   }
 };
 
+export class ProjectChatResponseError extends Error {
+  constructor(
+    message: string,
+    readonly status: number
+  ) {
+    super(message);
+    this.name = "ProjectChatResponseError";
+  }
+}
+
+export function isProjectChatAuthenticationError(error: unknown): boolean {
+  return error instanceof ProjectChatResponseError && (
+    error.status === 401 || error.message.trim().toLowerCase() === "invalid session"
+  );
+}
+
 export class ProjectChatClient {
   private readonly activeRequests = new Map<string, AbortController>();
 
   constructor(private readonly options: ProjectChatClientOptions) {}
 
   async listModels(): Promise<ChatModel[]> {
-    const response = await this.request("/models?purpose=chat");
-    const payload = (await response.json().catch(() => null)) as ModelsResponse | null;
-    if (!response.ok) {
-      throw new Error(readResponseError(payload, response.status));
+    const externalModels = await this.options.modelProviderStore?.listModels().catch(() => []) ?? [];
+    try {
+      const response = await this.request("/models?purpose=chat");
+      const payload = (await response.json().catch(() => null)) as ModelsResponse | null;
+      if (!response.ok) {
+        throw new ProjectChatResponseError(
+          readResponseError(payload, response.status),
+          response.status
+        );
+      }
+      return [
+        ...(Array.isArray(payload?.items) ? payload.items : [])
+          .map(normalizeModel)
+          .filter((model): model is ChatModel => model !== null),
+        ...externalModels
+      ];
+    } catch (error) {
+      if (externalModels.length || isTransientCatalogFailure(error)) return externalModels;
+      throw error;
     }
-    return (Array.isArray(payload?.items) ? payload.items : [])
-      .map(normalizeModel)
-      .filter((model): model is ChatModel => model !== null);
   }
 
   async listAgents(): Promise<DesktopAgentProfile[]> {
@@ -81,16 +118,19 @@ export class ProjectChatClient {
       response = await this.requestApp("/api/app/v1/agents");
     } catch (error) {
       const cached = this.options.agentCache?.list() ?? [];
-      if (cached.length) return cached;
+      if (cached.length || isTransientCatalogFailure(error)) return cached;
       throw error;
     }
     const payload = (await response.json().catch(() => null)) as AgentsResponse | null;
     if (!response.ok) {
-      if (isTransientAgentCatalogStatus(response.status)) {
+      if (isTransientCatalogStatus(response.status)) {
         const cached = this.options.agentCache?.list() ?? [];
-        if (cached.length) return cached;
+        return cached;
       }
-      throw new Error(readResponseError(payload, response.status));
+      throw new ProjectChatResponseError(
+        readResponseError(payload, response.status),
+        response.status
+      );
     }
     const agents = (Array.isArray(payload?.items) ? payload.items : [])
       .map((agent) => normalizeAgent(agent, this.options.apiClient.origin))
@@ -107,6 +147,7 @@ export class ProjectChatClient {
     const controller = new AbortController();
     this.activeRequests.set(input.requestId, controller);
     let content = "";
+    let reasoning = "";
 
     try {
       const agent = input.agent
@@ -117,7 +158,7 @@ export class ProjectChatClient {
           )
         : null;
       const executionEnvironment = resolveExecutionEnvironment(input);
-      const availableTools = executionEnvironment === "cloud" || input.project.hasFolder === false
+      const availableTools = input.modelSupportsTools === false || executionEnvironment === "cloud" || !input.project || input.project.hasFolder === false
         ? []
         : this.options.toolRunner?.listTools
           ? await this.options.toolRunner.listTools(input.project.localProjectId)
@@ -127,7 +168,7 @@ export class ProjectChatClient {
         input.agent?.localToolGroups,
         agent?.toolPermissions
       );
-      const tools = input.webSearchMode === "agentic"
+      const tools = input.modelSupportsTools !== false && input.webSearchMode === "agentic"
         ? [...localTools, WEB_SEARCH_TOOL]
         : localTools;
       const extraMessages: Record<string, unknown>[] = [];
@@ -139,6 +180,7 @@ export class ProjectChatClient {
 
       for (let round = 0; round < maxToolRounds; round += 1) {
         const contentBeforeRound = content;
+        const reasoningBeforeRound = reasoning;
         const result = await this.requestModelRound(
           input,
           agent,
@@ -153,9 +195,18 @@ export class ProjectChatClient {
               type: "delta",
               content
             });
+          },
+          (roundReasoning) => {
+            reasoning = appendRoundText(reasoningBeforeRound, roundReasoning);
+            this.options.onEvent({
+              requestId: input.requestId,
+              type: "reasoning",
+              content: reasoning
+            });
           }
         );
         content = appendRoundText(contentBeforeRound, result.text);
+        reasoning = appendRoundText(reasoningBeforeRound, result.reasoning);
 
         if (!result.toolCalls.length) {
           completed = true;
@@ -198,7 +249,7 @@ export class ProjectChatClient {
           const execution = call.name === "web_search"
             ? await this.executeWebSearch(call, controller.signal)
             : await this.options.toolRunner!.execute(
-                input.project.localProjectId,
+                input.project!.localProjectId,
                 call,
                 controller.signal,
                 {
@@ -225,6 +276,21 @@ export class ProjectChatClient {
               title,
               summary: execution.summary
             });
+            const outputArtifacts = dedupeArtifacts([
+              ...(execution.artifacts ?? []),
+              ...extractProjectOutputArtifacts(
+                input.project!.localProjectId,
+                execution.content,
+                call.name
+              )
+            ]);
+            if (outputArtifacts.length) {
+              this.options.onEvent({
+                requestId: input.requestId,
+                type: "artifacts",
+                artifacts: outputArtifacts
+              });
+            }
           }
           extraMessages.push({
             role: "tool",
@@ -254,7 +320,8 @@ export class ProjectChatClient {
         this.options.onEvent({
           requestId: input.requestId,
           type: "error",
-          message: error instanceof Error ? error.message : "Unknown chat error"
+          message: error instanceof Error ? error.message : "Unknown chat error",
+          ...(content ? { content } : {})
         });
       }
     } finally {
@@ -279,53 +346,223 @@ export class ProjectChatClient {
     tools: typeof PROJECT_CHAT_TOOLS,
     round: number,
     signal: AbortSignal,
-    onText: (text: string) => void
+    onText: (text: string) => void,
+    onReasoning: (reasoning: string) => void
   ) {
-    const requestTools = input.webSearchMode === "native"
-      ? [...tools, { type: "web_search" as const }]
-      : tools;
-    const response = await this.request("/local", {
+    const startedAt = Date.now();
+    let providerId: string | null = null;
+    let providerName = "RouteMarket";
+    let resolvedModel = input.model;
+    let kind: LocalApiGatewayUsage["kind"] = input.webSearchMode === "native" || input.preferredChatProtocol === "openai_responses"
+      ? "responses"
+      : "chat";
+    try {
+      const external = await this.options.modelProviderStore?.resolveModel(input.model) ?? null;
+      let result;
+      if (external) {
+        providerId = external.provider.id;
+        providerName = external.provider.name;
+        resolvedModel = external.modelId;
+        kind = external.provider.protocol === "anthropic" ? "anthropic_messages" : "chat";
+        result = external.provider.protocol === "anthropic"
+          ? await this.requestAnthropicRound(external, input, agent, extraMessages, tools, signal, onText)
+          : await this.requestOpenAiCompatibleRound(
+              external,
+              input,
+              agent,
+              extraMessages,
+              tools,
+              signal,
+              onText,
+              onReasoning
+            );
+      } else {
+        const requestTools = input.webSearchMode === "native"
+          ? [...tools, { type: "web_search" as const }]
+          : tools;
+        const response = await this.request("/local", {
+          method: "POST",
+          signal,
+          headers: {
+            "Content-Type": "application/json",
+            "x-request-id": roundRequestId(input.requestId, round)
+          },
+          body: JSON.stringify({
+            session_id: input.sessionId,
+            request_id: input.requestId,
+            model: input.model,
+            system_prompt: buildSystemPrompt(
+              input,
+              agent,
+              tools.some((tool) => tool.function.name.startsWith("skill_local_"))
+            ),
+            messages: [
+              ...(input.history ?? []),
+              { role: "user", content: buildMessageContent(input) },
+              ...extraMessages
+            ],
+            tools: requestTools,
+            tool_choice: "auto",
+            parallel_tool_calls: false,
+            ...(kind === "responses" ? { protocol: "openai_responses" } : {}),
+            ...(input.reasoningSummary
+              ? {
+                  adapter_payload: {
+                    body: { reasoning: { summary: input.reasoningSummary } }
+                  }
+                }
+              : {}),
+            stream: true
+          })
+        });
+        if (!response.ok || !response.body) {
+          const payload = await response.json().catch(() => null);
+          throw new ProjectChatResponseError(readResponseError(payload, response.status), response.status);
+        }
+        result = await readProjectChatStream(response.body, signal, onText, onReasoning);
+      }
+      await this.recordModelUsage({
+        source: "desktop_chat",
+        kind,
+        providerId,
+        providerName,
+        requestedModel: input.model,
+        resolvedModel,
+        routeId: null,
+        status: 200,
+        durationMs: Date.now() - startedAt,
+        success: true
+      });
+      return result;
+    } catch (error) {
+      await this.recordModelUsage({
+        source: "desktop_chat",
+        kind,
+        providerId,
+        providerName,
+        requestedModel: input.model,
+        resolvedModel,
+        routeId: null,
+        status: error instanceof ProjectChatResponseError ? error.status : null,
+        durationMs: Date.now() - startedAt,
+        success: false
+      });
+      throw error;
+    }
+  }
+
+  private async requestOpenAiCompatibleRound(
+    resolved: ResolvedModelProvider,
+    input: ProjectChatRequest,
+    agent: DesktopAgentProfile | null,
+    extraMessages: Record<string, unknown>[],
+    tools: typeof PROJECT_CHAT_TOOLS,
+    signal: AbortSignal,
+    onText: (text: string) => void,
+    onReasoning: (reasoning: string) => void
+  ) {
+    const response = await fetch(`${resolved.provider.baseUrl}/chat/completions`, {
       method: "POST",
       signal,
       headers: {
-        "Content-Type": "application/json",
-        "x-request-id": roundRequestId(input.requestId, round)
+        ...modelProviderRequestHeaders(resolved.provider),
+        "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        session_id: input.sessionId,
-        request_id: input.requestId,
-        model: input.model,
-        system_prompt: buildSystemPrompt(
-          input,
-          agent,
-          tools.some((tool) => tool.function.name.startsWith("skill_local_"))
-        ),
+        model: resolved.modelId,
         messages: [
+          {
+            role: "system",
+            content: buildSystemPrompt(
+              input,
+              agent,
+              tools.some((tool) => tool.function.name.startsWith("skill_local_"))
+            )
+          },
           ...(input.history ?? []),
           { role: "user", content: buildMessageContent(input) },
           ...extraMessages
         ],
-        tools: requestTools,
-        tool_choice: "auto",
-        parallel_tool_calls: false,
-        ...(input.webSearchMode === "native"
-          ? { protocol: "openai_responses" }
-          : {}),
+        ...(tools.length ? {
+          tools,
+          tool_choice: "auto",
+          parallel_tool_calls: false
+        } : {}),
         stream: true
       })
     });
-
     if (!response.ok || !response.body) {
       const payload = await response.json().catch(() => null);
-      throw new Error(readResponseError(payload, response.status));
+      throw new ProjectChatResponseError(readResponseError(payload, response.status), response.status);
     }
-    return readProjectChatStream(response.body, signal, onText);
+    return readProjectChatStream(response.body, signal, onText, onReasoning);
+  }
+
+  private async requestAnthropicRound(
+    resolved: ResolvedModelProvider,
+    input: ProjectChatRequest,
+    agent: DesktopAgentProfile | null,
+    extraMessages: Record<string, unknown>[],
+    tools: typeof PROJECT_CHAT_TOOLS,
+    signal: AbortSignal,
+    onText: (text: string) => void
+  ) {
+    const response = await fetch(`${resolved.provider.baseUrl}/messages`, {
+      method: "POST",
+      signal,
+      headers: {
+        ...modelProviderRequestHeaders(resolved.provider),
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        model: resolved.modelId,
+        max_tokens: 8192,
+        stream: true,
+        system: buildSystemPrompt(
+          input,
+          agent,
+          tools.some((tool) => tool.function.name.startsWith("skill_local_"))
+        ),
+        messages: toAnthropicMessages(input, extraMessages),
+        ...(tools.length ? {
+          tools: tools.map((tool) => ({
+            name: tool.function.name,
+            description: tool.function.description,
+            input_schema: tool.function.parameters
+          }))
+        } : {})
+      })
+    });
+    if (!response.ok) {
+      const payload = await response.json().catch(() => null) as Record<string, unknown> | null;
+      throw new ProjectChatResponseError(readResponseError(payload, response.status), response.status);
+    }
+    if (response.body && response.headers.get("content-type")?.includes("text/event-stream")) {
+      return readAnthropicStream(response.body, signal, onText);
+    }
+    const payload = await response.json().catch(() => null) as Record<string, unknown> | null;
+    const content = Array.isArray(payload?.content) ? payload.content : [];
+    const text = content.flatMap((value) => {
+      const block = asRecord(value);
+      return block?.type === "text" && typeof block.text === "string" ? [block.text] : [];
+    }).join("");
+    const toolCalls = content.flatMap((value): ProjectChatToolCall[] => {
+      const block = asRecord(value);
+      if (block?.type !== "tool_use" || typeof block.name !== "string") return [];
+      return [{
+        id: typeof block.id === "string" ? block.id : "",
+        name: block.name,
+        arguments: JSON.stringify(asRecord(block.input) ?? {})
+      }];
+    });
+    if (text) onText(text);
+    return { text, reasoning: "", toolCalls };
   }
 
   private async executeWebSearch(
     call: ProjectChatToolCall,
     signal: AbortSignal
-  ) {
+  ): Promise<ProjectChatToolExecution> {
     let query = "";
     try {
       const args = JSON.parse(call.arguments || "{}") as Record<string, unknown>;
@@ -336,7 +573,7 @@ export class ProjectChatClient {
     if (!query) {
       return {
         content: JSON.stringify({ error: "Search query is required." }),
-        summary: "搜索词为空",
+        summary: trMain("ui.7237ce669c74"),
         isError: true
       };
     }
@@ -358,7 +595,7 @@ export class ProjectChatClient {
         content: JSON.stringify({
           error: readResponseError(payload, response.status)
         }),
-        summary: `联网搜索失败（${response.status}）`,
+        summary: trMain("ui.b24eba102ea4", [response.status]),
         isError: true
       };
     }
@@ -369,7 +606,7 @@ export class ProjectChatClient {
         : [];
     return {
       content: JSON.stringify({ query, results }),
-      summary: `已检索 “${query}” · ${results.length} 条结果`,
+      summary: trMain("ui.118496b37c5b", [query, results.length]),
       isError: false
     };
   }
@@ -380,6 +617,17 @@ export class ProjectChatClient {
 
   private requestApp(path: string, init: RequestInit = {}) {
     return this.options.apiClient.request(path, init, "required");
+  }
+
+  private async recordModelUsage(
+    record: Omit<LocalApiGatewayUsage, "id" | "createdAt">
+  ): Promise<void> {
+    if (!this.options.recordUsage) return;
+    await this.options.recordUsage({
+      ...record,
+      id: randomUUID(),
+      createdAt: new Date().toISOString()
+    }).catch(() => undefined);
   }
 
   private async getAgent(
@@ -420,8 +668,46 @@ export class ProjectChatClient {
   }
 }
 
-function isTransientAgentCatalogStatus(status: number): boolean {
+export function buildStoredChatHistory(
+  messages: LocalProjectChatMessage[]
+): Array<{ role: "user" | "assistant"; content: string }> {
+  const history: Array<{ role: "user" | "assistant"; content: string }> = [];
+  for (let index = 0; index < messages.length; index += 1) {
+    const message = messages[index]!;
+    const content = message.role === "user" && message.attachments?.length
+      ? buildAttachmentMessageContent(message.content, message.attachments) as string
+      : message.content;
+    history.push({
+      role: message.role,
+      content: message.role === "assistant" && (message.stopped || message.failed)
+        ? [content, message.stopped
+            ? "[This response was stopped by the user. Do not resume or repeat that request unless the user asks again.]"
+            : "[This response failed. Do not retry or repeat that request unless the user asks again.]"]
+            .filter(Boolean)
+            .join("\n\n")
+        : content
+    });
+    if (
+      message.role === "user" &&
+      (index === messages.length - 1 || messages[index + 1]?.role !== "assistant")
+    ) {
+      history.push({
+        role: "assistant",
+        content: "[This request was interrupted before a response was recorded. Do not resume or repeat it unless the user asks again.]"
+      });
+    }
+  }
+  return history;
+}
+
+function isTransientCatalogStatus(status: number): boolean {
   return status === 408 || status === 429 || status >= 500;
+}
+
+function isTransientCatalogFailure(error: unknown): boolean {
+  return error instanceof TypeError || (
+    error instanceof ProjectChatResponseError && isTransientCatalogStatus(error.status)
+  );
 }
 
 function normalizeModel(value: unknown): ChatModel | null {
@@ -438,11 +724,15 @@ function normalizeModel(value: unknown): ChatModel | null {
   return {
     code: model.code,
     displayName: model.display_name,
+    source: "routemarket",
+    providerId: null,
+    providerName: "RouteMarket",
     category,
     supportsTools: model.supports_tools === true,
     supportsNativeWebSearch: model.supports_native_web_search === true,
     supportsVision: model.supports_vision === true,
     supportsStream: model.supports_stream === true,
+    supportsReasoningSummary: model.supports_reasoning_controls === true,
     preferredChatProtocol:
       model.preferred_chat_protocol === "openai_responses"
         ? "openai_responses"
@@ -468,6 +758,8 @@ function normalizeAgent(
     revision: typeof agent.revision === "number" && Number.isInteger(agent.revision)
       ? agent.revision
       : 1,
+    origin: typeof agent.fork_source_id === "string" ? "template" : "personal",
+    forkSourceId: typeof agent.fork_source_id === "string" ? agent.fork_source_id : null,
     name: agent.name,
     description: typeof agent.description === "string" ? agent.description : null,
     avatarUrl:
@@ -515,6 +807,8 @@ function normalizeAgentVersion(
   return {
     id: current.id,
     revision: version.revision,
+    origin: current.origin,
+    forkSourceId: current.forkSourceId,
     name: snapshot.name,
     description: typeof snapshot.description === "string" ? snapshot.description : null,
     avatarUrl: typeof snapshot.avatarUrl === "string"
@@ -620,11 +914,16 @@ function buildSystemPrompt(
   agent: DesktopAgentProfile | null = null,
   localSkillToolsEnabled = true
 ) {
-  const hasFolder = input.project.hasFolder !== false;
+  const hasProject = Boolean(input.project);
+  const hasFolder = Boolean(input.project && input.project.hasFolder !== false);
   const executionEnvironment = resolveExecutionEnvironment(input);
   const lines = [
-    "You are RouteMarket Work, an AI collaborator operating inside a desktop project.",
-    `Current project: ${input.project.displayName} (${input.project.localProjectId}).`,
+    hasProject
+      ? "You are RouteMarket Work, an AI collaborator operating inside a desktop project."
+      : "You are RouteMarket Work, an AI collaborator in a general desktop conversation.",
+    ...(input.project ? [`Current project: ${input.project.displayName} (${input.project.localProjectId}).`] : [
+      "This conversation is not linked to a project. Do not imply that project files, processes, Skills, or local project tools are available."
+    ]),
     `Execution environment: ${executionEnvironment}.`,
     "Do not claim that you changed files, ran commands, or used local tools unless a later tool result explicitly confirms it."
   ];
@@ -633,9 +932,12 @@ function buildSystemPrompt(
       "This project is linked to a local folder. Prefer its supplied file context and project tools when relevant.",
       "Use the supplied project tools to inspect the project instead of guessing file contents or paths.",
       "Before modifying an existing file, read it and use the returned sha256 for the guarded write.",
+      "When the user requests spreadsheet work, use the spreadsheet tool with an explicit operation: create, inspect, read_range, write_range, or export_csv. Inspect or read the workbook first, then pass the returned sha256 as expected_sha256 before write_range. Do not create helper scripts or start a process for spreadsheet work.",
+      "When the user requests a PDF, use the pdf tool with operation create and include the complete document content. Do not create helper scripts, search for PDF libraries, or start a project process for PDF work.",
+      "Files returned by a tool in output_files are automatically attached to the assistant response. Briefly mention the generated filename after the tool succeeds.",
       "When running a project command, pass the executable and arguments separately. Inspect project processes after starting a long-running service, and stop only processes returned for this project."
     );
-  } else {
+  } else if (hasProject) {
     lines.push("This project is not linked to a local folder. Do not imply that local project files or project tools are available.");
   }
   if (agent) {
@@ -713,7 +1015,7 @@ function resolveExecutionEnvironment(
 ): "local" | "cloud" {
   const requested = input.agent?.executionEnvironment ?? "auto";
   if (requested === "local" || requested === "cloud") return requested;
-  return input.project.hasFolder === false ? "cloud" : "local";
+  return !input.project || input.project.hasFolder === false ? "cloud" : "local";
 }
 
 function clampToolRounds(value: number): number {
@@ -788,6 +1090,14 @@ function escapeMarkupAttribute(value: string): string {
     .replaceAll(">", "&gt;");
 }
 
+function dedupeArtifacts<T extends { id: string; relativePath: string }>(artifacts: T[]): T[] {
+  const byPath = new Map<string, T>();
+  for (const artifact of artifacts) {
+    if (!byPath.has(artifact.relativePath)) byPath.set(artifact.relativePath, artifact);
+  }
+  return [...byPath.values()];
+}
+
 function buildMessageContent(input: ProjectChatRequest) {
   const sections: string[] = [];
   if (input.contextFile) {
@@ -821,6 +1131,146 @@ function buildMessageContent(input: ProjectChatRequest) {
   }
   sections.push(attachmentContent);
   return sections.filter(Boolean).join("\n\n");
+}
+
+function toAnthropicMessages(
+  input: ProjectChatRequest,
+  extraMessages: Record<string, unknown>[]
+): Array<{ role: "user" | "assistant"; content: unknown }> {
+  const messages: Array<{ role: "user" | "assistant"; content: unknown }> = [
+    ...(input.history ?? []).map((message) => ({
+      role: message.role,
+      content: message.content
+    })),
+    { role: "user", content: anthropicTextContent(buildMessageContent(input)) }
+  ];
+
+  for (const message of extraMessages) {
+    if (message.role === "assistant") {
+      const blocks: Record<string, unknown>[] = [];
+      if (typeof message.content === "string" && message.content) {
+        blocks.push({ type: "text", text: message.content });
+      }
+      for (const value of Array.isArray(message.tool_calls) ? message.tool_calls : []) {
+        const call = asRecord(value);
+        const fn = asRecord(call?.function);
+        if (!fn || typeof fn.name !== "string") continue;
+        blocks.push({
+          type: "tool_use",
+          id: typeof call?.id === "string" ? call.id : "",
+          name: fn.name,
+          input: parseJsonObject(typeof fn.arguments === "string" ? fn.arguments : "{}")
+        });
+      }
+      messages.push({ role: "assistant", content: blocks });
+      continue;
+    }
+    if (message.role !== "tool") continue;
+    const block = {
+      type: "tool_result",
+      tool_use_id: typeof message.tool_call_id === "string" ? message.tool_call_id : "",
+      content: typeof message.content === "string" ? message.content : JSON.stringify(message.content ?? "")
+    };
+    const previous = messages.at(-1);
+    if (previous?.role === "user" && Array.isArray(previous.content)) {
+      previous.content.push(block);
+    } else {
+      messages.push({ role: "user", content: [block] });
+    }
+  }
+  return messages;
+}
+
+function anthropicTextContent(
+  content: ReturnType<typeof buildMessageContent>
+): string {
+  if (typeof content === "string") return content;
+  return content.flatMap((part) => part.type === "text" ? [part.text] : []).join("\n\n");
+}
+
+function parseJsonObject(value: string): Record<string, unknown> {
+  try {
+    return asRecord(JSON.parse(value)) ?? {};
+  } catch {
+    return {};
+  }
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+async function readAnthropicStream(
+  body: ReadableStream<Uint8Array>,
+  signal: AbortSignal,
+  onText: (text: string) => void
+): Promise<{ text: string; reasoning: string; toolCalls: ProjectChatToolCall[] }> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  const tools = new Map<number, { id: string; name: string; arguments: string }>();
+  let text = "";
+  let buffer = "";
+  const consume = (line: string) => {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith("data:")) return;
+    const payload = asRecord(parseJsonValue(trimmed.slice(5).trim()));
+    if (!payload) return;
+    const index = typeof payload.index === "number" ? payload.index : 0;
+    const block = asRecord(payload.content_block);
+    const delta = asRecord(payload.delta);
+    if (payload.type === "content_block_start" && block?.type === "tool_use") {
+      tools.set(index, {
+        id: typeof block.id === "string" ? block.id : "",
+        name: typeof block.name === "string" ? block.name : "",
+        arguments: ""
+      });
+    }
+    if (payload.type === "content_block_start" && block?.type === "text" && typeof block.text === "string") {
+      text += block.text;
+      onText(text);
+    }
+    if (payload.type === "content_block_delta" && delta?.type === "text_delta" && typeof delta.text === "string") {
+      text += delta.text;
+      onText(text);
+    }
+    if (payload.type === "content_block_delta" && delta?.type === "input_json_delta" && typeof delta.partial_json === "string") {
+      const tool = tools.get(index);
+      if (tool) tool.arguments += delta.partial_json;
+    }
+  };
+  try {
+    while (true) {
+      if (signal.aborted) throw signal.reason;
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+      for (const line of lines) consume(line);
+    }
+    buffer += decoder.decode();
+    if (buffer.trim()) consume(buffer);
+  } finally {
+    reader.releaseLock();
+  }
+  return {
+    text,
+    reasoning: "",
+    toolCalls: [...tools.values()].map((tool) => ({
+      ...tool,
+      arguments: tool.arguments || "{}"
+    })).filter((tool) => tool.name)
+  };
+}
+
+function parseJsonValue(value: string): unknown {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
 }
 
 export function buildAttachmentMessageContent(

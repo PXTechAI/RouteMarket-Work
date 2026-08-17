@@ -27,6 +27,7 @@ describe("readProjectChatStream", () => {
 
     expect(result).toEqual({
       text: "",
+      reasoning: "",
       toolCalls: [{
         id: "call_1",
         name: "project_search",
@@ -49,5 +50,30 @@ describe("readProjectChatStream", () => {
 
     expect(result.text).toBe("Hello world");
     expect(snapshots).toContain("Hello world");
+  });
+
+  it("streams Responses API reasoning summaries separately from answer text", async () => {
+    const reasoningSnapshots: string[] = [];
+    const result = await readProjectChatStream(
+      stream(
+        'data: {"type":"response.reasoning_summary_part.added","summary_index":0,"part":{"type":"summary_text","text":""}}\n\n',
+        'data: {"type":"response.reasoning_summary_text.delta","summary_index":0,"delta":"Inspecting the project"}\n\n',
+        'data: {"type":"response.reasoning_summary_text.delta","summary_index":0,"delta":" structure."}\n\n',
+        'data: {"type":"response.output_text.delta","delta":"Done."}\n\n',
+        "data: [DONE]\n\n"
+      ),
+      new AbortController().signal,
+      () => undefined,
+      (reasoning) => reasoningSnapshots.push(reasoning)
+    );
+
+    expect(result).toMatchObject({
+      text: "Done.",
+      reasoning: "Inspecting the project structure."
+    });
+    expect(reasoningSnapshots).toEqual([
+      "Inspecting the project",
+      "Inspecting the project structure."
+    ]);
   });
 });

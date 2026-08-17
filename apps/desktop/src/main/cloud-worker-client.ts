@@ -7,7 +7,11 @@ import {
   type JobEvent,
   type WorkEnvelope
 } from "@routemarket/work-protocol";
-import { projectBindingIdFor, type JobRecoveryState } from "@routemarket/work-worker-core";
+import {
+  projectBindingIdFor,
+  type JobRecoveryState,
+  type ProjectSkillPackageIdentity
+} from "@routemarket/work-worker-core";
 import WebSocket, { type RawData } from "ws";
 import type { ActivityItem, CloudWorkerStatus, ProjectSummary } from "../shared/desktop-api";
 import type { WorkerClient } from "./worker-client";
@@ -27,7 +31,31 @@ export type CloudWorkerTransport = Pick<
   | "eventsFrom"
   | "recoveryState"
   | "acknowledgeEvent"
->;
+> & Partial<Pick<WorkerClient, "projectContext" | "inspectProjectSkill">>;
+
+export type CloudSkillSigner = {
+  signManifest(identities: ProjectSkillPackageIdentity[]): Promise<{
+    signingKeys: Array<{
+      keyId: string;
+      algorithm: "ed25519";
+      publicKey: string;
+      trust: "device";
+    }>;
+    localSkills: Array<{
+      skillId: string;
+      version: string;
+      packageDigest: string;
+      signingKeyId: string;
+      signature: string;
+      projectBindingId: string | null;
+      permissions: string[];
+      operations: string[];
+    }>;
+  }>;
+  assertAuthorizedJob(
+    job: Extract<DesktopJob, { executorKey: "local.skill.invoke" }>
+  ): unknown;
+};
 
 type CloudWorkerOptions = {
   apiClient: RouteMarketApiClient;
@@ -38,6 +66,7 @@ type CloudWorkerOptions = {
   appVersion: string;
   workerVersion: string;
   workerClient: CloudWorkerTransport;
+  skillSigner?: CloudSkillSigner;
   onActivity: (kind: ActivityItem["kind"], title: string, detail: string) => void;
   executeDesktopJob?: (
     job: DesktopJob,
@@ -242,6 +271,34 @@ export class CloudWorkerClient {
       project,
       bindingId: projectBindingIdFor(project.localProjectId)
     }));
+    const inspectedSkills = await Promise.all(bindings.map(async ({ project }) => {
+      if (
+        !this.options.skillSigner ||
+        !this.options.workerClient.projectContext ||
+        !this.options.workerClient.inspectProjectSkill
+      ) {
+        return [];
+      }
+      const context = await this.options.workerClient.projectContext(project.localProjectId);
+      const inspections = await Promise.allSettled(
+        context.skills.map((skill) =>
+          this.options.workerClient.inspectProjectSkill!(project.localProjectId, skill.id)
+        )
+      );
+      return inspections.flatMap((inspection, index) => {
+        if (inspection.status === "fulfilled") return [inspection.value];
+        this.options.onActivity(
+          "job.failed",
+          "Local Skill unavailable",
+          `${context.skills[index]?.id ?? "unknown"}: package validation failed`
+        );
+        return [];
+      });
+    }));
+    const signedSkills = this.options.skillSigner
+      ? await this.options.skillSigner.signManifest(inspectedSkills.flat())
+      : { signingKeys: [], localSkills: [] };
+    const hasSignedSkills = signedSkills.localSkills.length > 0;
     await this.request(generation, `/runtimes/${this.runtimeId}/capabilities`, {
       method: "PUT",
       body: {
@@ -272,7 +329,9 @@ export class CloudWorkerClient {
           { key: "local.browser.screenshot", version: 1, risk: "R0", operations: ["screenshot"] },
           { key: "local.browser.upload", version: 1, risk: "R3", operations: ["upload"] },
           { key: "local.mcp.call", version: 1, risk: "R2", operations: ["call"] },
-          { key: "local.skill.invoke", version: 1, risk: "R0", operations: ["invoke"] },
+          ...(hasSignedSkills
+            ? [{ key: "local.skill.invoke", version: 1, risk: "R3", operations: ["invoke"] }]
+            : []),
           { key: "local.app.open", version: 1, risk: "R2", operations: ["open"] },
           { key: "desktop.trigger.file_changed", version: 1, risk: "R1", operations: ["watch"] },
           { key: "desktop.trigger.folder_added", version: 1, risk: "R1", operations: ["watch"] },
@@ -299,19 +358,27 @@ export class CloudWorkerClient {
             description: tool.description,
             inputSchema: tool.inputSchema
           }))
-        }))
+        })),
+        signingKeys: signedSkills.signingKeys,
+        localSkills: signedSkills.localSkills
       }
     });
     this.manifestRevision = revision;
     for (const { project, bindingId } of bindings) {
-      await this.bindProject(generation, project, bindingId);
+      await this.bindProject(
+        generation,
+        project,
+        bindingId,
+        signedSkills.localSkills.some((skill) => skill.projectBindingId === bindingId)
+      );
     }
   }
 
   private bindProject(
     generation: number,
     project: ProjectSummary,
-    bindingId: string
+    bindingId: string,
+    hasSignedSkill: boolean
   ): Promise<unknown> {
     return this.request(generation, "/projects/bind", {
       method: "POST",
@@ -330,7 +397,7 @@ export class CloudWorkerClient {
           "local.browser.screenshot",
           "local.browser.upload",
           "local.mcp.call",
-          "local.skill.invoke",
+          ...(hasSignedSkill ? ["local.skill.invoke"] : []),
           "local.app.open",
           "desktop.trigger.file_changed",
           "desktop.trigger.folder_added",
@@ -412,7 +479,13 @@ export class CloudWorkerClient {
     }
     const job = toDesktopJob(accepted);
     let events: JobEvent[];
-    if (job.executorKey === "local.fs.read" || job.executorKey === "local.skill.invoke") {
+    if (job.executorKey === "local.skill.invoke") {
+      if (!this.options.skillSigner) {
+        throw new Error("Local Skill signing is unavailable.");
+      }
+      this.options.skillSigner.assertAuthorizedJob(job);
+    }
+    if (job.executorKey === "local.fs.read") {
       events = await this.options.workerClient.executeJob(job, accepted.leaseId, accepted.leaseEpoch);
     } else if (this.options.executeDesktopJob) {
       const controller = new AbortController();

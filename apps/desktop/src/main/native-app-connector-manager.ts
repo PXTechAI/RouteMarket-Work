@@ -1,3 +1,4 @@
+import { trMain } from "./i18n";
 import { existsSync } from "node:fs";
 import { realpath, stat } from "node:fs/promises";
 import { extname, isAbsolute, relative, resolve, sep } from "node:path";
@@ -61,7 +62,7 @@ export function discoverNativeAppConnectors(
     {
       connectorId: "vscode",
       name: "Visual Studio Code",
-      description: "在 VS Code 中打开当前项目或项目内文件。",
+      description: trMain("ui.07b10847f31b"),
       executablePath: firstExisting([
         resolve(local, "Programs/Microsoft VS Code/Code.exe"),
         resolve(programFiles, "Microsoft VS Code/Code.exe"),
@@ -72,14 +73,14 @@ export function discoverNativeAppConnectors(
     {
       connectorId: "excel",
       name: "Microsoft Excel",
-      description: "在本机 Excel 中打开项目内工作簿。",
+      description: trMain("ui.347ad6c4fb47"),
       executablePath: firstExisting(officeCandidates("EXCEL.EXE", programFiles, programFilesX86)),
       supportedExtensions: [".xlsx", ".xls", ".xlsm", ".csv"]
     },
     {
       connectorId: "powerpoint",
       name: "Microsoft PowerPoint",
-      description: "在本机 PowerPoint 中打开项目内演示文稿。",
+      description: trMain("ui.50537b6dd5e3"),
       executablePath: firstExisting(officeCandidates("POWERPNT.EXE", programFiles, programFilesX86)),
       supportedExtensions: [".pptx", ".ppt", ".pptm"]
     }

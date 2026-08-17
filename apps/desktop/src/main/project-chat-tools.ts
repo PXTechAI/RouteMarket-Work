@@ -1,3 +1,5 @@
+import { trMain } from "./i18n";
+import type { ProjectChatArtifact } from "../shared/desktop-api";
 export type ProjectChatToolDefinition = {
   type: "function";
   function: {
@@ -17,6 +19,7 @@ export type ProjectChatToolExecution = {
   content: string;
   summary: string;
   isError: boolean;
+  artifacts?: ProjectChatArtifact[];
 };
 
 export const PROJECT_CHAT_TOOLS: ProjectChatToolDefinition[] = [
@@ -351,23 +354,24 @@ export const PROJECT_CHAT_TOOLS: ProjectChatToolDefinition[] = [
 ];
 
 export function projectChatToolTitle(name: string): string {
-  if (name === "web_search") return "联网搜索";
-  if (name.startsWith("mcp_local_")) return "调用 Local MCP Tool";
-  if (name.startsWith("skill_local_")) return "调用项目 Skill";
-  if (name === "project_list_files") return "查看项目文件";
-  if (name === "project_search") return "搜索项目";
-  if (name === "project_read_file") return "读取项目文件";
-  if (name === "project_write_file") return "修改项目文件";
-  if (name === "project_create_file") return "新建项目文件";
-  if (name === "project_start_process") return "启动项目进程";
-  if (name === "project_list_processes") return "查看项目进程";
-  if (name === "project_stop_process") return "停止项目进程";
-  if (name === "browser_get_state") return "查看浏览器页面";
-  if (name === "browser_create_page") return "新建浏览器页面";
-  if (name === "browser_navigate") return "打开网页";
-  if (name === "browser_click") return "点击网页元素";
-  if (name === "browser_type") return "填写网页内容";
-  if (name === "browser_upload") return "上传项目文件";
-  if (name === "browser_extract") return "读取网页内容";
+  if (name === "web_search") return trMain("ui.45e62e474f4a");
+  if (name.startsWith("mcp_local_")) return trMain("ui.fc60bd63e7ad");
+  if (name.startsWith("skill_local_")) return trMain("ui.3cedc598d7d1");
+  if (name === "project_list_files") return trMain("ui.cc7dcd4bb00a");
+  if (name === "project_search") return trMain("ui.b617f05c84e4");
+  if (name === "project_read_file") return trMain("ui.87e4a3b9a477");
+  if (name === "project_write_file") return trMain("ui.d477365c5d2b");
+  if (name === "project_create_file") return trMain("ui.54c7ecfd638a");
+  if (name === "spreadsheet") return trMain("chat.tool.spreadsheet");
+  if (name === "project_start_process") return trMain("ui.72729d85ab04");
+  if (name === "project_list_processes") return trMain("ui.18cf322cd643");
+  if (name === "project_stop_process") return trMain("ui.d86dd8ca7d2b");
+  if (name === "browser_get_state") return trMain("ui.3a0191f541dd");
+  if (name === "browser_create_page") return trMain("ui.92ab1f079b05");
+  if (name === "browser_navigate") return trMain("ui.22d040b33dbe");
+  if (name === "browser_click") return trMain("ui.21c2547386d0");
+  if (name === "browser_type") return trMain("ui.7b93ef577697");
+  if (name === "browser_upload") return trMain("ui.a40b283a86f3");
+  if (name === "browser_extract") return trMain("ui.074c72c437c6");
   return name;
 }

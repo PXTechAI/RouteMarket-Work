@@ -30,7 +30,11 @@ export class AgentCatalogStore {
     return rows.flatMap((row) => {
       try {
         const parsed = JSON.parse(row.profile_json) as unknown;
-        return validAgentProfile(parsed) ? [parsed] : [];
+        return validAgentProfile(parsed) ? [{
+          ...parsed,
+          origin: parsed.origin === "template" ? "template" : "personal",
+          forkSourceId: typeof parsed.forkSourceId === "string" ? parsed.forkSourceId : null
+        }] : [];
       } catch {
         return [];
       }

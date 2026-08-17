@@ -53,6 +53,85 @@ describe("WorkflowDraftStore", () => {
     expect(() => store.save(draft)).toThrow("endpoints");
   });
 
+  it("rejects workflow dependency cycles", () => {
+    const draft = createDraft();
+    const second = {
+      ...draft.nodes[0]!,
+      nodeId: "node_read2",
+      x: 280
+    };
+    draft.nodes.push(second);
+    draft.edges.push(
+      {
+        edgeId: "edge_cycle1",
+        sourceNodeId: "node_read1",
+        targetNodeId: "node_read2"
+      },
+      {
+        edgeId: "edge_cycle2",
+        sourceNodeId: "node_read2",
+        targetNodeId: "node_read1"
+      }
+    );
+
+    expect(() => store.save(draft)).toThrow("cycle");
+  });
+
+  it("persists compatible edge ports and rejects incompatible port types", () => {
+    const draft = createDraft();
+    const source = draft.nodes[0]!;
+    source.executionTarget = "cloud";
+    source.definitionSnapshot = {
+      ...source.definitionSnapshot,
+      source: "cloud",
+      executionTarget: "cloud",
+      cloudRuntime: {
+        nodeType: "fixture.source",
+        kind: "fixture",
+        executionMode: "source",
+        joinStrategy: "passthrough",
+        inputPorts: [],
+        outputPorts: [{ id: "text", produces: ["text"] }]
+      }
+    };
+    const target = {
+      ...source,
+      nodeId: "node_target1",
+      title: "Target",
+      x: 280,
+      definitionSnapshot: {
+        ...source.definitionSnapshot,
+        cloudRuntime: {
+          nodeType: "fixture.target",
+          kind: "fixture",
+          executionMode: "sink",
+          joinStrategy: "passthrough",
+          inputPorts: [
+            { id: "prompt", accepts: ["text"] },
+            { id: "image", accepts: ["image"] }
+          ],
+          outputPorts: []
+        }
+      }
+    };
+    draft.nodes.push(target);
+    draft.edges.push({
+      edgeId: "edge_ports1",
+      sourceNodeId: source.nodeId,
+      targetNodeId: target.nodeId,
+      sourcePortId: "text",
+      targetPortId: "prompt"
+    });
+
+    expect(store.save(draft).edges[0]).toMatchObject({
+      sourcePortId: "text",
+      targetPortId: "prompt"
+    });
+
+    draft.edges[0]!.targetPortId = "image";
+    expect(() => store.save(draft)).toThrow("incompatible");
+  });
+
   it("deletes the project draft", () => {
     store.save(createDraft());
     store.delete("project_test", "workflow_test");

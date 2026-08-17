@@ -382,12 +382,30 @@ function buildNodeInput(
   workflowInput: Record<string, unknown>,
   outputs: Map<string, unknown>
 ): Record<string, unknown> {
-  const predecessorIds = draft.edges
+  const incomingEdges = draft.edges
     .filter((edge) => edge.targetNodeId === node.nodeId)
-    .map((edge) => edge.sourceNodeId)
-    .sort();
+    .sort((left, right) =>
+      left.sourceNodeId.localeCompare(right.sourceNodeId) ||
+      left.edgeId.localeCompare(right.edgeId));
+  const predecessorIds = incomingEdges.map((edge) => edge.sourceNodeId);
   const upstream = Object.fromEntries(
     predecessorIds.map((nodeId) => [nodeId, outputs.get(nodeId)])
+  );
+  const portInputs = incomingEdges.reduce<Record<string, unknown>>(
+    (values, edge) => {
+      if (!edge.targetPortId) return values;
+      const output = readPortOutput(outputs.get(edge.sourceNodeId), edge.sourcePortId);
+      if (!(edge.targetPortId in values)) {
+        values[edge.targetPortId] = output;
+      } else {
+        const current = values[edge.targetPortId];
+        values[edge.targetPortId] = Array.isArray(current)
+          ? [...current, output]
+          : [current, output];
+      }
+      return values;
+    },
+    {}
   );
   const singleOutput = predecessorIds.length === 1
     ? outputs.get(predecessorIds[0]!)
@@ -395,11 +413,18 @@ function buildNodeInput(
   return {
     ...workflowInput,
     ...(isRecord(singleOutput) ? singleOutput : {}),
+    ...portInputs,
     ...node.config,
     $localProjectId: draft.localProjectId,
     $workflow: workflowInput,
     $upstream: upstream
   };
+}
+
+function readPortOutput(output: unknown, sourcePortId: string | undefined): unknown {
+  return sourcePortId && isRecord(output) && sourcePortId in output
+    ? output[sourcePortId]
+    : output;
 }
 
 function collectWorkflowOutput(

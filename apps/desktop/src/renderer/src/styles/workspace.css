@@ -35,27 +35,12 @@
   gap: 9px;
 }
 
-.project-heading > div:nth-child(2) {
-  display: grid;
-  min-width: 0;
-  gap: 2px;
-}
-
 .project-heading h1,
 .project-heading span {
   overflow: hidden;
   margin: 0;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.project-icon {
-  display: grid;
-  place-items: center;
-  width: 32px;
-  height: 32px;
-  flex: 0 0 auto;
-  border-radius: 7px;
 }
 
 .header-actions {

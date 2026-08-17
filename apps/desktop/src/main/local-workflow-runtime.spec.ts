@@ -41,6 +41,32 @@ describe("LocalWorkflowRuntime", () => {
     ]);
   });
 
+  it("maps a source port value into the connected target port", async () => {
+    const draft = createDraft();
+    draft.edges[0] = {
+      ...draft.edges[0]!,
+      sourcePortId: "text",
+      targetPortId: "content"
+    };
+    const calls: Array<{ key: string; input: Record<string, unknown> }> = [];
+    const runtime = new LocalWorkflowRuntime(
+      draftReader([draft]),
+      memoryRuns(),
+      async (node, input) => {
+        calls.push({ key: node.executorKey, input });
+        return node.nodeId === "node_read1"
+          ? { text: "port value", ignored: true }
+          : { result: input.content };
+      }
+    );
+
+    const queued = runtime.run("project_test", "workflow_test");
+    const completed = await runtime.waitForRun(queued.runId);
+
+    expect(calls[1]?.input.content).toBe("port value");
+    expect(completed?.output).toEqual({ result: "port value" });
+  });
+
   it("rejects graph cycles before creating a run", () => {
     const draft = createDraft();
     draft.edges.push({

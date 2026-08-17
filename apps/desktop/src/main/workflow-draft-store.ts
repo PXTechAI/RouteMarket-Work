@@ -1,5 +1,10 @@
 import { DatabaseSync } from "node:sqlite";
-import type { DesktopWorkflowDraft, DesktopWorkflowDraftSummary } from "../shared/desktop-api";
+import type {
+  DesktopWorkflowCloudPort,
+  DesktopWorkflowDraft,
+  DesktopWorkflowDraftNode,
+  DesktopWorkflowDraftSummary
+} from "../shared/desktop-api";
 
 type DraftRow = {
   workflow_id: string;
@@ -161,6 +166,7 @@ function validateDraft(draft: DesktopWorkflowDraft): void {
   }
   if (draft.nodes.length > 200 || draft.edges.length > 400) throw new Error("Workflow draft exceeds node or edge limits.");
   const nodeIds = new Set<string>();
+  const nodesById = new Map<string, DesktopWorkflowDraftNode>();
   for (const node of draft.nodes) {
     if (!ID_PATTERN.test(node.nodeId) || nodeIds.has(node.nodeId)) throw new Error("Workflow node ids must be unique and valid.");
     nodeIds.add(node.nodeId);
@@ -170,6 +176,7 @@ function validateDraft(draft: DesktopWorkflowDraft): void {
     if (![node.x, node.y].every((value) => Number.isFinite(value) && value >= -10_000 && value <= 10_000)) throw new Error("Workflow node position is invalid.");
     if (node.definitionSnapshot.executorKey !== node.executorKey) throw new Error("Workflow definition snapshot does not match the executor.");
     validateCloudRuntime(node.definitionSnapshot.cloudRuntime);
+    nodesById.set(node.nodeId, node);
   }
   const edgeIds = new Set<string>();
   for (const edge of draft.edges) {
@@ -178,7 +185,28 @@ function validateDraft(draft: DesktopWorkflowDraft): void {
     if (!nodeIds.has(edge.sourceNodeId) || !nodeIds.has(edge.targetNodeId) || edge.sourceNodeId === edge.targetNodeId) {
       throw new Error("Workflow edge endpoints are invalid.");
     }
+    if (!validOptionalPortId(edge.sourcePortId) || !validOptionalPortId(edge.targetPortId)) {
+      throw new Error("Workflow edge ports are invalid.");
+    }
+    const sourcePort = findEdgePort(
+      nodesById.get(edge.sourceNodeId),
+      "output",
+      edge.sourcePortId
+    );
+    const targetPort = findEdgePort(
+      nodesById.get(edge.targetNodeId),
+      "input",
+      edge.targetPortId
+    );
+    if (
+      sourcePort === false ||
+      targetPort === false ||
+      (sourcePort && targetPort && !portsAreCompatible(sourcePort, targetPort))
+    ) {
+      throw new Error("Workflow edge ports are incompatible.");
+    }
   }
+  validateAcyclicDraft(draft);
 }
 
 function validateCloudRuntime(runtime: unknown): void {
@@ -229,6 +257,65 @@ function validPortTypes(value: unknown): boolean {
       value.length <= 32 &&
       value.every((item) => typeof item === "string" && item.length > 0 && item.length <= 64))
   );
+}
+
+function validOptionalPortId(value: unknown): boolean {
+  return value === undefined ||
+    (typeof value === "string" && value.length > 0 && value.length <= 160);
+}
+
+function findEdgePort(
+  node: DesktopWorkflowDraftNode | undefined,
+  direction: "input" | "output",
+  portId: string | undefined
+): DesktopWorkflowCloudPort | false | null {
+  const runtime = node?.definitionSnapshot.cloudRuntime;
+  if (!runtime || portId === undefined) return null;
+  const ports = direction === "input" ? runtime.inputPorts : runtime.outputPorts;
+  return ports.find((port) => port.id === portId) ?? false;
+}
+
+function portsAreCompatible(
+  source: DesktopWorkflowCloudPort,
+  target: DesktopWorkflowCloudPort
+): boolean {
+  const produces = source.produces ?? [];
+  const accepts = target.accepts ?? [];
+  if (!produces.length || !accepts.length) return true;
+  if (
+    produces.includes("*") ||
+    produces.includes("any") ||
+    accepts.includes("*") ||
+    accepts.includes("any")
+  ) {
+    return true;
+  }
+  return produces.some((type) => accepts.includes(type));
+}
+
+function validateAcyclicDraft(draft: DesktopWorkflowDraft): void {
+  const indegree = new Map(draft.nodes.map((node) => [node.nodeId, 0]));
+  const outgoing = new Map(draft.nodes.map((node) => [node.nodeId, [] as string[]]));
+  for (const edge of draft.edges) {
+    indegree.set(edge.targetNodeId, (indegree.get(edge.targetNodeId) ?? 0) + 1);
+    outgoing.get(edge.sourceNodeId)?.push(edge.targetNodeId);
+  }
+  const pending = [...indegree.entries()]
+    .filter(([, count]) => count === 0)
+    .map(([nodeId]) => nodeId);
+  let visited = 0;
+  for (let index = 0; index < pending.length; index += 1) {
+    const nodeId = pending[index]!;
+    visited += 1;
+    for (const targetId of outgoing.get(nodeId) ?? []) {
+      const count = (indegree.get(targetId) ?? 1) - 1;
+      indegree.set(targetId, count);
+      if (count === 0) pending.push(targetId);
+    }
+  }
+  if (visited !== draft.nodes.length) {
+    throw new Error("Workflow edges must not contain a dependency cycle.");
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

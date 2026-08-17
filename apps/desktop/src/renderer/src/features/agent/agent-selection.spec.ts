@@ -51,6 +51,8 @@ function createAgent(id: string): DesktopAgentProfile {
   return {
     id,
     revision: 1,
+    origin: "personal",
+    forkSourceId: null,
     name: id,
     description: null,
     avatarUrl: null,

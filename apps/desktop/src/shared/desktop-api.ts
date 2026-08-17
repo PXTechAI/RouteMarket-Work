@@ -3,9 +3,18 @@ export type ProjectSummary = {
   displayName: string;
   hasFolder?: boolean;
   folderStatus?: "unlinked" | "available" | "missing" | "unavailable";
+  folders?: ProjectFolderSummary[];
   rootFingerprint: string;
   createdAt: string;
   updatedAt: string;
+};
+
+export type ProjectFolderSummary = {
+  folderId: string;
+  name: string;
+  path: string;
+  status: "available" | "missing" | "unavailable";
+  primary: boolean;
 };
 
 export type ReadResult = {
@@ -30,6 +39,51 @@ export type ProjectAssetPreview = {
   dataUrl: string;
   bytesRead: number;
 };
+
+export type ProjectArtifactPreview =
+  | ({
+      kind: "media";
+      providerId: "core.media";
+    } & ProjectAssetPreview)
+  | {
+      kind: "table";
+      providerId: "core.delimited-table" | "ai.routemarket.spreadsheet";
+      viewerId: "core.delimited-table" | "spreadsheet.viewer";
+      uri: string;
+      mimeType:
+        | "text/csv"
+        | "text/tab-separated-values"
+        | "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+      rows: string[][];
+      rowCount: number;
+      columnCount: number;
+      bytesRead: number;
+      truncated: boolean;
+      sheets?: Array<{ id: string; name: string }>;
+      activeSheetId?: string;
+    }
+  | {
+      kind: "pdf";
+      providerId: "ai.routemarket.pdf";
+      viewerId: "pdf.viewer";
+      uri: string;
+      mimeType: "application/pdf";
+      dataUrl: string;
+      bytesRead: number;
+      pageCount: number;
+      pageNumber: number;
+      width: number;
+      height: number;
+      isolated: true;
+    }
+  | {
+      kind: "unavailable";
+      providerId: "ai.routemarket.spreadsheet" | "ai.routemarket.pdf";
+      viewerId: "spreadsheet.viewer" | "pdf.viewer";
+      uri: string;
+      title: string;
+      reason: string;
+    };
 
 export type ProjectFileEntry = {
   name: string;
@@ -271,6 +325,8 @@ export type DesktopWorkflowDraftEdge = {
   edgeId: string;
   sourceNodeId: string;
   targetNodeId: string;
+  sourcePortId?: string;
+  targetPortId?: string;
 };
 
 export type DesktopWorkflowDraft = {
@@ -493,10 +549,33 @@ export type WorkState = {
 
 export type LocalDataInfo = {
   dataPath: string;
+  scope: "guest" | "account-space";
+  accountName: string | null;
+  spaceName: string | null;
+  storedAccountCount: number;
+  storedSpaceCount: number;
+  allScopesBytes: number;
   totalBytes: number;
   databaseBytes: number;
   databaseHealth: "empty" | "healthy" | "corrupt";
   lastRecoveredAt: string | null;
+};
+
+export type LocalDataScopeSummary = {
+  scopeId: string;
+  accountName: string;
+  spaceName: string;
+  spaceKind: "personal" | "team" | "local";
+  lastUsedAt: string;
+  totalBytes: number;
+  current: boolean;
+};
+
+export type DesktopAppInfo = {
+  version: string;
+  buildEnvironment: "development" | "test" | "production";
+  updateEnabled: boolean;
+  updateChannel: "stable" | "beta";
 };
 
 export type AccountSpace = {
@@ -511,12 +590,123 @@ export type AccountSpace = {
 export type ChatModel = {
   code: string;
   displayName: string;
+  source: "routemarket" | "external";
+  providerId: string | null;
+  providerName: string;
   category: "chat" | "reasoning";
   supportsTools: boolean;
   supportsNativeWebSearch: boolean;
   supportsVision: boolean;
   supportsStream: boolean;
+  supportsReasoningSummary: boolean;
   preferredChatProtocol: "openai_responses" | null;
+};
+
+export type ModelProviderProtocol = "openai-compatible" | "anthropic";
+
+export type ModelProviderCompatibility =
+  | "standard"
+  | "openrouter"
+  | "opencode"
+  | "nine-router"
+  | "custom";
+
+export type ModelProviderHeader = {
+  name: string;
+  value: string;
+};
+
+export type ModelProviderModel = {
+  id: string;
+  displayName: string;
+  source: "synced" | "manual";
+  category: "chat" | "reasoning";
+  supportsTools: boolean;
+  supportsVision: boolean;
+  supportsStream: boolean;
+  supportsReasoningSummary: boolean;
+};
+
+export type ModelProviderSummary = {
+  id: string;
+  name: string;
+  protocol: ModelProviderProtocol;
+  compatibility: ModelProviderCompatibility;
+  baseUrl: string;
+  headers: ModelProviderHeader[];
+  hasApiKey: boolean;
+  enabled: boolean;
+  modelCount: number;
+  models: ModelProviderModel[];
+  lastSyncedAt: string | null;
+  lastError: string | null;
+};
+
+export type ModelProviderInput = {
+  id?: string;
+  name: string;
+  protocol: ModelProviderProtocol;
+  compatibility?: ModelProviderCompatibility;
+  baseUrl: string;
+  headers?: ModelProviderHeader[];
+  apiKey?: string;
+  enabled: boolean;
+  models?: ModelProviderModel[];
+};
+
+export type LocalApiGatewayState = {
+  enabled: boolean;
+  port: number;
+  running: boolean;
+  baseUrl: string;
+  token: string;
+  requestCount: number;
+  lastRequestAt: string | null;
+  lastError: string | null;
+  routes: LocalApiGatewayRoute[];
+  targetHealth: LocalApiGatewayTargetHealth[];
+};
+
+export type LocalApiGatewayRoute = {
+  id: string;
+  name: string;
+  strategy: "priority" | "round-robin";
+  targets: string[];
+};
+
+export type LocalApiGatewayRouteInput = {
+  id?: string;
+  name: string;
+  strategy?: "priority" | "round-robin";
+  targets: string[];
+};
+
+export type LocalApiGatewayTargetHealth = {
+  model: string;
+  consecutiveFailures: number;
+  openUntil: string | null;
+  lastStatus: number | null;
+};
+
+export type LocalApiGatewayUsage = {
+  id: string;
+  source: "desktop_chat" | "local_gateway";
+  kind: "chat" | "responses" | "anthropic_messages" | "image" | "audio" | "video";
+  providerId: string | null;
+  providerName: string;
+  requestedModel: string;
+  resolvedModel: string;
+  routeId: string | null;
+  status: number | null;
+  durationMs: number;
+  success: boolean;
+  createdAt: string;
+};
+
+export type LocalApiGatewayUpdate = {
+  enabled?: boolean;
+  port?: number;
+  rotateToken?: boolean;
 };
 
 export type WebSearchMode = "agentic" | "native" | "off";
@@ -555,6 +745,8 @@ export type DesktopAgentExecutionPolicy = {
 export type DesktopAgentProfile = {
   id: string;
   revision: number;
+  origin: "personal" | "template";
+  forkSourceId: string | null;
   name: string;
   description: string | null;
   avatarUrl: string | null;
@@ -583,14 +775,17 @@ export type ProjectChatRequest = {
   sentAt: string;
   model: string;
   webSearchMode?: WebSearchMode;
+  modelSupportsTools?: boolean;
   modelSupportsVision?: boolean;
+  preferredChatProtocol?: "openai_responses" | null;
+  reasoningSummary?: "auto";
   message: string;
   attachments?: DesktopChatAttachment[];
   history?: Array<{
     role: "user" | "assistant";
     content: string;
   }>;
-  project: {
+  project?: {
     localProjectId: string;
     displayName: string;
     hasFolder?: boolean;
@@ -623,23 +818,54 @@ export type ProjectChatRequest = {
 export type LocalProjectChatMessage = {
   id: string;
   sessionId: string;
-  localProjectId: string;
+  localProjectId: string | null;
   role: "user" | "assistant";
   content: string;
+  reasoning?: string;
   sentAt: string;
   contextFile?: string;
   attachments?: DesktopChatAttachment[];
+  artifacts?: ProjectChatArtifact[];
+  tools?: ProjectChatToolActivity[];
   stopped?: boolean;
+  failed?: boolean;
   agentId?: string;
   agentRevision?: number;
   agentName?: string;
   agentAvatarUrl?: string | null;
 };
 
+export type ProjectChatToolActivity = {
+  toolCallId: string;
+  toolName: string;
+  title: string;
+  status: "running" | "completed" | "error";
+  detail?: string;
+};
+
+export type ProjectChatArtifact = {
+  id: string;
+  kind: "file";
+  relativePath: string;
+  filename: string;
+  mimeType: string;
+  size: number;
+  uri: string;
+  providerId: string;
+};
+
 export type LocalProjectChat = {
   sessionId: string;
-  localProjectId: string;
+  localProjectId: string | null;
   messages: LocalProjectChatMessage[];
+};
+
+export type LocalProjectChatSummary = {
+  sessionId: string;
+  localProjectId: string | null;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
 };
 
 export type ProjectTextContext = {
@@ -676,10 +902,43 @@ export type LocalSkillInvocationResult = {
   directive: string;
 };
 
+export type LocalSkillInstallReceipt = {
+  localProjectId: string;
+  skillId: string;
+  name: string;
+  description: string;
+  version: string;
+  packageDigest: string;
+  currentPackageDigest: string | null;
+  source: "local_archive" | "web_library" | "local_directory";
+  sourceLabel: string;
+  publisherFingerprint: string | null;
+  installedAt: string | null;
+  updatedAt: string | null;
+  status: "ready" | "modified" | "missing" | "invalid";
+  managed: boolean;
+  relativePath: string;
+  permissions: string[];
+  operations: string[];
+};
+
+export type DownloadableCloudSkill = {
+  skillId: string;
+  version: string;
+  versionId: string;
+  name: string;
+  description: string;
+};
+
 export type ProjectChatEvent =
   | {
       requestId: string;
       type: "delta";
+      content: string;
+    }
+  | {
+      requestId: string;
+      type: "reasoning";
       content: string;
     }
   | {
@@ -691,6 +950,11 @@ export type ProjectChatEvent =
       requestId: string;
       type: "stopped";
       content: string;
+    }
+  | {
+      requestId: string;
+      type: "artifacts";
+      artifacts: ProjectChatArtifact[];
     }
   | {
       requestId: string;
@@ -719,30 +983,186 @@ export type ProjectChatEvent =
       requestId: string;
       type: "error";
       message: string;
+      content?: string;
     };
 
+export type DesktopLocale = "en-US" | "zh-CN" | "ja-JP" | "es-ES" | "pt-BR" | "th-TH" | "ko-KR";
+
+export type DesktopPreferences = {
+  locale?: "system" | DesktopLocale;
+  theme?: "light" | "dark" | "system";
+  railExpanded?: boolean;
+  projectModels?: Record<string, string>;
+};
+
+export type DesktopAnalyticsEvent =
+  | { name: "desktop_app_opened" }
+  | { name: "desktop_auth_started"; data: { intent: "login" | "register" } }
+  | { name: "desktop_locale_changed"; data: { locale: DesktopLocale } }
+  | { name: "desktop_project_created" }
+  | { name: "desktop_chat_created"; data: { scope: "project" | "standalone" } }
+  | {
+      name: "desktop_message_sent";
+      data: {
+        scope: "project" | "standalone";
+        hasAttachments: boolean;
+        hasAgent: boolean;
+        webSearchEnabled: boolean;
+      };
+    }
+  | { name: "desktop_workflow_run_started" }
+  | { name: "desktop_marketplace_plugin_installed" };
+
+export type DesktopMenuCommand =
+  | "undo"
+  | "redo"
+  | "cut"
+  | "copy"
+  | "paste"
+  | "delete"
+  | "selectAll"
+  | "zoomIn"
+  | "zoomOut"
+  | "resetZoom"
+  | "toggleFullScreen"
+  | "closeWindow"
+  | "quit"
+  | "openDocumentation"
+  | "openAccountCenter"
+  | "openPlanUpgrade"
+  | "openCreditsTopUp"
+  | "openCreditsUsage"
+  | "showAbout";
+
+export type MarketplaceResourceKind = "plugin" | "skill" | "workflow" | "app";
+
+export type MarketplaceCatalogItem = {
+  id: string;
+  slug: string;
+  kind: MarketplaceResourceKind;
+  publisher: string;
+  name: string;
+  description: string;
+  status: "available" | "preview" | "disabled";
+  acquisitionMode: "install" | "copy" | "launch";
+  release:
+    | {
+        distributionSource: "bundled";
+        version: string;
+        minimumHostVersion: string;
+      }
+    | {
+        distributionSource: "marketplace";
+        version: string;
+        minimumHostVersion: string;
+        packageUrl: string;
+        integrity: string;
+        signature: {
+          algorithm: "ed25519";
+          keyId: string;
+          value: string;
+        };
+      };
+};
+
+export type MarketplaceCatalogResponse = {
+  schemaVersion: 1;
+  revision: string;
+  items: MarketplaceCatalogItem[];
+};
+
+export type MarketplacePluginInstallation = {
+  pluginId: string;
+  version: string;
+  publisher: string;
+  integrity: string;
+  signerKeyId: string;
+  installedAt: string;
+  updatedAt: string;
+  enabled: boolean;
+  status: "ready" | "missing" | "invalid";
+};
+
+export type MarketplacePluginInstallPreview = {
+  installToken: string;
+  pluginId: string;
+  name: string;
+  description: string;
+  publisher: string;
+  version: string;
+  permissions: string[];
+  tools: Array<{ name: string; title: string; risk: "R0" | "R1" | "R2" | "R3" }>;
+  viewers: Array<{ id: string; title: string; mode: "readonly" | "editable" }>;
+  workflowNodes: Array<{ executorKey: string; title: string }>;
+  connectors: Array<{ id: string; title: string; kind: "browser_provider" | "native_app" | "remote_service" }>;
+};
+
 export type RouteMarketWorkApi = {
+  onRuntimeError(listener: (message: string) => void): () => void;
+  getPreferences(): Promise<DesktopPreferences>;
+  updatePreferences(patch: DesktopPreferences): Promise<DesktopPreferences>;
+  setLocale(locale: DesktopLocale): Promise<void>;
+  executeMenuCommand(command: DesktopMenuCommand): Promise<void>;
+  setTitleBarTheme(theme: "light" | "dark"): Promise<void>;
+  setWorkbenchExpanded(expanded: boolean, preferredPanelWidth?: number): Promise<{
+    expanded: boolean;
+    addedWidth: number;
+  }>;
   getState(): Promise<WorkState>;
+  getAppInfo(): Promise<DesktopAppInfo>;
+  checkForUpdates(): Promise<boolean>;
+  listMarketplaceCatalog(): Promise<MarketplaceCatalogResponse>;
+  listMarketplacePluginInstallations(): Promise<MarketplacePluginInstallation[]>;
+  prepareMarketplacePluginInstall(pluginId: string): Promise<MarketplacePluginInstallPreview>;
+  cancelMarketplacePluginInstall(installToken: string): Promise<boolean>;
+  installMarketplacePlugin(installToken: string): Promise<MarketplacePluginInstallation>;
+  setMarketplacePluginEnabled(pluginId: string, enabled: boolean): Promise<MarketplacePluginInstallation>;
+  removeMarketplacePlugin(pluginId: string): Promise<boolean>;
   getLocalDataInfo(): Promise<LocalDataInfo>;
+  listLocalDataScopes(): Promise<LocalDataScopeSummary[]>;
+  removeLocalDataScope(scopeId: string): Promise<boolean>;
   showLocalData(): Promise<void>;
   exportLocalData(): Promise<{ exportedPath: string } | null>;
   clearLocalData(): Promise<boolean>;
   clearActivities(): Promise<WorkState>;
-  signIn(): Promise<WorkState>;
+  signIn(intent?: "login" | "register"): Promise<WorkState>;
   signOut(): Promise<WorkState>;
   switchSpace(spaceId: string): Promise<WorkState>;
   removeApprovalPolicy(policyId: string): Promise<boolean>;
   chooseProject(): Promise<ProjectSummary | null>;
   chooseWorkflowOutputDirectory(): Promise<string | null>;
   createProject(displayName: string): Promise<ProjectSummary>;
+  renameProject(localProjectId: string, displayName: string): Promise<ProjectSummary>;
   attachProjectFolder(localProjectId: string): Promise<ProjectSummary | null>;
+  removeProjectFolder(localProjectId: string, folderId: string): Promise<ProjectSummary>;
+  openProjectFolder(localProjectId: string): Promise<boolean>;
   deleteProject(localProjectId: string): Promise<boolean>;
   getProjectContext(localProjectId: string): Promise<ProjectContext>;
+  listProjectSkills(localProjectId: string): Promise<LocalSkillInstallReceipt[]>;
+  chooseAndInstallProjectSkill(
+    localProjectId: string
+  ): Promise<LocalSkillInstallReceipt | null>;
+  listDownloadableCloudSkills(): Promise<DownloadableCloudSkill[]>;
+  installCloudSkill(
+    localProjectId: string,
+    skillId: string,
+    versionId: string
+  ): Promise<LocalSkillInstallReceipt>;
+  removeInstalledProjectSkill(
+    localProjectId: string,
+    skillId: string
+  ): Promise<boolean>;
   getWorkflowNodeRegistry(localProjectId: string): Promise<DesktopWorkflowNodeRegistry>;
   listProjectFiles(localProjectId: string): Promise<ProjectFileTree>;
   searchProject(localProjectId: string, query: string): Promise<ProjectSearchResult>;
   readProjectFile(localProjectId: string, relativePath: string): Promise<ReadResult>;
   readProjectAsset(localProjectId: string, relativePath: string): Promise<ProjectAssetPreview>;
+  previewProjectArtifact(
+    localProjectId: string,
+    relativePath: string,
+    selectedSheetId?: string,
+    pageNumber?: number
+  ): Promise<ProjectArtifactPreview>;
   chooseChatAttachments(maxCount: number): Promise<DesktopChatAttachment[]>;
   discardChatAttachment(attachmentId: string): Promise<void>;
   writeProjectFile(
@@ -887,8 +1307,23 @@ export type RouteMarketWorkApi = {
   ): Promise<Record<string, unknown>>;
   listAgentProfiles(): Promise<DesktopAgentProfile[]>;
   listChatModels(): Promise<ChatModel[]>;
-  getLocalProjectChat(localProjectId: string): Promise<LocalProjectChat | null>;
-  truncateLocalProjectChat(localProjectId: string, messageId: string): Promise<number>;
+  listModelProviders(): Promise<ModelProviderSummary[]>;
+  saveModelProvider(input: ModelProviderInput): Promise<ModelProviderSummary>;
+  syncModelProvider(providerId: string): Promise<ModelProviderSummary>;
+  removeModelProvider(providerId: string): Promise<boolean>;
+  getLocalApiGateway(): Promise<LocalApiGatewayState>;
+  updateLocalApiGateway(input: LocalApiGatewayUpdate): Promise<LocalApiGatewayState>;
+  saveLocalApiGatewayRoute(input: LocalApiGatewayRouteInput): Promise<LocalApiGatewayState>;
+  removeLocalApiGatewayRoute(routeId: string): Promise<LocalApiGatewayState>;
+  listLocalApiGatewayUsage(limit?: number): Promise<LocalApiGatewayUsage[]>;
+  listLocalProjectChats(localProjectId: string | null): Promise<LocalProjectChatSummary[]>;
+  listRecentLocalChats(limit?: number): Promise<LocalProjectChatSummary[]>;
+  createLocalProjectChat(localProjectId: string | null): Promise<LocalProjectChatSummary>;
+  renameLocalProjectChat(localProjectId: string | null, sessionId: string, title: string): Promise<LocalProjectChatSummary>;
+  deleteLocalProjectChat(localProjectId: string | null, sessionId: string): Promise<void>;
+  moveLocalProjectChat(localProjectId: string | null, sessionId: string, targetProjectId: string | null): Promise<LocalProjectChatSummary>;
+  getLocalProjectChat(localProjectId: string | null, sessionId?: string): Promise<LocalProjectChat | null>;
+  truncateLocalProjectChat(localProjectId: string | null, messageId: string): Promise<number>;
   sendProjectMessage(input: ProjectChatRequest): Promise<void>;
   stopProjectMessage(requestId: string): Promise<void>;
   onProjectChatEvent(listener: (event: ProjectChatEvent) => void): () => void;

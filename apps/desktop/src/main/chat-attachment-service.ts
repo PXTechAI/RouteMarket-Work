@@ -1,3 +1,4 @@
+import { trMain } from "./i18n";
 import { randomUUID } from "node:crypto";
 import { basename, extname } from "node:path";
 import { readFile, stat } from "node:fs/promises";
@@ -33,14 +34,14 @@ export async function inspectSelectedFiles(
 ): Promise<SelectedFile[]> {
   const unique = [...new Set(filePaths)];
   if (unique.length > MAX_CHAT_ATTACHMENTS) {
-    throw new Error(`一次最多添加 ${MAX_CHAT_ATTACHMENTS} 个附件。`);
+    throw new Error(trMain("ui.93ff81d98459", [MAX_CHAT_ATTACHMENTS]));
   }
   const selected = await Promise.all(unique.map(async (path) => {
     const info = await stat(path);
-    if (!info.isFile()) throw new Error("附件必须是普通文件。");
-    if (info.size <= 0) throw new Error(`附件不能为空：${basename(path)}`);
+    if (!info.isFile()) throw new Error(trMain("ui.831f9764ccb0"));
+    if (info.size <= 0) throw new Error(trMain("ui.bd75983531bb", [basename(path)]));
     if (info.size > MAX_CHAT_ATTACHMENT_BYTES) {
-      throw new Error(`附件不能超过 25 MB：${basename(path)}`);
+      throw new Error(trMain("ui.6df660e8cbfa", [basename(path)]));
     }
     const name = basename(path);
     return {
@@ -52,7 +53,7 @@ export async function inspectSelectedFiles(
   }));
   const total = selected.reduce((sum, file) => sum + file.size, 0);
   if (total > MAX_CHAT_ATTACHMENTS_TOTAL_BYTES) {
-    throw new Error("附件总大小不能超过 50 MB。");
+    throw new Error(trMain("ui.477505da461e"));
   }
   return selected;
 }
@@ -82,7 +83,7 @@ async function uploadAttachment(
   }
   const normalized = normalizeUpload(payload, apiClient, id, file);
   if (!normalized) {
-    throw new Error(`附件上传返回无效数据：${file.name}`);
+    throw new Error(trMain("ui.f96c8c1cda4a", [file.name]));
   }
   return {
     ...normalized,
@@ -160,7 +161,7 @@ function readUploadError(value: unknown, status: number): string {
     const message = (value as Record<string, unknown>).message;
     if (typeof message === "string" && message.trim()) return message.trim();
   }
-  return `附件上传失败（${status}）。`;
+  return trMain("ui.d0d0606f28d6", [status]);
 }
 
 function isTextLike(name: string, mimeType: string): boolean {

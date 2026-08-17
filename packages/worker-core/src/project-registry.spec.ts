@@ -28,6 +28,43 @@ describe("ProjectRegistry project lifecycle", () => {
     expect(registry.get(project.localProjectId)?.realRootPath).toBe(linked.realRootPath);
   });
 
+  it("renames a project without changing its folder binding", async () => {
+    const root = await mkdtemp(join(tmpdir(), "routemarket-project-rename-"));
+    cleanups.push(() => rm(root, { recursive: true, force: true }));
+    const registry = new ProjectRegistry(join(root, "work.db"));
+    cleanups.push(() => registry.close());
+    const project = registry.create("Old name");
+
+    expect(registry.rename(project.localProjectId, "New name")).toMatchObject({
+      localProjectId: project.localProjectId,
+      displayName: "New name",
+      hasFolder: false
+    });
+  });
+
+  it("keeps multiple local folders and promotes the next folder when the primary one is removed", async () => {
+    const root = await mkdtemp(join(tmpdir(), "routemarket-project-folders-"));
+    cleanups.push(() => rm(root, { recursive: true, force: true }));
+    const firstFolder = join(root, "first");
+    const secondFolder = join(root, "second");
+    await mkdir(firstFolder);
+    await mkdir(secondFolder);
+    const registry = new ProjectRegistry(join(root, "work.db"));
+    cleanups.push(() => registry.close());
+    const project = registry.create("Multiple folders");
+
+    const firstLinked = await registry.attachFolder(project.localProjectId, firstFolder);
+    const secondLinked = await registry.attachFolder(project.localProjectId, secondFolder);
+
+    expect(secondLinked.folders.map((folder) => folder.name)).toEqual(["first", "second"]);
+    expect(secondLinked.folders[0]?.primary).toBe(true);
+
+    const updated = registry.removeFolder(project.localProjectId, firstLinked.folders[0]!.folderId);
+    expect(updated.folders).toHaveLength(1);
+    expect(updated.folders[0]).toMatchObject({ name: "second", primary: true });
+    expect(updated.realRootPath).toBe(secondLinked.folders[1]?.realRootPath);
+  });
+
   it("deletes only the project record and leaves folder contents untouched", async () => {
     const root = await mkdtemp(join(tmpdir(), "routemarket-project-delete-"));
     cleanups.push(() => rm(root, { recursive: true, force: true }));

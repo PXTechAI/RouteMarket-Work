@@ -1,5 +1,6 @@
 :root {
   --rm-bg: #f5f6fa;
+  --rm-titlebar: #f7f8fb;
   --rm-surface: #ffffff;
   --rm-surface-muted: #f7f8fc;
   --rm-surface-strong: #eef1f8;
@@ -26,6 +27,7 @@
 
 :root[data-theme="dark"] {
   --rm-bg: #0d1017;
+  --rm-titlebar: #151922;
   --rm-surface: #151922;
   --rm-surface-muted: #11151d;
   --rm-surface-strong: #202633;

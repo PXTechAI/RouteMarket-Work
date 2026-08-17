@@ -10,24 +10,36 @@ import {
   JobStore,
   listProjectFiles,
   loadProjectContext,
+  inspectProjectSkillPackage,
+  executeLocalSkillInvoke,
   invokeProjectSkill,
+  LocalSkillInstaller,
   McpRegistry,
   projectBindingIdFor,
+  previewProjectArtifact,
   readProjectAsset,
   ProjectRegistry,
   searchProject,
+  createProjectSpreadsheet,
+  exportProjectSpreadsheetCsv,
+  inspectProjectSpreadsheet,
+  readProjectSpreadsheetRange,
+  writeProjectSpreadsheetRange,
   StdioMcpHost,
   writeLocalProjectFile,
   WorkerError
 } from "@routemarket/work-worker-core";
+import { renderIsolatedPdfPage } from "./pdf-preview";
 import type { ProjectSummary } from "../shared/desktop-api";
 import { CloudJobRuntime } from "./cloud-job-runtime";
 
 type WorkerRequest =
   | { requestId: string; type: "projects.list" }
   | { requestId: string; type: "projects.create"; payload: { displayName: string } }
+  | { requestId: string; type: "projects.rename"; payload: { localProjectId: string; displayName: string } }
   | { requestId: string; type: "projects.bind"; payload: { rootPath: string } }
   | { requestId: string; type: "projects.attach"; payload: { localProjectId: string; rootPath: string } }
+  | { requestId: string; type: "projects.folder.remove"; payload: { localProjectId: string; folderId: string } }
   | { requestId: string; type: "projects.delete"; payload: { localProjectId: string } }
   | { requestId: string; type: "projects.root"; payload: { localProjectId: string } }
   | { requestId: string; type: "projects.files"; payload: { localProjectId: string } }
@@ -43,13 +55,50 @@ type WorkerRequest =
     }
   | {
       requestId: string;
+      type: "local.skill.inspect";
+      payload: { localProjectId: string; skillId: string };
+    }
+  | {
+      requestId: string;
       type: "local.skill.invoke";
       payload: { localProjectId: string; skillId: string; task: string };
     }
   | {
       requestId: string;
+      type: "local.skill.invoke-authorized";
+      payload: {
+        job: Extract<DesktopJob, { executorKey: "local.skill.invoke" }>;
+      };
+    }
+  | {
+      requestId: string;
+      type: "local.skill.receipts";
+      payload: { localProjectId: string };
+    }
+  | {
+      requestId: string;
+      type: "local.skill.install";
+      payload: {
+        localProjectId: string;
+        sourcePath: string;
+        sourceLabel?: string;
+        sourceKind?: "local_archive" | "web_library";
+      };
+    }
+  | {
+      requestId: string;
+      type: "local.skill.remove";
+      payload: { localProjectId: string; skillId: string };
+    }
+  | {
+      requestId: string;
       type: "projects.asset";
       payload: { localProjectId: string; relativePath: string };
+    }
+  | {
+      requestId: string;
+      type: "projects.artifact-preview";
+      payload: { localProjectId: string; relativePath: string; selectedSheetId?: string; pageNumber?: number };
     }
   | {
       requestId: string;
@@ -75,6 +124,52 @@ type WorkerRequest =
       requestId: string;
       type: "local.fs.create";
       payload: { localProjectId: string; relativePath: string; text: string };
+    }
+  | {
+      requestId: string;
+      type: "spreadsheet.create";
+      payload: {
+        localProjectId: string;
+        relativePath: string;
+        sheetName?: string;
+        title?: string;
+        rows: Array<Array<string | number | boolean | null>>;
+        freezePane?: string;
+        columnWidths?: number[];
+      };
+    }
+  | {
+      requestId: string;
+      type: "spreadsheet.inspect";
+      payload: { localProjectId: string; relativePath: string; sheetName?: string };
+    }
+  | {
+      requestId: string;
+      type: "spreadsheet.read_range";
+      payload: { localProjectId: string; relativePath: string; sheetName?: string; range: string };
+    }
+  | {
+      requestId: string;
+      type: "spreadsheet.write_range";
+      payload: {
+        localProjectId: string;
+        relativePath: string;
+        sheetName?: string;
+        range: string;
+        rows: Array<Array<string | number | boolean | null>>;
+        expectedSha256: string;
+      };
+    }
+  | {
+      requestId: string;
+      type: "spreadsheet.export_csv";
+      payload: {
+        localProjectId: string;
+        relativePath: string;
+        outputPath: string;
+        sheetName?: string;
+        range?: string;
+      };
     }
   | {
       requestId: string;
@@ -193,6 +288,7 @@ if (!dataPath) {
   throw new Error("Worker data path is required.");
 }
 const registry = new ProjectRegistry(join(dataPath, "work.db"));
+const localSkillInstaller = new LocalSkillInstaller(registry, join(dataPath, "work.db"));
 const jobStore = new JobStore(join(dataPath, "work.db"));
 const cloudJobs = new CloudJobRuntime(registry, jobStore);
 const processManager = new ControlledProcessManager(registry);
@@ -206,6 +302,13 @@ function summarizeProject(project: {
   hasFolder: boolean;
   folderStatus: "unlinked" | "available" | "missing" | "unavailable";
   rootFingerprint: string;
+  folders: Array<{
+    folderId: string;
+    name: string;
+    rootPath: string;
+    status: "available" | "missing" | "unavailable";
+    primary: boolean;
+  }>;
   createdAt: string;
   updatedAt: string;
 }): ProjectSummary {
@@ -215,6 +318,13 @@ function summarizeProject(project: {
     hasFolder: project.hasFolder,
     folderStatus: project.folderStatus,
     rootFingerprint: project.rootFingerprint,
+    folders: project.folders.map((folder) => ({
+      folderId: folder.folderId,
+      name: folder.name,
+      path: folder.rootPath,
+      status: folder.status,
+      primary: folder.primary
+    })),
     createdAt: project.createdAt,
     updatedAt: project.updatedAt
   };
@@ -257,12 +367,19 @@ parentPort.on("message", async ({ data: request }) => {
       result = registry.list().map(summarizeProject);
     } else if (request.type === "projects.create") {
       result = summarizeProject(registry.create(request.payload.displayName));
+    } else if (request.type === "projects.rename") {
+      result = summarizeProject(registry.rename(request.payload.localProjectId, request.payload.displayName));
     } else if (request.type === "projects.bind") {
       result = summarizeProject(await registry.bindFolder(request.payload.rootPath));
     } else if (request.type === "projects.attach") {
       result = summarizeProject(await registry.attachFolder(
         request.payload.localProjectId,
         request.payload.rootPath
+      ));
+    } else if (request.type === "projects.folder.remove") {
+      result = summarizeProject(registry.removeFolder(
+        request.payload.localProjectId,
+        request.payload.folderId
       ));
     } else if (request.type === "projects.delete") {
       result = registry.delete(request.payload.localProjectId);
@@ -280,13 +397,44 @@ parentPort.on("message", async ({ data: request }) => {
       );
     } else if (request.type === "projects.context") {
       result = await loadProjectContext(registry, request.payload.localProjectId);
+    } else if (request.type === "local.skill.inspect") {
+      result = await inspectProjectSkillPackage(
+        registry,
+        request.payload.localProjectId,
+        request.payload.skillId
+      );
     } else if (request.type === "local.skill.invoke") {
       result = await invokeProjectSkill(registry, request.payload);
+    } else if (request.type === "local.skill.invoke-authorized") {
+      result = await executeLocalSkillInvoke(registry, request.payload.job);
+    } else if (request.type === "local.skill.receipts") {
+      result = await localSkillInstaller.list(request.payload.localProjectId);
+    } else if (request.type === "local.skill.install") {
+      result = await localSkillInstaller.installArchive(
+        request.payload.localProjectId,
+        request.payload.sourcePath,
+        request.payload.sourceLabel,
+        request.payload.sourceKind
+      );
+    } else if (request.type === "local.skill.remove") {
+      result = await localSkillInstaller.remove(
+        request.payload.localProjectId,
+        request.payload.skillId
+      );
     } else if (request.type === "projects.asset") {
       result = await readProjectAsset(
         registry,
         request.payload.localProjectId,
         request.payload.relativePath
+      );
+    } else if (request.type === "projects.artifact-preview") {
+      result = await previewProjectArtifact(
+        registry,
+        request.payload.localProjectId,
+        request.payload.relativePath,
+        request.payload.selectedSheetId,
+        request.payload.pageNumber,
+        renderIsolatedPdfPage
       );
     } else if (request.type === "workflow.registry") {
       const project = registry.list().find(
@@ -338,6 +486,16 @@ parentPort.on("message", async ({ data: request }) => {
         source: "created"
       });
       result = created;
+    } else if (request.type === "spreadsheet.create") {
+      result = await createProjectSpreadsheet(registry, request.payload);
+    } else if (request.type === "spreadsheet.inspect") {
+      result = await inspectProjectSpreadsheet(registry, request.payload);
+    } else if (request.type === "spreadsheet.read_range") {
+      result = await readProjectSpreadsheetRange(registry, request.payload);
+    } else if (request.type === "spreadsheet.write_range") {
+      result = await writeProjectSpreadsheetRange(registry, request.payload);
+    } else if (request.type === "spreadsheet.export_csv") {
+      result = await exportProjectSpreadsheetCsv(registry, request.payload);
     } else if (request.type === "versions.list") {
       result = fileVersions.list(request.payload.localProjectId, request.payload.relativePath);
     } else if (request.type === "versions.read") {
