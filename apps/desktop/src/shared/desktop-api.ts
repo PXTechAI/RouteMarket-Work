@@ -183,7 +183,12 @@ export type ManagedBrowserOperationKind =
   | "reload"
   | "takeover"
   | "click"
+  | "click_ref"
+  | "click_point"
+  | "scroll"
+  | "press"
   | "type"
+  | "type_ref"
   | "upload"
   | "extract"
   | "screenshot";
@@ -224,6 +229,133 @@ export type ManagedBrowserUploadResult = {
   pageId: string;
   url: string;
   relativePaths: string[];
+};
+
+export type ManagedBrowserDomElement = {
+  index: number;
+  refId: string;
+  tag: string;
+  role: string;
+  name: string;
+  text: string;
+  selector: string;
+  locator: string;
+  context: "document" | "shadow" | "frame";
+  inputType: string | null;
+  href: string | null;
+  disabled: boolean;
+  checked: boolean | null;
+  x: number;
+  y: number;
+  centerX: number;
+  centerY: number;
+  width: number;
+  height: number;
+};
+
+export type ManagedBrowserElementActionResult = {
+  completed: true;
+  pageId: string;
+  refId: string;
+  urlBefore: string;
+  urlAfter: string;
+  navigated: boolean;
+  target: {
+    tag: string;
+    role: string;
+    name: string;
+    inputType: string | null;
+    x: number;
+    y: number;
+  };
+};
+
+export type ManagedBrowserInspection = {
+  pageId: string;
+  url: string;
+  title: string;
+  text: string;
+  elements: ManagedBrowserDomElement[];
+  truncated: boolean;
+};
+
+export type ManagedBrowserWaitResult = {
+  pageId: string;
+  url: string;
+  condition: "load" | "selector" | "text";
+  matched: true;
+  elapsedMs: number;
+};
+
+export type ManagedBrowserNetworkBody = {
+  requestId: string;
+  mimeType: string | null;
+  body: string;
+  base64Encoded: boolean;
+  truncated: boolean;
+};
+
+export type ManagedBrowserConsoleEntry = {
+  entryId: string;
+  pageId: string;
+  level: "debug" | "info" | "warning" | "error";
+  message: string;
+  source: string;
+  line: number;
+  timestamp: string;
+};
+
+export type ManagedBrowserNetworkEntry = {
+  requestId: string;
+  pageId: string;
+  method: string;
+  url: string;
+  resourceType: string;
+  status: number | null;
+  statusLine: string | null;
+  mimeType: string | null;
+  requestHeaders: Record<string, string>;
+  responseHeaders: Record<string, string>;
+  fromCache: boolean;
+  failed: boolean;
+  error: string | null;
+  startedAt: string;
+  finishedAt: string | null;
+  durationMs: number | null;
+};
+
+export type ManagedBrowserPerformanceResource = {
+  url: string;
+  initiatorType: string;
+  startTimeMs: number;
+  durationMs: number;
+  transferSize: number;
+  encodedBodySize: number;
+  decodedBodySize: number;
+};
+
+export type ManagedBrowserPerformance = {
+  pageId: string;
+  url: string;
+  capturedAt: string;
+  timeOrigin: number;
+  navigationType: string;
+  timings: {
+    responseStartMs: number | null;
+    responseEndMs: number | null;
+    domInteractiveMs: number | null;
+    domContentLoadedMs: number | null;
+    loadEventMs: number | null;
+    firstPaintMs: number | null;
+    firstContentfulPaintMs: number | null;
+  };
+  resources: {
+    count: number;
+    transferSize: number;
+    encodedBodySize: number;
+    decodedBodySize: number;
+    slowest: ManagedBrowserPerformanceResource[];
+  };
 };
 
 export type ManagedBrowserProfile = {
@@ -270,6 +402,7 @@ export type LocalTriggerKind = "file_changed" | "folder_added" | "schedule" | "h
 export type LocalTriggerSummary = {
   triggerId: string;
   localProjectId: string;
+  workflowId: string | null;
   name: string;
   kind: LocalTriggerKind;
   enabled: boolean;
@@ -279,12 +412,14 @@ export type LocalTriggerSummary = {
   status: "inactive" | "active" | "error";
   lastError: string | null;
   lastFiredAt: string | null;
+  nextRunAt: string | null;
   createdAt: string;
   updatedAt: string;
 };
 
 export type LocalTriggerInput = {
   localProjectId: string;
+  workflowId?: string;
   name: string;
   kind: LocalTriggerKind;
   enabled: boolean;
@@ -578,6 +713,16 @@ export type DesktopAppInfo = {
   updateChannel: "stable" | "beta";
 };
 
+export type DesktopUpdateState = {
+  status: "idle" | "checking" | "available" | "downloading" | "downloaded" | "error";
+  version: string | null;
+  percent: number | null;
+  transferredBytes: number;
+  totalBytes: number;
+  bytesPerSecond: number;
+  error: string | null;
+};
+
 export type AccountSpace = {
   id: string;
   name: string;
@@ -590,6 +735,9 @@ export type AccountSpace = {
 export type ChatModel = {
   code: string;
   displayName: string;
+  iconUrl?: string | null;
+  iconStorageProvider?: "local" | "aliyun-oss" | "r2" | "public" | null;
+  iconStorageKey?: string | null;
   source: "routemarket" | "external";
   providerId: string | null;
   providerName: string;
@@ -600,6 +748,137 @@ export type ChatModel = {
   supportsStream: boolean;
   supportsReasoningSummary: boolean;
   preferredChatProtocol: "openai_responses" | null;
+  pricing?: ModelTokenPricing | null;
+  platformPricing?: {
+    primaryCredit: number | null;
+    components: Array<{
+      displayName: string;
+      billingMetric: string;
+      unitLabel: string;
+      unitSize: number;
+      salePrice: number;
+    }>;
+  } | null;
+};
+
+export type MediaModelCategory = "image" | "video" | "audio";
+
+export type MediaImageOption = {
+  value: string;
+  label: string;
+  resolution: string | null;
+  ratio: string | null;
+};
+
+export type MediaImagePrice = {
+  size: string | null;
+  quality: string | null;
+  resolution: string | null;
+  ratio: string | null;
+  credits: number;
+};
+
+export type MediaImageCapabilities = {
+  sizes: MediaImageOption[];
+  qualities: Array<{ value: string; label: string }>;
+  counts: number[];
+  defaultSize: string | null;
+  defaultQuality: string | null;
+  defaultCount: number;
+  requestCredits: number;
+  prices: MediaImagePrice[];
+};
+
+export type MediaModel = {
+  code: string;
+  displayName: string;
+  iconUrl?: string | null;
+  iconStorageProvider?: "local" | "aliyun-oss" | "r2" | "public" | null;
+  iconStorageKey?: string | null;
+  category: MediaModelCategory;
+  source: "routemarket" | "local";
+  providerId: string | null;
+  providerName: string;
+  audioModes: Array<"tts" | "stt" | "music" | "sfx">;
+  price: number | null;
+  imageCapabilities?: MediaImageCapabilities | null;
+};
+
+export type MediaGenerationRequest = {
+  kind: MediaModelCategory;
+  model: string;
+  prompt: string;
+  size?: string;
+  quality?: string;
+  count?: number;
+  durationSeconds?: number;
+  voice?: string;
+  format?: string;
+};
+
+export type MediaGenerationOutput = {
+  id: string;
+  kind: MediaModelCategory;
+  url: string;
+  downloadUrl: string | null;
+  thumbnailUrl: string | null;
+  mimeType: string | null;
+  revisedPrompt: string | null;
+};
+
+export type MediaGenerationResult = {
+  taskId: string | null;
+  outputs: MediaGenerationOutput[];
+  usage?: {
+    inputTokens?: number | null;
+    outputTokens?: number | null;
+    totalTokens?: number | null;
+    cachedInputTokens?: number | null;
+    cacheCreationInputTokens?: number | null;
+  };
+};
+
+export type MediaInspirationSort = "newest" | "trending" | "featured";
+
+export type MediaInspirationQuery = {
+  kind: MediaModelCategory;
+  sort?: MediaInspirationSort;
+  query?: string;
+  officialTag?: string;
+  cursor?: string | null;
+};
+
+export type MediaInspirationPost = {
+  id: string;
+  kind: MediaModelCategory;
+  title: string | null;
+  prompt: string | null;
+  modelCode: string;
+  modelName: string;
+  tags: string[];
+  officialTagCodes: string[];
+  thumbnailUrl: string | null;
+  mediaUrl: string | null;
+  mimeType: string | null;
+  likeCount: number;
+  saveCount: number;
+  viewCount: number;
+  author: {
+    id: string;
+    name: string;
+    avatarUrl: string | null;
+  } | null;
+};
+
+export type MediaInspirationPage = {
+  items: MediaInspirationPost[];
+  hasMore: boolean;
+  nextCursor: string | null;
+};
+
+export type MediaInspirationTag = {
+  code: string;
+  label: string;
 };
 
 export type ModelProviderProtocol = "openai-compatible" | "anthropic";
@@ -620,16 +899,26 @@ export type ModelProviderModel = {
   id: string;
   displayName: string;
   source: "synced" | "manual";
-  category: "chat" | "reasoning";
+  category: "chat" | "reasoning" | MediaModelCategory;
   supportsTools: boolean;
   supportsVision: boolean;
   supportsStream: boolean;
   supportsReasoningSummary: boolean;
+  pricing?: ModelTokenPricing | null;
+};
+
+export type ModelTokenPricing = {
+  currency: "USD";
+  inputUsdPerMillion: number | null;
+  outputUsdPerMillion: number | null;
+  cacheReadUsdPerMillion: number | null;
+  cacheWriteUsdPerMillion: number | null;
 };
 
 export type ModelProviderSummary = {
   id: string;
   name: string;
+  instanceName: string;
   protocol: ModelProviderProtocol;
   compatibility: ModelProviderCompatibility;
   baseUrl: string;
@@ -645,6 +934,7 @@ export type ModelProviderSummary = {
 export type ModelProviderInput = {
   id?: string;
   name: string;
+  instanceName?: string;
   protocol: ModelProviderProtocol;
   compatibility?: ModelProviderCompatibility;
   baseUrl: string;
@@ -690,7 +980,7 @@ export type LocalApiGatewayTargetHealth = {
 
 export type LocalApiGatewayUsage = {
   id: string;
-  source: "desktop_chat" | "local_gateway";
+  source: "desktop_chat" | "desktop_media" | "local_gateway";
   kind: "chat" | "responses" | "anthropic_messages" | "image" | "audio" | "video";
   providerId: string | null;
   providerName: string;
@@ -700,6 +990,16 @@ export type LocalApiGatewayUsage = {
   status: number | null;
   durationMs: number;
   success: boolean;
+  /** Upstream-reported token counts. Older records and non-text models omit them. */
+  inputTokens?: number | null;
+  outputTokens?: number | null;
+  totalTokens?: number | null;
+  cachedInputTokens?: number | null;
+  cacheCreationInputTokens?: number | null;
+  /** Reference-price snapshot captured when the call completed. */
+  pricingSnapshot?: ModelTokenPricing | null;
+  /** Estimated USD cost in millionths of one dollar. This is not a billing amount. */
+  estimatedCostUsdMicros?: number | null;
   createdAt: string;
 };
 
@@ -721,6 +1021,13 @@ export type DesktopChatAttachment = {
   assetId: string;
   downloadUrl: string;
   previewUrl: string | null;
+};
+
+export type DesktopChatAttachmentUpload = {
+  name: string;
+  mimeType: string;
+  size: number;
+  bytes: Uint8Array;
 };
 
 export type DesktopAgentTool = {
@@ -779,6 +1086,7 @@ export type ProjectChatRequest = {
   modelSupportsVision?: boolean;
   preferredChatProtocol?: "openai_responses" | null;
   reasoningSummary?: "auto";
+  reasoningEffort?: "high";
   message: string;
   attachments?: DesktopChatAttachment[];
   history?: Array<{
@@ -827,6 +1135,7 @@ export type LocalProjectChatMessage = {
   attachments?: DesktopChatAttachment[];
   artifacts?: ProjectChatArtifact[];
   tools?: ProjectChatToolActivity[];
+  responseMeta?: ProjectChatResponseMeta;
   stopped?: boolean;
   failed?: boolean;
   agentId?: string;
@@ -841,6 +1150,20 @@ export type ProjectChatToolActivity = {
   title: string;
   status: "running" | "completed" | "error";
   detail?: string;
+  startedAt?: number;
+  endedAt?: number;
+  inputPreview?: string;
+  outputPreview?: string;
+};
+
+export type ProjectChatResponseMeta = {
+  modelCode: string;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  totalTokens: number | null;
+  cachedInputTokens: number | null;
+  cacheCreationInputTokens: number | null;
+  elapsedMs: number;
 };
 
 export type ProjectChatArtifact = {
@@ -922,6 +1245,8 @@ export type LocalSkillInstallReceipt = {
   operations: string[];
 };
 
+export type LocalSkillImportKind = "archive" | "directory" | "markdown";
+
 export type DownloadableCloudSkill = {
   skillId: string;
   version: string;
@@ -945,6 +1270,7 @@ export type ProjectChatEvent =
       requestId: string;
       type: "complete";
       content: string;
+      responseMeta: ProjectChatResponseMeta;
     }
   | {
       requestId: string;
@@ -962,6 +1288,8 @@ export type ProjectChatEvent =
       toolCallId: string;
       toolName: string;
       title: string;
+      startedAt: number;
+      inputPreview?: string;
     }
   | {
       requestId: string;
@@ -970,6 +1298,8 @@ export type ProjectChatEvent =
       toolName: string;
       title: string;
       summary: string;
+      endedAt: number;
+      outputPreview?: string;
     }
   | {
       requestId: string;
@@ -978,6 +1308,8 @@ export type ProjectChatEvent =
       toolName: string;
       title: string;
       message: string;
+      endedAt: number;
+      outputPreview?: string;
     }
   | {
       requestId: string;
@@ -991,6 +1323,7 @@ export type DesktopLocale = "en-US" | "zh-CN" | "ja-JP" | "es-ES" | "pt-BR" | "t
 export type DesktopPreferences = {
   locale?: "system" | DesktopLocale;
   theme?: "light" | "dark" | "system";
+  zoomFactor?: number;
   railExpanded?: boolean;
   projectModels?: Record<string, string>;
 };
@@ -1028,13 +1361,15 @@ export type DesktopMenuCommand =
   | "closeWindow"
   | "quit"
   | "openDocumentation"
+  | "openMarketplace"
+  | "openAgentBuilder"
   | "openAccountCenter"
   | "openPlanUpgrade"
   | "openCreditsTopUp"
   | "openCreditsUsage"
   | "showAbout";
 
-export type MarketplaceResourceKind = "plugin" | "skill" | "workflow" | "app";
+export type MarketplaceResourceKind = "plugin" | "skill" | "agent" | "mcp" | "workflow" | "app";
 
 export type MarketplaceCatalogItem = {
   id: string;
@@ -1073,8 +1408,11 @@ export type MarketplaceCatalogResponse = {
 
 export type MarketplacePluginInstallation = {
   pluginId: string;
+  name: string;
+  description: string;
   version: string;
   publisher: string;
+  source: "marketplace" | "local";
   integrity: string;
   signerKeyId: string;
   installedAt: string;
@@ -1083,8 +1421,57 @@ export type MarketplacePluginInstallation = {
   status: "ready" | "missing" | "invalid";
 };
 
+export type DesktopExtensionSummary = {
+  pluginId: string;
+  name: string;
+  description: string;
+  version: string;
+  publisher: string;
+  source: "local" | "marketplace" | "bundled";
+  permissions: string[];
+  models: Array<{
+    id: string;
+    title: string;
+    kind: "language" | "tts" | "speech_to_text" | "lip_sync" | "portrait_animation" | "upscaler";
+    required: boolean;
+    recommendedVramMb?: number;
+    license?: string;
+    sourceUrl?: string;
+  }>;
+  navigation: Array<{
+    id: string;
+    title: string;
+    pageId: string;
+    group: "creation" | "workspace" | "tools";
+    icon?: "audio-lines" | "video" | "image" | "wand-sparkles" | "puzzle" | "box" | "cpu";
+    order: number;
+  }>;
+  pages: Array<{ id: string; title: string }>;
+  runtimeStatus: "stopped" | "starting" | "running" | "failed";
+  runtimeError: string | null;
+};
+
+export type DesktopExtensionPage = {
+  pluginId: string;
+  pageId: string;
+  title: string;
+  url: string;
+};
+
+export type DesktopExtensionFilePickRequest = {
+  purpose: "data-input" | "media-input" | "media-output-directory" | "model-directory" | "runtime-executable" | "runtime-directory";
+  title?: string;
+  extensions?: string[];
+};
+
+export type DesktopExtensionFilePickResult = {
+  canceled: boolean;
+  path: string | null;
+};
+
 export type MarketplacePluginInstallPreview = {
   installToken: string;
+  source: "marketplace" | "local";
   pluginId: string;
   name: string;
   description: string;
@@ -1095,6 +1482,9 @@ export type MarketplacePluginInstallPreview = {
   viewers: Array<{ id: string; title: string; mode: "readonly" | "editable" }>;
   workflowNodes: Array<{ executorKey: string; title: string }>;
   connectors: Array<{ id: string; title: string; kind: "browser_provider" | "native_app" | "remote_service" }>;
+  navigation: Array<{ id: string; title: string; pageId: string }>;
+  pages: Array<{ id: string; title: string }>;
+  models: Array<{ id: string; title: string; kind: string; required: boolean }>;
 };
 
 export type RouteMarketWorkApi = {
@@ -1111,9 +1501,21 @@ export type RouteMarketWorkApi = {
   getState(): Promise<WorkState>;
   getAppInfo(): Promise<DesktopAppInfo>;
   checkForUpdates(): Promise<boolean>;
+  getUpdateState?(): Promise<DesktopUpdateState>;
+  downloadUpdate?(): Promise<boolean>;
+  installUpdate?(): Promise<boolean>;
+  onDesktopUpdateState?(listener: (state: DesktopUpdateState) => void): () => void;
   listMarketplaceCatalog(): Promise<MarketplaceCatalogResponse>;
+  listDesktopExtensions(): Promise<DesktopExtensionSummary[]>;
+  refreshDesktopExtensions(): Promise<DesktopExtensionSummary[]>;
+  openDesktopExtensionPage(pluginId: string, pageId: string): Promise<DesktopExtensionPage>;
+  pickDesktopExtensionFile(
+    pluginId: string,
+    request: DesktopExtensionFilePickRequest
+  ): Promise<DesktopExtensionFilePickResult>;
   listMarketplacePluginInstallations(): Promise<MarketplacePluginInstallation[]>;
   prepareMarketplacePluginInstall(pluginId: string): Promise<MarketplacePluginInstallPreview>;
+  prepareLocalPluginInstall(): Promise<MarketplacePluginInstallPreview | null>;
   cancelMarketplacePluginInstall(installToken: string): Promise<boolean>;
   installMarketplacePlugin(installToken: string): Promise<MarketplacePluginInstallation>;
   setMarketplacePluginEnabled(pluginId: string, enabled: boolean): Promise<MarketplacePluginInstallation>;
@@ -1140,7 +1542,8 @@ export type RouteMarketWorkApi = {
   getProjectContext(localProjectId: string): Promise<ProjectContext>;
   listProjectSkills(localProjectId: string): Promise<LocalSkillInstallReceipt[]>;
   chooseAndInstallProjectSkill(
-    localProjectId: string
+    localProjectId: string,
+    importKind: LocalSkillImportKind
   ): Promise<LocalSkillInstallReceipt | null>;
   listDownloadableCloudSkills(): Promise<DownloadableCloudSkill[]>;
   installCloudSkill(
@@ -1164,6 +1567,9 @@ export type RouteMarketWorkApi = {
     pageNumber?: number
   ): Promise<ProjectArtifactPreview>;
   chooseChatAttachments(maxCount: number): Promise<DesktopChatAttachment[]>;
+  uploadChatAttachments(
+    files: DesktopChatAttachmentUpload[]
+  ): Promise<DesktopChatAttachment[]>;
   discardChatAttachment(attachmentId: string): Promise<void>;
   writeProjectFile(
     localProjectId: string,
@@ -1185,6 +1591,12 @@ export type RouteMarketWorkApi = {
   stopProcess(processId: string): Promise<ManagedProcessSummary>;
   getBrowserState(localProjectId: string): Promise<ManagedBrowserState>;
   showBrowser(localProjectId: string, bounds: BrowserBounds): Promise<ManagedBrowserState>;
+  getWorkflowBrowserState(localProjectId: string, workflowId: string): Promise<ManagedBrowserState>;
+  showWorkflowBrowser(
+    localProjectId: string,
+    workflowId: string,
+    bounds: BrowserBounds
+  ): Promise<ManagedBrowserState>;
   hideBrowser(): Promise<void>;
   setBrowserBounds(bounds: BrowserBounds): Promise<void>;
   createBrowserPage(localProjectId: string, profileId?: string): Promise<ManagedBrowserState>;
@@ -1307,6 +1719,10 @@ export type RouteMarketWorkApi = {
   ): Promise<Record<string, unknown>>;
   listAgentProfiles(): Promise<DesktopAgentProfile[]>;
   listChatModels(): Promise<ChatModel[]>;
+  listMediaModels(kind: MediaModelCategory): Promise<MediaModel[]>;
+  listMediaInspiration(input: MediaInspirationQuery): Promise<MediaInspirationPage>;
+  listMediaInspirationTags(kind: MediaModelCategory): Promise<MediaInspirationTag[]>;
+  generateMedia(input: MediaGenerationRequest): Promise<MediaGenerationResult>;
   listModelProviders(): Promise<ModelProviderSummary[]>;
   saveModelProvider(input: ModelProviderInput): Promise<ModelProviderSummary>;
   syncModelProvider(providerId: string): Promise<ModelProviderSummary>;

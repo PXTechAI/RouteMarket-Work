@@ -60,6 +60,9 @@ export function sanitizePreferences(value: unknown): DesktopPreferences {
   if (input.theme === "system" || input.theme === "light" || input.theme === "dark") {
     output.theme = input.theme;
   }
+  if (typeof input.zoomFactor === "number" && Number.isFinite(input.zoomFactor)) {
+    output.zoomFactor = Math.round(Math.min(3, Math.max(0.5, input.zoomFactor)) * 100) / 100;
+  }
   if (typeof input.railExpanded === "boolean") output.railExpanded = input.railExpanded;
   if (input.projectModels && typeof input.projectModels === "object" && !Array.isArray(input.projectModels)) {
     output.projectModels = Object.fromEntries(

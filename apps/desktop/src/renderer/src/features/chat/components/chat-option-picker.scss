@@ -1,0 +1,74 @@
+.chat-option-picker {
+  position: relative;
+  min-width: 74px;
+}
+.chat-option-picker-trigger {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) 12px;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  height: 36px;
+  padding: 0 11px;
+  color: var(--rm-text-muted);
+  text-align: left;
+  background: var(--rm-surface);
+  border: 1px solid var(--rm-border);
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 10px;
+}
+.chat-option-picker-trigger:hover:not(:disabled) {
+  color: var(--rm-text);
+  border-color: var(--rm-border-strong);
+}
+.chat-option-picker-trigger > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-option-picker-trigger svg:last-child {
+  transition: transform 120ms ease;
+}
+.chat-option-picker-trigger svg:last-child.open {
+  transform: rotate(180deg);
+}
+.chat-option-picker-menu {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  z-index: 90;
+  display: grid;
+  min-width: 150px;
+  padding: 6px;
+  background: var(--rm-surface);
+  border: 1px solid var(--rm-border-strong);
+  border-radius: 11px;
+  box-shadow: var(--rm-shadow-menu);
+}
+.chat-option-picker-menu button {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 15px;
+  align-items: center;
+  min-height: 34px;
+  padding: 0 9px;
+  color: var(--rm-text);
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: 7px;
+  cursor: pointer;
+  font-size: 10px;
+}
+.chat-option-picker-menu button:hover:not(:disabled) {
+  background: var(--rm-surface-muted);
+}
+.chat-option-picker-menu button.active {
+  color: var(--rm-accent);
+  background: var(--rm-accent-soft);
+  font-weight: 700;
+}
+.chat-option-picker-menu button:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+}

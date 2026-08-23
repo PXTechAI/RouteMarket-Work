@@ -1,4 +1,4 @@
-import type { DesktopChatAttachment, ProjectChatArtifact, ProjectChatToolActivity } from "../../../../shared/desktop-api";
+import type { DesktopChatAttachment, ProjectChatArtifact, ProjectChatResponseMeta, ProjectChatToolActivity } from "../../../../shared/desktop-api";
 
 export type ChatToolActivity = ProjectChatToolActivity;
 
@@ -14,6 +14,7 @@ export type ChatMessage = {
   stopped?: boolean;
   failed?: boolean;
   tools?: ChatToolActivity[];
+  responseMeta?: ProjectChatResponseMeta;
   agentId?: string;
   agentRevision?: number;
   agentName?: string;

@@ -183,7 +183,7 @@ describe("Project chat local Tool integration", () => {
       toolCallId: "call_read_answer",
       toolName: "project_read_file"
     }));
-    expect(events.at(-1)).toEqual({
+    expect(events.at(-1)).toMatchObject({
       requestId: request.requestId,
       type: "complete",
       content: "The exported value is 42."

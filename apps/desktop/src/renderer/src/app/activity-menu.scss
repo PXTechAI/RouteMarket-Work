@@ -1,0 +1,229 @@
+.rm-notification-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 9px;
+  color: var(--rm-text-muted);
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 11px;
+  -webkit-app-region: no-drag;
+}
+
+.rm-notification-button:hover {
+  color: var(--rm-text);
+  background: var(--rm-surface-muted);
+}
+
+.rm-notification-button b {
+  display: grid;
+  place-items: center;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  color: var(--rm-on-accent);
+  background: var(--rm-accent);
+  border-radius: 9px;
+  font-size: 9px;
+}
+
+@media (max-width: 860px) {
+  .rm-notification-button span {
+    display: none;
+  }
+}
+
+.rm-activity-menu-root {
+  position: relative;
+  -webkit-app-region: no-drag;
+}
+
+.rm-notification-button.active {
+  color: var(--rm-text);
+  background: var(--rm-surface-muted);
+}
+
+.rm-activity-menu {
+  position: fixed;
+  top: 50px;
+  right: 12px;
+  z-index: 100;
+  display: grid;
+  width: 340px;
+  max-height: min(520px, calc(100vh - 64px));
+  overflow: hidden;
+  color: var(--rm-text);
+  background: var(--rm-surface);
+  border: 1px solid var(--rm-border-strong);
+  border-radius: 8px;
+  box-shadow: var(--rm-shadow-menu);
+}
+
+.rm-activity-menu > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 62px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--rm-border);
+}
+
+.rm-activity-menu > header > div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.rm-activity-menu > header strong {
+  font-size: 14px;
+}
+
+.rm-activity-menu > header span,
+.rm-activity-menu > header small {
+  color: var(--rm-text-muted);
+  font-size: 11px;
+}
+
+.rm-activity-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.rm-activity-header-actions button {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  color: var(--rm-text-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.rm-activity-header-actions button:hover:not(:disabled) {
+  color: var(--rm-danger);
+  background: var(--rm-danger-soft);
+  border-color: color-mix(in srgb, var(--rm-danger) 24%, transparent);
+}
+
+.rm-activity-header-actions button:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
+.rm-activity-list {
+  min-height: 156px;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.rm-activity-item {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  gap: 10px;
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--rm-border);
+}
+
+.rm-activity-item:last-child {
+  border-bottom: 0;
+}
+
+.rm-activity-icon {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  color: var(--rm-text-muted);
+  background: var(--rm-surface-muted);
+  border-radius: 6px;
+}
+
+.rm-activity-icon.success {
+  color: var(--rm-success);
+  background: var(--rm-success-soft);
+}
+
+.rm-activity-icon.warning {
+  color: var(--rm-warning);
+  background: var(--rm-warning-soft);
+}
+
+.rm-activity-icon.danger {
+  color: var(--rm-danger);
+  background: var(--rm-danger-soft);
+}
+
+.rm-activity-item > div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.rm-activity-item strong {
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rm-activity-repeat {
+  width: fit-content;
+  padding: 1px 5px;
+  color: var(--rm-warning);
+  background: var(--rm-warning-soft);
+  border-radius: 999px;
+  font-size: 10px;
+}
+
+.rm-activity-item p {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 0;
+  color: var(--rm-text-muted);
+  font-size: 11px;
+  line-height: 1.45;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.rm-activity-item time {
+  color: var(--rm-text-weak);
+  font-size: 10px;
+}
+
+.rm-activity-empty {
+  display: grid;
+  place-items: center;
+  min-height: 156px;
+  gap: 7px;
+  padding: 24px;
+  color: var(--rm-text-muted);
+  text-align: center;
+}
+
+.rm-activity-empty strong {
+  color: var(--rm-text);
+  font-size: 13px;
+}
+
+.rm-activity-empty span {
+  max-width: 220px;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+@media (max-width: 420px) {
+  .rm-activity-menu {
+    right: 8px;
+    left: 60px;
+    width: auto;
+  }
+}

@@ -6,6 +6,8 @@ import type {
   ProjectContext
 } from "../shared/desktop-api";
 import { LocalToolBroker } from "./tool-broker";
+import type { ManagedBrowserManager } from "./managed-browser-manager";
+import type { AttachedBrowserManager } from "./attached-browser-manager";
 import { ProjectChatToolRunner } from "./project-chat-tool-runner";
 import { PROJECT_CHAT_TOOLS } from "./project-chat-tools";
 import type { WorkerClient } from "./worker-client";
@@ -100,7 +102,11 @@ function createWorker() {
       previousSha256: "a".repeat(64),
       changed: true
     })),
-    createProjectFile: vi.fn(async () => ({
+    createProjectFile: vi.fn<WorkerClient["createProjectFile"]>(async (
+      _localProjectId: string,
+      _relativePath: string,
+      _text: string
+    ) => ({
       uri: "routemarket-work://project/project_1/src/new.ts",
       text: "new",
       bytesRead: 3,
@@ -216,7 +222,10 @@ function createBrowser() {
     }),
     createPage: vi.fn(async () => browserState),
     selectPage: vi.fn(async () => browserState),
-    setUserTakeover: vi.fn(async () => browserState),
+    setUserTakeover: vi.fn(async (
+      _projectId: string,
+      value: boolean
+    ) => ({ ...browserState, userTakeover: value })),
     navigate: vi.fn(async (_projectId: string, url: string) => ({
       ...browserState,
       url,
@@ -234,7 +243,263 @@ function createBrowser() {
       url: "https://example.com/",
       relativePaths
     })),
-    extract: vi.fn(async () => "Extracted page text")
+    extract: vi.fn(async () => "Extracted page text"),
+    clickPoint: vi.fn(async () => undefined),
+    clickRef: vi.fn(async (_projectId: string, refId: string) => ({
+      completed: true as const,
+      pageId: "page_1",
+      refId,
+      urlBefore: "https://example.com/",
+      urlAfter: "https://example.com/",
+      navigated: false,
+      target: {
+        tag: "button",
+        role: "button",
+        name: "Sign in",
+        inputType: null,
+        x: 170,
+        y: 96
+      }
+    })),
+    scroll: vi.fn(async () => undefined),
+    press: vi.fn(async () => undefined),
+    typeRef: vi.fn(async (_projectId: string, refId: string) => ({
+      completed: true as const,
+      pageId: "page_1",
+      refId,
+      urlBefore: "https://example.com/",
+      urlAfter: "https://example.com/",
+      navigated: false,
+      target: {
+        tag: "input",
+        role: "textbox",
+        name: "Email",
+        inputType: "email",
+        x: 170,
+        y: 130
+      }
+    })),
+    inspect: vi.fn(async () => ({
+      pageId: "page_1",
+      url: "https://example.com/",
+      title: "Example",
+      text: "Example Sign in",
+      elements: [{
+        index: 0,
+        refId: "element_0123456789abcdefabcd",
+        tag: "button",
+        role: "",
+        name: "Sign in",
+        text: "Sign in",
+        selector: "#sign-in",
+        ref_id: "element_0123456789abcdefabcd",
+        locator: "#sign-in",
+        context: "document" as const,
+        inputType: null,
+        href: null,
+        disabled: false,
+        checked: null,
+        x: 120,
+        y: 80,
+        centerX: 170,
+        centerY: 96,
+        width: 100,
+        height: 32
+      }],
+      truncated: false
+    })),
+    waitFor: vi.fn(async (
+      _projectId: string,
+      condition: "load" | "selector" | "text"
+    ) => ({
+      pageId: "page_1",
+      url: "https://example.com/",
+      condition,
+      matched: true as const,
+      elapsedMs: 120
+    })),
+    getConsole: vi.fn(async () => [{
+      entryId: "console_1",
+      pageId: "page_1",
+      level: "error" as const,
+      message: "Request failed",
+      source: "https://example.com/app.js",
+      line: 12,
+      timestamp: "2026-08-17T06:00:00.000Z"
+    }]),
+    getNetwork: vi.fn<ManagedBrowserManager["getNetwork"]>(async (
+      _localProjectId: string,
+      _pageId?: string,
+      _limit?: number
+    ) => [{
+      requestId: "request_1",
+      pageId: "page_1",
+      method: "GET",
+      url: "https://example.com/api/items",
+      resourceType: "xhr",
+      status: 500,
+      statusLine: "HTTP/1.1 500 Internal Server Error",
+      mimeType: "application/json",
+      requestHeaders: {
+        accept: "application/json",
+        authorization: "[redacted]"
+      } as Record<string, string>,
+      responseHeaders: { "content-type": "application/json" } as Record<string, string>,
+      fromCache: false,
+      failed: false,
+      error: null,
+      startedAt: "2026-08-17T06:00:00.000Z",
+      finishedAt: "2026-08-17T06:00:00.120Z",
+      durationMs: 120
+    }]),
+    getNetworkBody: vi.fn(async () => ({
+      requestId: "request_1",
+      mimeType: "application/json",
+      body: '{"error":"failed"}',
+      base64Encoded: false,
+      truncated: false
+    })),
+    getPerformance: vi.fn(async () => ({
+      pageId: "page_1",
+      url: "https://example.com/",
+      capturedAt: "2026-08-17T06:00:01.000Z",
+      timeOrigin: 1_776_060_000_000,
+      navigationType: "navigate",
+      timings: {
+        responseStartMs: 20,
+        responseEndMs: 40,
+        domInteractiveMs: 80,
+        domContentLoadedMs: 90,
+        loadEventMs: 120,
+        firstPaintMs: 50,
+        firstContentfulPaintMs: 60
+      },
+      resources: {
+        count: 1,
+        transferSize: 1024,
+        encodedBodySize: 800,
+        decodedBodySize: 1600,
+        slowest: [{
+          url: "https://example.com/api/items",
+          initiatorType: "fetch",
+          startTimeMs: 10,
+          durationMs: 120,
+          transferSize: 1024,
+          encodedBodySize: 800,
+          decodedBodySize: 1600
+        }]
+      }
+    })),
+    screenshot: vi.fn(async () => "data:image/jpeg;base64,c2NyZWVuc2hvdA==")
+  };
+}
+
+function createAttachedBrowser() {
+  const refId = "element_abcdef0123456789abcd";
+  return {
+    state: vi.fn<AttachedBrowserManager["state"]>(() => ({
+      connected: true,
+      endpoint: "http://127.0.0.1:9222",
+      target: {
+        targetId: "attached_page_1",
+        title: "Signed-in page",
+        url: "https://example.com/account",
+        type: "page"
+      },
+      error: null
+    })),
+    navigate: vi.fn(async (url: string) => ({
+      connected: true,
+      endpoint: "http://127.0.0.1:9222",
+      target: {
+        targetId: "attached_page_1",
+        title: "Signed-in page",
+        url,
+        type: "page"
+      },
+      error: null
+    })),
+    inspect: vi.fn(async () => ({
+      pageId: "attached_page_1",
+      url: "https://example.com/account",
+      title: "Signed-in page",
+      text: "Account Submit",
+      elements: [{
+        index: 0,
+        refId,
+        tag: "button",
+        role: "button",
+        name: "Submit",
+        text: "Submit",
+        selector: "#submit",
+        locator: "#shell::shadow >>> #submit",
+        context: "shadow" as const,
+        inputType: null,
+        href: null,
+        disabled: false,
+        checked: null,
+        x: 70,
+        y: 64,
+        centerX: 120,
+        centerY: 80,
+        width: 100,
+        height: 32
+      }],
+      truncated: false
+    })),
+    clickRef: vi.fn(async () => ({
+      completed: true as const,
+      pageId: "attached_page_1",
+      refId,
+      urlBefore: "https://example.com/account",
+      urlAfter: "https://example.com/account",
+      navigated: false,
+      target: { tag: "button", role: "button", name: "Submit", inputType: null, x: 120, y: 80 }
+    })),
+    typeRef: vi.fn(async () => ({
+      completed: true as const,
+      pageId: "attached_page_1",
+      refId,
+      urlBefore: "https://example.com/account",
+      urlAfter: "https://example.com/account",
+      navigated: false,
+      target: { tag: "input", role: "textbox", name: "Email", inputType: "email", x: 120, y: 120 }
+    })),
+    getConsole: vi.fn(() => [{
+      entryId: "console_attached_1",
+      pageId: "attached_page_1",
+      level: "error" as const,
+      message: "Attached error",
+      source: "https://example.com/app.js",
+      line: 4,
+      timestamp: "2026-08-17T07:00:00.000Z"
+    }]),
+    getNetwork: vi.fn(() => [{
+      requestId: "attached_request_1",
+      pageId: "attached_page_1",
+      method: "GET",
+      url: "https://example.com/api",
+      resourceType: "Fetch",
+      status: 401,
+      statusLine: "Unauthorized",
+      mimeType: "application/json",
+      requestHeaders: { authorization: "[redacted]" },
+      responseHeaders: { "content-type": "application/json" },
+      fromCache: false,
+      failed: false,
+      error: null,
+      startedAt: "2026-08-17T07:00:00.000Z",
+      finishedAt: "2026-08-17T07:00:00.100Z",
+      durationMs: 100
+    }]),
+    getNetworkBody: vi.fn(async () => ({
+      requestId: "attached_request_1",
+      mimeType: "application/json",
+      body: '{"error":"unauthorized"}',
+      base64Encoded: false,
+      truncated: false
+    })),
+    screenshot: vi.fn(async () => "data:image/jpeg;base64,YXR0YWNoZWQ=")
   };
 }
 
@@ -276,6 +541,147 @@ function createSkillClient() {
 }
 
 describe("ProjectChatToolRunner", () => {
+  it("exposes browser DOM, coordinate, console, network and screenshot Tools", async () => {
+    const runner = new ProjectChatToolRunner({
+      workerClient: createWorker(),
+      toolBroker: new LocalToolBroker(async () => true),
+      getBrowser: () => createBrowser()
+    });
+
+    const names = (await runner.listTools("project_1")).map((tool) => tool.function.name);
+
+    expect(names).toEqual(expect.arrayContaining([
+      "browser_inspect",
+      "browser_request_user_login",
+      "browser_click_ref",
+      "browser_click_at",
+      "browser_scroll",
+      "browser_press",
+      "browser_type_ref",
+      "browser_wait_for",
+      "browser_get_console",
+      "browser_get_network",
+      "browser_get_network_body",
+      "browser_get_performance",
+      "browser_get_diagnostics",
+      "browser_export_har",
+      "browser_screenshot"
+    ]));
+  });
+
+  it("hands the Managed Browser to the user for secure login", async () => {
+    const browser = createBrowser();
+    const runner = new ProjectChatToolRunner({
+      workerClient: createWorker(),
+      toolBroker: new LocalToolBroker(async () => true),
+      getBrowser: () => browser
+    });
+
+    const result = await runner.execute("project_1", {
+      id: "call_browser_login",
+      name: "browser_request_user_login",
+      arguments: '{"page_id":"page_1"}'
+    });
+
+    expect(result.isError).toBe(false);
+    expect(JSON.parse(result.content)).toEqual(expect.objectContaining({
+      requires_user_action: true,
+      action: "sign_in_in_managed_browser",
+      page_id: "page_1",
+      user_takeover: true
+    }));
+    expect(result.content).not.toMatch(/password\s*[:=]/i);
+    expect(browser.selectPage).toHaveBeenCalledWith("project_1", "page_1");
+    expect(browser.setUserTakeover).toHaveBeenCalledWith(
+      "project_1",
+      true,
+      "page_1",
+      { source: "chat" }
+    );
+  });
+
+  it("exposes and runs Attached Browser Tools only for an existing user connection", async () => {
+    const confirm = vi.fn(async () => true);
+    const attached = createAttachedBrowser();
+    const runner = new ProjectChatToolRunner({
+      workerClient: createWorker(),
+      toolBroker: new LocalToolBroker(confirm),
+      getBrowser: () => createBrowser(),
+      getAttachedBrowser: () => attached
+    });
+    const names = (await runner.listTools("project_1")).map((tool) => tool.function.name);
+    expect(names).toEqual(expect.arrayContaining([
+      "browser_attached_navigate",
+      "browser_attached_inspect",
+      "browser_attached_click_ref",
+      "browser_attached_type_ref",
+      "browser_attached_get_console",
+      "browser_attached_get_network",
+      "browser_attached_get_network_body",
+      "browser_attached_screenshot"
+    ]));
+
+    const inspected = await runner.execute("project_1", {
+      id: "call_attached_inspect",
+      name: "browser_attached_inspect",
+      arguments: '{"max_elements":50}'
+    });
+    const refId = JSON.parse(inspected.content).elements[0].ref_id as string;
+    const clicked = await runner.execute("project_1", {
+      id: "call_attached_click",
+      name: "browser_attached_click_ref",
+      arguments: JSON.stringify({ ref_id: refId })
+    });
+    const typed = await runner.execute("project_1", {
+      id: "call_attached_type",
+      name: "browser_attached_type_ref",
+      arguments: JSON.stringify({ ref_id: refId, text: "private attached input" })
+    });
+    const network = await runner.execute("project_1", {
+      id: "call_attached_network",
+      name: "browser_attached_get_network",
+      arguments: '{"limit":20}'
+    });
+    const body = await runner.execute("project_1", {
+      id: "call_attached_body",
+      name: "browser_attached_get_network_body",
+      arguments: '{"request_id":"attached_request_1","max_characters":5000}'
+    });
+    const screenshot = await runner.execute("project_1", {
+      id: "call_attached_screenshot",
+      name: "browser_attached_screenshot",
+      arguments: "{}"
+    });
+
+    expect(JSON.parse(inspected.content)).toMatchObject({
+      page_id: "attached_page_1",
+      elements: [{ ref_id: refId, context: "shadow" }]
+    });
+    expect(JSON.parse(clicked.content)).toMatchObject({ completed: true, ref_id: refId });
+    expect(typed.content).not.toContain("private attached input");
+    expect(JSON.parse(network.content)).toMatchObject({
+      entries: [{ request_id: "attached_request_1", status: 401 }]
+    });
+    expect(JSON.parse(body.content)).toMatchObject({
+      request_id: "attached_request_1",
+      body: '{"error":"unauthorized"}'
+    });
+    expect(screenshot.images).toEqual(["data:image/jpeg;base64,YXR0YWNoZWQ="]);
+    expect(confirm).toHaveBeenCalledWith(expect.objectContaining({
+      capability: "local.browser.read",
+      risk: "R3"
+    }));
+
+    attached.state.mockReturnValue({
+      connected: false,
+      endpoint: null,
+      target: null,
+      error: null
+    });
+    expect((await runner.listTools("project_1")).map((tool) => tool.function.name))
+      .not.toContain("browser_attached_inspect");
+  });
+
   it("exposes Spreadsheet through the Plugin registry without the development-only legacy name", async () => {
     const runner = new ProjectChatToolRunner({
       workerClient: createWorker(),
@@ -784,6 +1190,318 @@ describe("ProjectChatToolRunner", () => {
       2,
       expect.objectContaining({ capability: "local.browser.type", risk: "R2" })
     );
+  });
+
+  it("inspects DOM and performs a coordinate click through the browser Tool boundary", async () => {
+    const confirm = vi.fn(async () => true);
+    const browser = createBrowser();
+    const runner = new ProjectChatToolRunner({
+      workerClient: createWorker(),
+      toolBroker: new LocalToolBroker(confirm),
+      getBrowser: () => browser
+    });
+
+    const inspected = await runner.execute("project_1", {
+      id: "call_browser_inspect",
+      name: "browser_inspect",
+      arguments: '{"page_id":"page_1","max_elements":50}'
+    });
+    const clicked = await runner.execute("project_1", {
+      id: "call_browser_click_at",
+      name: "browser_click_at",
+      arguments: '{"page_id":"page_1","x":170,"y":96}'
+    });
+
+    expect(inspected.isError).toBe(false);
+    expect(JSON.parse(inspected.content)).toMatchObject({
+      page_id: "page_1",
+      text: "Example Sign in",
+      elements: [{
+        selector: "#sign-in",
+        locator: "#sign-in",
+        context: "document",
+        name: "Sign in",
+        x: 120,
+        y: 80,
+        center_x: 170,
+        center_y: 96
+      }]
+    });
+    expect(browser.inspect).toHaveBeenCalledWith("project_1", "page_1", 50);
+    expect(clicked.isError).toBe(false);
+    expect(browser.clickPoint).toHaveBeenCalledWith(
+      "project_1",
+      170,
+      96,
+      "page_1",
+      { source: "chat" }
+    );
+    expect(confirm).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ capability: "local.browser.read", risk: "R1" })
+    );
+    expect(confirm).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ capability: "local.browser.click", risk: "R2" })
+    );
+  });
+
+  it("clicks and types through inspected element references without returning typed text", async () => {
+    const confirm = vi.fn(async () => true);
+    const browser = createBrowser();
+    const runner = new ProjectChatToolRunner({
+      workerClient: createWorker(),
+      toolBroker: new LocalToolBroker(confirm),
+      getBrowser: () => browser
+    });
+    const refId = "element_0123456789abcdefabcd";
+
+    const clicked = await runner.execute("project_1", {
+      id: "call_browser_click_ref",
+      name: "browser_click_ref",
+      arguments: JSON.stringify({ page_id: "page_1", ref_id: refId })
+    });
+    const typed = await runner.execute("project_1", {
+      id: "call_browser_type_ref",
+      name: "browser_type_ref",
+      arguments: JSON.stringify({ page_id: "page_1", ref_id: refId, text: "private value" })
+    });
+
+    expect(JSON.parse(clicked.content)).toMatchObject({
+      completed: true,
+      ref_id: refId,
+      navigated: false,
+      target: { tag: "button", x: 170, y: 96 }
+    });
+    expect(JSON.parse(typed.content)).toMatchObject({
+      completed: true,
+      ref_id: refId,
+      target: { tag: "input", input_type: "email" }
+    });
+    expect(typed.content).not.toContain("private value");
+    expect(browser.clickRef).toHaveBeenCalledWith(
+      "project_1", refId, "page_1", { source: "chat" }
+    );
+    expect(browser.typeRef).toHaveBeenCalledWith(
+      "project_1", refId, "private value", "page_1", { source: "chat" }
+    );
+    expect(confirm).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ capability: "local.browser.click", risk: "R2" })
+    );
+    expect(confirm).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ capability: "local.browser.type", risk: "R2" })
+    );
+  });
+
+  it("scrolls, presses keys and waits for page conditions through browser Tools", async () => {
+    const confirm = vi.fn(async () => true);
+    const browser = createBrowser();
+    const runner = new ProjectChatToolRunner({
+      workerClient: createWorker(),
+      toolBroker: new LocalToolBroker(confirm),
+      getBrowser: () => browser
+    });
+
+    const scrolled = await runner.execute("project_1", {
+      id: "call_browser_scroll",
+      name: "browser_scroll",
+      arguments: '{"page_id":"page_1","delta_y":640}'
+    });
+    const pressed = await runner.execute("project_1", {
+      id: "call_browser_press",
+      name: "browser_press",
+      arguments: '{"page_id":"page_1","key":"Enter","modifiers":["control"]}'
+    });
+    const waited = await runner.execute("project_1", {
+      id: "call_browser_wait",
+      name: "browser_wait_for",
+      arguments: '{"page_id":"page_1","condition":"selector","value":"#ready","timeout_ms":5000}'
+    });
+
+    expect(scrolled.isError).toBe(false);
+    expect(pressed.isError).toBe(false);
+    expect(JSON.parse(waited.content)).toMatchObject({
+      condition: "selector",
+      matched: true,
+      elapsed_ms: 120
+    });
+    expect(browser.scroll).toHaveBeenCalledWith(
+      "project_1", 0, 640, "page_1", { source: "chat" }
+    );
+    expect(browser.press).toHaveBeenCalledWith(
+      "project_1", "Enter", ["control"], "page_1", { source: "chat" }
+    );
+    expect(browser.waitFor).toHaveBeenCalledWith(
+      "project_1", "selector", "#ready", 5000, "page_1"
+    );
+    expect(confirm).toHaveBeenCalledTimes(2);
+  });
+
+  it("returns bounded console, network and screenshot observations to the model", async () => {
+    const browser = createBrowser();
+    const runner = new ProjectChatToolRunner({
+      workerClient: createWorker(),
+      toolBroker: new LocalToolBroker(async () => true),
+      getBrowser: () => browser
+    });
+
+    const consoleResult = await runner.execute("project_1", {
+      id: "call_browser_console",
+      name: "browser_get_console",
+      arguments: '{"page_id":"page_1","limit":20}'
+    });
+    const networkResult = await runner.execute("project_1", {
+      id: "call_browser_network",
+      name: "browser_get_network",
+      arguments: '{"page_id":"page_1","limit":20}'
+    });
+    const screenshotResult = await runner.execute("project_1", {
+      id: "call_browser_screenshot",
+      name: "browser_screenshot",
+      arguments: '{"page_id":"page_1"}'
+    });
+    const bodyResult = await runner.execute("project_1", {
+      id: "call_browser_network_body",
+      name: "browser_get_network_body",
+      arguments: '{"page_id":"page_1","request_id":"request_1","max_characters":5000}'
+    });
+    const performanceResult = await runner.execute("project_1", {
+      id: "call_browser_performance",
+      name: "browser_get_performance",
+      arguments: '{"page_id":"page_1"}'
+    });
+    const diagnosticsResult = await runner.execute("project_1", {
+      id: "call_browser_diagnostics",
+      name: "browser_get_diagnostics",
+      arguments: '{"page_id":"page_1"}'
+    });
+
+    expect(JSON.parse(consoleResult.content)).toMatchObject({
+      entries: [{ level: "error", message: "Request failed", line: 12 }]
+    });
+    expect(JSON.parse(networkResult.content)).toMatchObject({
+      entries: [{
+        method: "GET",
+        status: 500,
+        duration_ms: 120,
+        request_headers: { accept: "application/json", authorization: "[redacted]" },
+        response_headers: { "content-type": "application/json" }
+      }]
+    });
+    expect(JSON.parse(screenshotResult.content)).toMatchObject({
+      page_id: "page_1",
+      image_attached: true
+    });
+    expect(screenshotResult.images).toEqual([
+      "data:image/jpeg;base64,c2NyZWVuc2hvdA=="
+    ]);
+    expect(JSON.parse(bodyResult.content)).toMatchObject({
+      request_id: "request_1",
+      mime_type: "application/json",
+      body: '{"error":"failed"}',
+      base64_encoded: false,
+      truncated: false
+    });
+    expect(JSON.parse(performanceResult.content)).toMatchObject({
+      page_id: "page_1",
+      navigation_type: "navigate",
+      timings: { first_contentful_paint_ms: 60 },
+      resources: { count: 1, transfer_size: 1024 }
+    });
+    expect(JSON.parse(diagnosticsResult.content)).toMatchObject({
+      summary: {
+        console_problems: 1,
+        network_problems: 1
+      },
+      console_problems: [{ level: "error", message: "Request failed" }],
+      network_problems: [{ request_id: "request_1", status: 500 }]
+    });
+    expect(browser.getConsole).toHaveBeenCalledWith("project_1", "page_1", 20);
+    expect(browser.getNetwork).toHaveBeenCalledWith("project_1", "page_1", 20);
+    expect(browser.screenshot).toHaveBeenCalledWith(
+      "project_1",
+      "page_1",
+      { source: "chat" },
+      "agent"
+    );
+    expect(browser.getNetworkBody).toHaveBeenCalledWith(
+      "project_1",
+      "request_1",
+      "page_1",
+      5000
+    );
+    expect(browser.getPerformance).toHaveBeenCalledWith("project_1", "page_1");
+  });
+
+  it("exports redacted network metadata as a body-free and cookie-free HAR artifact", async () => {
+    const confirm = vi.fn(async () => true);
+    const browser = createBrowser();
+    browser.getNetwork.mockResolvedValue([{
+      ...(await browser.getNetwork("project_1", "page_1", 300))[0]!,
+      url: "https://example.com/api/items?token=%5Bredacted%5D&q=visible",
+      requestHeaders: {
+        accept: "application/json",
+        authorization: "[redacted]",
+        cookie: "[redacted]"
+      } as Record<string, string>,
+      responseHeaders: {
+        "content-type": "application/json",
+        location: "https://example.com/login?code=%5Bredacted%5D"
+      } as Record<string, string>
+    }]);
+    const worker = createWorker();
+    worker.createProjectFile.mockImplementation(async (_projectId, path, text) => ({
+      uri: `routemarket-work://project/project_1/${path}`,
+      text,
+      bytesRead: text.length,
+      truncated: false,
+      encoding: "utf8" as const,
+      sha256: "c".repeat(64),
+      created: true as const
+    }));
+    const runner = new ProjectChatToolRunner({
+      workerClient: worker,
+      toolBroker: new LocalToolBroker(confirm),
+      getBrowser: () => browser
+    });
+
+    const result = await runner.execute("project_1", {
+      id: "call_browser_har",
+      name: "browser_export_har",
+      arguments: '{"path":"artifacts/network.har","page_id":"page_1"}'
+    });
+
+    expect(result.isError).toBe(false);
+    expect(result.artifacts).toEqual([
+      expect.objectContaining({
+        relativePath: "artifacts/network.har",
+        providerId: "ai.routemarket.browser-har"
+      })
+    ]);
+    const har = JSON.parse(String(worker.createProjectFile.mock.calls[0]?.[2])) as {
+      log: { entries: Array<Record<string, unknown>> };
+    };
+    expect(har.log.entries).toHaveLength(1);
+    expect(har.log.entries[0]).toMatchObject({
+      request: {
+        url: "https://example.com/api/items?token=%5Bredacted%5D&q=visible",
+        cookies: [],
+        bodySize: -1
+      },
+      response: {
+        cookies: [],
+        content: { size: -1, mimeType: "application/json" },
+        redirectURL: "https://example.com/login?code=%5Bredacted%5D"
+      }
+    });
+    expect(JSON.stringify(har)).not.toContain('{"error":"failed"}');
+    expect(JSON.stringify(har)).not.toContain('"name":"cookie"');
+    expect(confirm).toHaveBeenCalledWith(expect.objectContaining({
+      capability: "local.fs.create",
+      risk: "R2"
+    }));
   });
 
   it("uploads project files through R3 project approval", async () => {

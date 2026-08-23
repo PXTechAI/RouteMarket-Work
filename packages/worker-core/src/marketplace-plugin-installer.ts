@@ -45,8 +45,11 @@ export type MarketplacePluginRelease = {
 
 export type MarketplacePluginInstallation = {
   pluginId: string;
+  name: string;
+  description: string;
   version: string;
   publisher: string;
+  source: "marketplace" | "local";
   integrity: string;
   signerKeyId: string;
   installedAt: string;
@@ -55,10 +58,16 @@ export type MarketplacePluginInstallation = {
   status: "ready" | "missing" | "invalid";
 };
 
+export type MarketplacePluginPackage = {
+  manifest: PluginManifest;
+  rootPath: string;
+};
+
 type InstallationRow = {
   plugin_id: string;
   active_version: string;
   publisher: string;
+  source: "marketplace" | "local";
   integrity: string;
   signer_key_id: string;
   installed_at: string;
@@ -97,6 +106,7 @@ export class MarketplacePluginInstaller {
         plugin_id TEXT PRIMARY KEY,
         active_version TEXT NOT NULL,
         publisher TEXT NOT NULL,
+        source TEXT NOT NULL DEFAULT 'marketplace' CHECK (source IN ('marketplace', 'local')),
         integrity TEXT NOT NULL,
         signer_key_id TEXT NOT NULL,
         installed_at TEXT NOT NULL,
@@ -107,6 +117,9 @@ export class MarketplacePluginInstaller {
     const columns = this.db.prepare("PRAGMA table_info(marketplace_plugin_installations)").all() as Array<{ name: string }>;
     if (!columns.some((column) => column.name === "enabled")) {
       this.db.exec("ALTER TABLE marketplace_plugin_installations ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1));");
+    }
+    if (!columns.some((column) => column.name === "source")) {
+      this.db.exec("ALTER TABLE marketplace_plugin_installations ADD COLUMN source TEXT NOT NULL DEFAULT 'marketplace' CHECK (source IN ('marketplace', 'local'));");
     }
   }
 
@@ -163,11 +176,12 @@ export class MarketplacePluginInstaller {
     const now = new Date().toISOString();
     this.db.prepare(`
       INSERT INTO marketplace_plugin_installations (
-        plugin_id, active_version, publisher, integrity, signer_key_id, installed_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        plugin_id, active_version, publisher, source, integrity, signer_key_id, installed_at, updated_at
+      ) VALUES (?, ?, ?, 'marketplace', ?, ?, ?, ?)
       ON CONFLICT(plugin_id) DO UPDATE SET
         active_version = excluded.active_version,
         publisher = excluded.publisher,
+        source = excluded.source,
         integrity = excluded.integrity,
         signer_key_id = excluded.signer_key_id,
         updated_at = excluded.updated_at,
@@ -182,6 +196,82 @@ export class MarketplacePluginInstaller {
       now
     );
     return (await this.list()).find((item) => item.pluginId === release.pluginId)!;
+  }
+
+  async inspectLocalDirectory(sourceRoot: string): Promise<{ manifest: PluginManifest; integrity: string }> {
+    const parsed = await parseLocalPluginDirectory(sourceRoot);
+    assertLocalManifest(parsed.manifest);
+    return {
+      manifest: structuredClone(parsed.manifest),
+      integrity: packageContentDigest(parsed.files)
+    };
+  }
+
+  async installLocalDirectory(
+    sourceRoot: string,
+    expectedIntegrity?: string
+  ): Promise<MarketplacePluginInstallation> {
+    const parsed = await parseLocalPluginDirectory(sourceRoot);
+    assertLocalManifest(parsed.manifest);
+    const { manifest, files } = parsed;
+    const contentDigest = packageContentDigest(files);
+    if (expectedIntegrity && contentDigest !== expectedIntegrity) {
+      throw new WorkerError(
+        "PLUGIN_PACKAGE_INTEGRITY_FAILED",
+        "Local plugin contents changed after the permission review. Review the plugin again."
+      );
+    }
+    const packagesRoot = await safePackagesRoot(this.scopeRoot);
+    const pluginRoot = resolve(packagesRoot, manifest.id);
+    const target = resolve(pluginRoot, manifest.version);
+    assertInside(packagesRoot, pluginRoot);
+    assertInside(pluginRoot, target);
+    await ensureSafeDirectory(pluginRoot, packagesRoot);
+
+    const existing = await lstat(target).catch(() => null);
+    if (existing?.isSymbolicLink() || existing && !existing.isDirectory()) {
+      throw new WorkerError("PLUGIN_PACKAGE_UNSAFE", "The existing plugin version path is unsafe.");
+    }
+    if (existing) {
+      const marker = await readInstallMarker(target);
+      if (marker.contentDigest !== contentDigest || marker.signerKeyId !== "local-user-approved") {
+        throw new WorkerError(
+          "PLUGIN_VERSION_CONFLICT",
+          "This local plugin version is already installed with different contents. Increase its version before reinstalling."
+        );
+      }
+      await assertInstalledPackage(target, {
+        pluginId: manifest.id,
+        publisher: manifest.publisher,
+        version: manifest.version,
+        integrity: contentDigest,
+        signerKeyId: "local-user-approved"
+      });
+    } else {
+      await writeInstalledPackage(pluginRoot, target, files, {
+        pluginId: manifest.id,
+        publisher: manifest.publisher,
+        version: manifest.version,
+        integrity: contentDigest,
+        signerKeyId: "local-user-approved"
+      });
+    }
+
+    const now = new Date().toISOString();
+    this.db.prepare(`
+      INSERT INTO marketplace_plugin_installations (
+        plugin_id, active_version, publisher, source, integrity, signer_key_id, installed_at, updated_at
+      ) VALUES (?, ?, ?, 'local', ?, 'local-user-approved', ?, ?)
+      ON CONFLICT(plugin_id) DO UPDATE SET
+        active_version = excluded.active_version,
+        publisher = excluded.publisher,
+        source = excluded.source,
+        integrity = excluded.integrity,
+        signer_key_id = excluded.signer_key_id,
+        updated_at = excluded.updated_at,
+        enabled = 1
+    `).run(manifest.id, manifest.version, manifest.publisher, contentDigest, now, now);
+    return (await this.list()).find((item) => item.pluginId === manifest.id)!;
   }
 
   async inspectArchive(
@@ -220,6 +310,8 @@ export class MarketplacePluginInstaller {
     return Promise.all(rows.map(async (row) => {
       const target = resolve(packagesRoot, row.plugin_id, row.active_version);
       let status: MarketplacePluginInstallation["status"] = "missing";
+      let name = row.plugin_id;
+      let description = "";
       try {
         await assertInstalledVersion(target, {
           pluginId: row.plugin_id,
@@ -229,14 +321,35 @@ export class MarketplacePluginInstaller {
           integrity: row.integrity,
           signature: { algorithm: "ed25519", keyId: row.signer_key_id, value: "unused" }
         });
+        const manifest = JSON.parse(await readFile(resolve(target, MANIFEST_PATH), "utf8")) as unknown;
+        assertPluginManifest(manifest);
+        assertManifestMatchesInstallation(manifest, {
+          pluginId: row.plugin_id,
+          name: manifest.name,
+          description: manifest.description,
+          version: row.active_version,
+          publisher: row.publisher,
+          source: row.source,
+          integrity: row.integrity,
+          signerKeyId: row.signer_key_id,
+          installedAt: row.installed_at,
+          updatedAt: row.updated_at,
+          enabled: row.enabled === 1,
+          status: "ready"
+        });
+        name = manifest.name;
+        description = manifest.description;
         status = "ready";
       } catch (error) {
         status = await lstat(target).then(() => "invalid" as const, () => "missing" as const);
       }
       return {
         pluginId: row.plugin_id,
+        name,
+        description,
         version: row.active_version,
         publisher: row.publisher,
+        source: row.source,
         integrity: row.integrity,
         signerKeyId: row.signer_key_id,
         installedAt: row.installed_at,
@@ -248,22 +361,21 @@ export class MarketplacePluginInstaller {
   }
 
   async listEnabledManifests(): Promise<PluginManifest[]> {
+    return (await this.listEnabledPackages()).map((item) => item.manifest);
+  }
+
+  async listEnabledPackages(): Promise<MarketplacePluginPackage[]> {
     const installations = await this.list();
     const ready = installations.filter((item) => item.enabled && item.status === "ready");
     const packagesRoot = await safePackagesRoot(this.scopeRoot);
     return Promise.all(ready.map(async (item) => {
-      const manifestPath = resolve(packagesRoot, item.pluginId, item.version, MANIFEST_PATH);
+      const rootPath = resolve(packagesRoot, item.pluginId, item.version);
+      assertInside(packagesRoot, rootPath);
+      const manifestPath = resolve(rootPath, MANIFEST_PATH);
       const value = JSON.parse(await readFile(manifestPath, "utf8")) as unknown;
       assertPluginManifest(value);
-      assertManifestMatchesRelease(value, {
-        pluginId: item.pluginId,
-        publisher: item.publisher,
-        version: item.version,
-        minimumHostVersion: "0.0.0",
-        integrity: item.integrity,
-        signature: { algorithm: "ed25519", keyId: item.signerKeyId, value: "unused" }
-      });
-      return value;
+      assertManifestMatchesInstallation(value, item);
+      return { manifest: structuredClone(value), rootPath };
     }));
   }
 
@@ -394,14 +506,68 @@ async function parsePluginArchive(archive: Buffer): Promise<ParsedPackage> {
   return { manifest, files };
 }
 
+async function parseLocalPluginDirectory(sourceRoot: string): Promise<ParsedPackage> {
+  if (typeof sourceRoot !== "string" || !sourceRoot.trim()) {
+    throw new WorkerError("PLUGIN_INPUT_INVALID", "Local plugin directory is required.");
+  }
+  const resolvedRoot = resolve(sourceRoot);
+  const rootStat = await lstat(resolvedRoot).catch(() => null);
+  if (!rootStat || rootStat.isSymbolicLink() || !rootStat.isDirectory()) {
+    throw new WorkerError("PLUGIN_PACKAGE_UNSAFE", "Local plugin source must be a regular directory.");
+  }
+  const canonicalRoot = await realpath(resolvedRoot);
+  const files = await collectPackageFiles(canonicalRoot, true);
+  const manifestBytes = files.find((file) => file.relativePath === MANIFEST_PATH)?.content;
+  if (!manifestBytes || manifestBytes.includes(0)) {
+    throw new WorkerError("PLUGIN_PACKAGE_INVALID", `Local plugin must contain ${MANIFEST_PATH}.`);
+  }
+  let manifest: unknown;
+  try {
+    manifest = JSON.parse(manifestBytes.toString("utf8"));
+    assertPluginManifest(manifest);
+  } catch (error) {
+    throw new WorkerError("PLUGIN_PACKAGE_INVALID", error instanceof Error ? error.message : "Plugin manifest is invalid.");
+  }
+  return { manifest, files };
+}
+
+function assertLocalManifest(manifest: PluginManifest): void {
+  if (
+    manifest.distribution.source !== "local" ||
+    (manifest.kind === "desktop_extension"
+      ? manifest.distribution.packageFormat !== "desktop-extension"
+      : manifest.distribution.packageFormat !== "declarative") ||
+    (manifest.kind !== "declarative_plugin" && manifest.kind !== "desktop_extension")
+  ) {
+    throw new WorkerError("PLUGIN_PACKAGE_IDENTITY_MISMATCH", "Local plugin manifest must declare a supported local package.");
+  }
+}
+
+function assertManifestMatchesInstallation(
+  manifest: PluginManifest,
+  installation: MarketplacePluginInstallation
+): void {
+  if (
+    manifest.id !== installation.pluginId ||
+    manifest.publisher !== installation.publisher ||
+    manifest.version !== installation.version ||
+    manifest.distribution.source !== installation.source
+  ) {
+    throw new WorkerError("PLUGIN_PACKAGE_IDENTITY_MISMATCH", "Installed plugin manifest does not match its installation record.");
+  }
+  if (installation.source === "local") assertLocalManifest(manifest);
+}
+
 function assertManifestMatchesRelease(manifest: PluginManifest, release: MarketplacePluginRelease): void {
   if (
     manifest.id !== release.pluginId ||
     manifest.publisher !== release.publisher ||
     manifest.version !== release.version ||
     manifest.distribution.source !== "marketplace" ||
-    manifest.distribution.packageFormat !== "declarative" ||
-    manifest.kind !== "declarative_plugin"
+    (manifest.kind === "desktop_extension"
+      ? manifest.distribution.packageFormat !== "desktop-extension"
+      : manifest.distribution.packageFormat !== "declarative") ||
+    (manifest.kind !== "declarative_plugin" && manifest.kind !== "desktop_extension")
   ) {
     throw new WorkerError("PLUGIN_PACKAGE_IDENTITY_MISMATCH", "Plugin manifest does not match the signed Marketplace release.");
   }
@@ -519,23 +685,71 @@ async function assertSafeDirectoryTree(root: string, parent: string): Promise<vo
 }
 
 async function assertInstalledVersion(target: string, release: MarketplacePluginRelease): Promise<void> {
+  await assertInstalledPackage(target, {
+    pluginId: release.pluginId,
+    publisher: release.publisher,
+    version: release.version,
+    integrity: release.integrity,
+    signerKeyId: release.signature.keyId
+  });
+}
+
+type InstallIdentity = {
+  pluginId: string;
+  publisher: string;
+  version: string;
+  integrity: string;
+  signerKeyId: string;
+};
+
+async function readInstallMarker(target: string): Promise<Record<string, unknown>> {
+  return JSON.parse(await readFile(resolve(target, INSTALL_MARKER), "utf8")) as Record<string, unknown>;
+}
+
+async function assertInstalledPackage(target: string, identity: InstallIdentity): Promise<void> {
   const stat = await lstat(target);
   if (stat.isSymbolicLink() || !stat.isDirectory()) throw new Error("Plugin version directory is invalid.");
-  const marker = JSON.parse(await readFile(resolve(target, INSTALL_MARKER), "utf8")) as Record<string, unknown>;
+  const marker = await readInstallMarker(target);
   if (
     marker.schemaVersion !== 1 ||
-    marker.pluginId !== release.pluginId ||
-    marker.version !== release.version ||
-    marker.publisher !== release.publisher ||
-    marker.integrity !== release.integrity ||
-    marker.signerKeyId !== release.signature.keyId ||
+    marker.pluginId !== identity.pluginId ||
+    marker.version !== identity.version ||
+    marker.publisher !== identity.publisher ||
+    marker.integrity !== identity.integrity ||
+    marker.signerKeyId !== identity.signerKeyId ||
     typeof marker.contentDigest !== "string"
-  ) {
-    throw new Error("Plugin installation record does not match its release.");
-  }
+  ) throw new Error("Plugin installation record does not match its release.");
   const files = await collectInstalledFiles(target);
   if (packageContentDigest(files) !== marker.contentDigest) {
     throw new Error("Installed plugin contents were modified.");
+  }
+}
+
+async function writeInstalledPackage(
+  pluginRoot: string,
+  target: string,
+  files: ParsedPackage["files"],
+  identity: InstallIdentity
+): Promise<void> {
+  const staging = resolve(pluginRoot, `.install-${randomUUID()}`);
+  assertInside(pluginRoot, staging);
+  await mkdir(staging, { recursive: false, mode: 0o700 });
+  try {
+    for (const file of files) {
+      const destination = resolve(staging, file.relativePath);
+      assertInside(staging, destination);
+      await mkdir(dirname(destination), { recursive: true, mode: 0o700 });
+      await writeFile(destination, file.content, { mode: 0o600 });
+    }
+    await writeFile(resolve(staging, INSTALL_MARKER), JSON.stringify({
+      schemaVersion: 1,
+      ...identity,
+      contentDigest: packageContentDigest(files)
+    }, null, 2), { encoding: "utf8", mode: 0o600 });
+    await rename(staging, target);
+  } catch (error) {
+    await safeRemoveStaging(pluginRoot, staging);
+    throw error;
   }
 }
 
@@ -551,6 +765,13 @@ function packageContentDigest(files: Array<{ relativePath: string; content: Buff
 }
 
 async function collectInstalledFiles(root: string): Promise<Array<{ relativePath: string; content: Buffer }>> {
+  return collectPackageFiles(root, false);
+}
+
+async function collectPackageFiles(
+  root: string,
+  rejectInstallMarker: boolean
+): Promise<Array<{ relativePath: string; content: Buffer }>> {
   const files: Array<{ relativePath: string; content: Buffer }> = [];
   const pending = [root];
   let totalBytes = 0;
@@ -567,7 +788,12 @@ async function collectInstalledFiles(root: string): Promise<Array<{ relativePath
       }
       if (!entry.isFile()) throw new Error("Installed plugin contains an unsupported file type.");
       const relativePath = relative(root, absolutePath).split(sep).join("/");
-      if (relativePath === INSTALL_MARKER) continue;
+      if (relativePath === INSTALL_MARKER) {
+        if (rejectInstallMarker) {
+          throw new WorkerError("PLUGIN_PACKAGE_UNSAFE", "Local plugin contains a reserved installation record.");
+        }
+        continue;
+      }
       assertSafeRelativePath(relativePath);
       const content = await readFile(absolutePath);
       totalBytes += content.byteLength;

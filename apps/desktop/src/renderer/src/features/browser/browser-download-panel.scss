@@ -1,0 +1,118 @@
+.browser-download-panel {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+  background: var(--rm-surface-muted);
+  border-left: 1px solid var(--rm-border);
+}
+
+.browser-download-panel > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 13px;
+  border-bottom: 1px solid var(--rm-border);
+}
+
+.browser-download-panel > header > div {
+  display: grid;
+  gap: 3px;
+}
+
+.browser-download-panel > header strong {
+  color: var(--rm-text);
+  font-size: 11px;
+}
+
+.browser-download-panel > header span {
+  color: var(--rm-text-weak);
+  font-size: 8px;
+}
+
+.browser-download-panel > header button {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  color: var(--rm-text-muted);
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.browser-download-list {
+  display: grid;
+  align-content: start;
+  gap: 7px;
+  min-height: 0;
+  padding: 8px;
+  overflow: auto;
+}
+
+.browser-download-item {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 9px;
+  background: var(--rm-surface);
+  border: 1px solid var(--rm-border);
+  border-radius: 6px;
+}
+
+.browser-download-title {
+  display: grid;
+  grid-template-columns: 15px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  color: var(--rm-text-muted);
+}
+
+.browser-download-title strong {
+  overflow: hidden;
+  color: var(--rm-text);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.browser-download-title span,
+.browser-download-item small {
+  color: var(--rm-text-weak);
+  font-size: 8px;
+}
+
+.browser-download-progress {
+  height: 3px;
+  overflow: hidden;
+  background: var(--rm-border);
+  border-radius: 2px;
+}
+
+.browser-download-progress > span {
+  display: block;
+  height: 100%;
+  background: var(--rm-accent);
+  transition: width 160ms ease;
+}
+
+.browser-download-item code {
+  overflow: hidden;
+  color: var(--rm-text-muted);
+  font-family: var(--rm-font-mono);
+  font-size: 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.browser-download-empty {
+  display: grid;
+  place-items: center;
+  gap: 8px;
+  padding: 40px 12px;
+  color: var(--rm-text-weak);
+  font-size: 9px;
+}

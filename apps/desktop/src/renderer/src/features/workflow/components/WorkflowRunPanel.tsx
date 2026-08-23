@@ -1,29 +1,51 @@
+import "./workflow-run-panel.scss";
 import { tr } from "../../../i18n";
-import { CircleAlert, CircleCheck, Clock3, ExternalLink, FolderOpen, Hand, LoaderCircle, Play, RotateCcw, Square } from "lucide-react";
+import { ChevronDown, ChevronUp, CircleAlert, CircleCheck, Clock3, ExternalLink, FolderOpen, Hand, LoaderCircle, Play, RotateCcw, Square } from "lucide-react";
+import { useEffect, useState } from "react";
 import type { DesktopWorkflowNodeRun, DesktopWorkflowRun } from "../../../../../shared/desktop-api";
 import type { WorkflowPageActions, WorkflowPageModel } from "../types";
-export function WorkflowRunPanel({ model, actions }: {
+type WorkflowRunTab = "nodes" | "input" | "results";
+
+export function WorkflowRunPanel({ model, actions, expanded, onExpandedChange }: {
     model: WorkflowPageModel;
     actions: WorkflowPageActions["canvas"];
+    expanded: boolean;
+    onExpandedChange(expanded: boolean): void;
 }) {
+    const [activeTab, setActiveTab] = useState<WorkflowRunTab>("nodes");
     const run = model.selectedRun;
     const waitingForUser = run?.status === "waiting_for_user";
     const artifact = workflowArtifact(run);
+    const resultNodes = run?.nodeRuns.filter((node) => node.error || node.output !== null) ?? [];
     const running = run?.status === "queued" ||
         run?.status === "running" ||
         waitingForUser;
+    const succeededCount = run?.nodeRuns.filter((node) => node.status === "succeeded").length ?? 0;
     const canRun = Boolean(model.draft &&
         model.draft.kind === "workflow" &&
         model.draft.nodes.length &&
         !model.draftDirty &&
         !running &&
         !model.runBusy);
-    return (<section className="workflow-run-panel" aria-label={tr("ui.ede2b42f0c9e")}>
-      <div className="workflow-run-controls">
-        <label>
-          <span>{tr("ui.bbc7628c6f5c")}</span>
-          <textarea value={model.runInput} spellCheck={false} onChange={(event) => actions.onRunInputChange(event.target.value)}/>
-        </label>
+    useEffect(() => {
+        if (waitingForUser) setActiveTab("nodes");
+    }, [waitingForUser]);
+    return (<section className={`workflow-run-panel${expanded ? " expanded" : " collapsed"}`} aria-label={tr("ui.ede2b42f0c9e")}>
+      <header className="workflow-run-header">
+        <button
+          className={`workflow-run-summary ${run?.status ?? "idle"}`}
+          type="button"
+          aria-expanded={expanded}
+          onClick={() => onExpandedChange(!expanded)}
+        >
+          <RunStatusIcon run={run}/>
+          <span>
+            <strong>{run ? statusLabel(run.status) : tr("ui.5afa7a985132")}</strong>
+            <small>{run
+              ? tr("ui.76ab9c521029", [succeededCount, run.nodeRuns.length])
+              : tr("ui.637b9bfc0904")}</small>
+          </span>
+        </button>
         <div className="workflow-run-actions">
           <button type="button" disabled={!canRun} onClick={actions.onRun}>
             {model.runBusy
@@ -34,41 +56,69 @@ export function WorkflowRunPanel({ model, actions }: {
           <button type="button" disabled={!run || running || model.runBusy} onClick={actions.onRetryRun}>
             <RotateCcw size={13}/>{tr("ui.e2d53a6d3a6a")}</button>
         </div>
-        {waitingForUser && (<div className="workflow-user-action" role="status">
-            <Hand size={16}/>
-            <div>
-              <strong>{tr("ui.352047da964f")}</strong>
-              <small>{tr("ui.71dd334e28a4")}</small>
-            </div>
-            <button type="button" disabled={model.runBusy} onClick={actions.onResumeRun}>{tr("ui.c57c2805980c")}</button>
-          </div>)}
-        <div className={`workflow-run-summary ${run?.status ?? "idle"}`}>
-          <RunStatusIcon run={run}/>
-          <div>
-            <strong>{run ? statusLabel(run.status) : tr("ui.5afa7a985132")}</strong>
-            <small>
-              {run
-            ? tr("ui.76ab9c521029", [run.nodeRuns.filter((node) => node.status === "succeeded").length, run.nodeRuns.length]) : tr("ui.637b9bfc0904")}
-            </small>
-          </div>
-        </div>
-        {artifact && (<div className="workflow-run-artifact">
-            <div>
-              <strong>{artifact.fileName}</strong>
-              <small title={artifact.savedPath}>{artifact.savedPath}</small>
-            </div>
-            <button type="button" disabled={model.runBusy} onClick={() => actions.onOpenRunArtifact("open")}>
-              <ExternalLink size={12}/>{tr("ui.65fc81e16119")}</button>
-            <button type="button" disabled={model.runBusy} onClick={() => actions.onOpenRunArtifact("reveal")}>
-              <FolderOpen size={12}/>{tr("ui.786fef40f814")}</button>
-          </div>)}
-      </div>
+        <button
+          className="workflow-run-expand"
+          type="button"
+          title={expanded ? tr("workflow.run.collapse") : tr("workflow.run.expand")}
+          aria-label={expanded ? tr("workflow.run.collapse") : tr("workflow.run.expand")}
+          aria-expanded={expanded}
+          onClick={() => onExpandedChange(!expanded)}
+        >
+          {expanded ? <ChevronDown size={16}/> : <ChevronUp size={16}/>}
+        </button>
+      </header>
 
-      <div className="workflow-run-timeline">
-        {run?.nodeRuns.map((node) => (<NodeRunItem key={node.nodeRunId} node={node}/>))}
-        {!run && (<div className="workflow-run-empty">{tr("ui.ca0bd6db21cf")}</div>)}
-      </div>
+      {waitingForUser && (<div className="workflow-user-action" role="status">
+          <Hand size={18}/>
+          <div>
+            <strong>{tr("ui.352047da964f")}</strong>
+            <small>{tr("ui.71dd334e28a4")}</small>
+          </div>
+          <button type="button" disabled={model.runBusy} onClick={actions.onResumeRun}>{tr("ui.c57c2805980c")}</button>
+        </div>)}
+
+      {expanded && (<>
+        <nav className="workflow-run-tabs" aria-label={tr("ui.ede2b42f0c9e")}>
+          <RunTab tab="nodes" active={activeTab} onSelect={setActiveTab}>{tr("workflow.run.nodes")}</RunTab>
+          <RunTab tab="input" active={activeTab} onSelect={setActiveTab}>{tr("workflow.run.input")}</RunTab>
+          <RunTab tab="results" active={activeTab} onSelect={setActiveTab}>{tr("workflow.run.results")}</RunTab>
+        </nav>
+        <div className="workflow-run-content">
+          {activeTab === "nodes" && (<div className="workflow-run-timeline">
+              {run?.nodeRuns.map((node) => (<NodeRunItem key={node.nodeRunId} node={node}/>))}
+              {!run && (<div className="workflow-run-empty">{tr("ui.ca0bd6db21cf")}</div>)}
+            </div>)}
+          {activeTab === "input" && (<label className="workflow-run-input">
+              <span>{tr("workflow.run.input")}</span>
+              <small>{tr("workflow.run.inputHint")}</small>
+              <textarea value={model.runInput} spellCheck={false} onChange={(event) => actions.onRunInputChange(event.target.value)}/>
+            </label>)}
+          {activeTab === "results" && (<div className="workflow-run-results">
+              {artifact && (<div className="workflow-run-artifact">
+                  <div>
+                    <strong>{artifact.fileName}</strong>
+                    <small title={artifact.savedPath}>{artifact.savedPath}</small>
+                  </div>
+                  <button type="button" disabled={model.runBusy} onClick={() => actions.onOpenRunArtifact("open")}>
+                    <ExternalLink size={12}/>{tr("ui.65fc81e16119")}</button>
+                  <button type="button" disabled={model.runBusy} onClick={() => actions.onOpenRunArtifact("reveal")}>
+                    <FolderOpen size={12}/>{tr("ui.786fef40f814")}</button>
+                </div>)}
+              {resultNodes.map((node) => (<NodeRunItem key={node.nodeRunId} node={node}/>))}
+              {!artifact && !resultNodes.length && (<div className="workflow-run-empty">{tr("workflow.run.noResults")}</div>)}
+            </div>)}
+        </div>
+      </>)}
     </section>);
+}
+
+function RunTab({ tab, active, onSelect, children }: {
+    tab: WorkflowRunTab;
+    active: WorkflowRunTab;
+    onSelect(tab: WorkflowRunTab): void;
+    children: string;
+}) {
+    return (<button type="button" aria-current={active === tab ? "page" : undefined} onClick={() => onSelect(tab)}>{children}</button>);
 }
 function NodeRunItem({ node }: {
     node: DesktopWorkflowNodeRun;

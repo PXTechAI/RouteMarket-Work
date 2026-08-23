@@ -28,6 +28,7 @@ describe("MarketplacePluginInstaller", () => {
     expect(receipt).toMatchObject({
       pluginId: "ai.example.tables",
       version: "1.2.3",
+      source: "marketplace",
       signerKeyId: "example.release.2026-01",
       status: "ready"
     });
@@ -92,6 +93,68 @@ describe("MarketplacePluginInstaller", () => {
       .resolves.toMatchObject({ enabled: true, status: "ready" });
     await expect(fixture.installer.remove("ai.example.tables")).resolves.toEqual({ removed: true });
     await expect(fixture.installer.list()).resolves.toEqual([]);
+    fixture.installer.close();
+  });
+
+  it("installs a user-approved local directory into the same managed lifecycle", async () => {
+    const fixture = await createFixture();
+    const localRoot = join(fixture.root, "local-voice-studio");
+    await mkdir(join(localRoot, ".routemarket-plugin"), { recursive: true });
+    await mkdir(join(localRoot, "runtime"), { recursive: true });
+    const localManifest = {
+      schemaVersion: 2,
+      id: "ai.example.voice-studio",
+      name: "Voice Studio",
+      description: "Local voice studio.",
+      version: "0.1.0",
+      publisher: "Example Publisher",
+      kind: "desktop_extension",
+      status: "available",
+      distribution: { source: "local", packageFormat: "desktop-extension" },
+      engines: { routemarketWork: ">=0.2.0" },
+      permissions: ["process", "device.gpu"],
+      activationEvents: ["onPage:studio"],
+      runtime: {
+        type: "local_process",
+        command: "node",
+        args: ["runtime/server.cjs"],
+        transport: { type: "http", healthPath: "/health" }
+      },
+      resources: { models: [] },
+      contributes: {
+        viewers: [], tools: [], workflowNodes: [], connectors: [],
+        navigation: [{ id: "voice", title: "Voice Studio", pageId: "studio", group: "creation", order: 10 }],
+        pages: [{ id: "studio", title: "Voice Studio", source: "runtime", path: "/studio" }]
+      }
+    };
+    await writeFile(join(localRoot, ".routemarket-plugin", "plugin.json"), JSON.stringify(localManifest));
+    await writeFile(join(localRoot, "runtime", "server.cjs"), "console.log('voice studio')");
+
+    const inspected = await fixture.installer.inspectLocalDirectory(localRoot);
+    expect(inspected).toMatchObject({
+      manifest: { id: "ai.example.voice-studio" },
+      integrity: expect.stringMatching(/^sha256:/)
+    });
+    await writeFile(join(localRoot, "runtime", "server.cjs"), "console.log('changed after review')");
+    await expect(fixture.installer.installLocalDirectory(localRoot, inspected.integrity))
+      .rejects.toThrow("changed after the permission review");
+    await writeFile(join(localRoot, "runtime", "server.cjs"), "console.log('voice studio')");
+    const receipt = await fixture.installer.installLocalDirectory(localRoot);
+    expect(receipt).toMatchObject({
+      pluginId: "ai.example.voice-studio",
+      source: "local",
+      signerKeyId: "local-user-approved",
+      enabled: true,
+      status: "ready"
+    });
+    await expect(fixture.installer.listEnabledPackages()).resolves.toEqual([
+      expect.objectContaining({
+        manifest: expect.objectContaining({ id: "ai.example.voice-studio" })
+      })
+    ]);
+    await expect(fixture.installer.setEnabled("ai.example.voice-studio", false))
+      .resolves.toMatchObject({ enabled: false });
+    await expect(fixture.installer.remove("ai.example.voice-studio")).resolves.toEqual({ removed: true });
     fixture.installer.close();
   });
 

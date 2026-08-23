@@ -9,15 +9,24 @@ describe("DesktopPreferenceStore", () => {
     expect(sanitizePreferences({
       locale: "zh-CN",
       theme: "dark",
+      zoomFactor: 1.26,
       railExpanded: true,
       projectModels: { project_1: "deepseek-v4-flash", bad: 42 },
       token: "must-not-be-written"
     })).toEqual({
       locale: "zh-CN",
       theme: "dark",
+      zoomFactor: 1.26,
       railExpanded: true,
       projectModels: { project_1: "deepseek-v4-flash" }
     });
+  });
+
+  it("clamps and rounds the persistent interface scale", () => {
+    expect(sanitizePreferences({ zoomFactor: 0.1 })).toEqual({ zoomFactor: 0.5 });
+    expect(sanitizePreferences({ zoomFactor: 1.234 })).toEqual({ zoomFactor: 1.23 });
+    expect(sanitizePreferences({ zoomFactor: 9 })).toEqual({ zoomFactor: 3 });
+    expect(sanitizePreferences({ zoomFactor: Number.NaN })).toEqual({});
   });
 
   it("writes settings.json and restores it", async () => {

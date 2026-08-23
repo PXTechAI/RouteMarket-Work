@@ -1,7 +1,7 @@
 import { X } from "lucide-react";
 import { useEffect, type ReactNode } from "react";
 import { tr } from "../i18n";
-import "./app-dialog.css";
+import "./app-dialog.scss";
 
 export function AppDialog({ title, description, children, footer, onClose, width = "medium", className = "" }: {
   title: string;

@@ -1,0 +1,137 @@
+.composer-plus-button,
+.chat-skills-trigger {
+  min-height: 34px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--rm-accent) 9%, var(--rm-surface));
+  color: var(--rm-text);
+  cursor: pointer;
+}
+
+.composer-plus-button {
+  display: inline-grid;
+  width: 34px;
+  flex: 0 0 34px;
+  place-items: center;
+  padding: 0;
+  background: var(--rm-surface);
+  border-color: var(--rm-border);
+}
+
+.composer-plus-button:hover:not(:disabled),
+.chat-skills-trigger:hover:not(:disabled),
+.chat-skills-trigger.open {
+  border-color: var(--rm-border-strong);
+  background: color-mix(in srgb, var(--rm-accent) 16%, var(--rm-surface));
+  color: var(--rm-accent);
+}
+
+.composer-plus-button:disabled,
+.chat-skills-trigger:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.chat-skills-control {
+  position: relative;
+}
+
+.chat-skills-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 12px;
+  font-size: 13px;
+}
+
+.chat-skills-trigger > small {
+  color: var(--rm-accent);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.chat-skills-icons {
+  display: inline-flex;
+  align-items: center;
+}
+
+.chat-skills-icons > span {
+  display: inline-grid;
+  width: 24px;
+  height: 24px;
+  margin-left: -4px;
+  place-items: center;
+  border: 2px solid var(--rm-surface);
+  border-radius: 50%;
+  color: var(--rm-on-accent);
+  background: var(--rm-skill-blue);
+}
+
+.chat-skills-icons > span:nth-child(2) {
+  background: var(--rm-skill-pink);
+}
+.chat-skills-icons > span:nth-child(3) {
+  background: var(--rm-skill-teal);
+}
+
+.chat-skills-popover {
+  position: absolute;
+  z-index: 35;
+  bottom: calc(100% + 8px);
+  left: 0;
+  display: grid;
+  width: min(310px, calc(100vw - 32px));
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--rm-border);
+  border-radius: 13px;
+  background: var(--rm-surface);
+  box-shadow: var(--rm-shadow-menu);
+}
+
+.chat-skills-popover > header {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.chat-skills-popover > header > span {
+  display: inline-grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border-radius: 9px;
+  color: var(--rm-accent);
+  background: var(--rm-accent-soft);
+}
+
+.chat-skills-popover > header > div {
+  display: grid;
+  gap: 2px;
+}
+
+.chat-skills-popover > header strong {
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.chat-skills-popover > header small,
+.chat-skills-project-count {
+  color: var(--rm-text-muted);
+  font-size: 10px;
+}
+
+.chat-skills-project-count {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 9px;
+  border-radius: 8px;
+  background: var(--rm-surface-muted);
+}
+
+.chat-skills-popover .project-skill-manager-trigger {
+  width: 100%;
+  min-height: 34px;
+  justify-content: center;
+}

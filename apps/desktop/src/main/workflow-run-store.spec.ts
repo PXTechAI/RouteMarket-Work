@@ -42,6 +42,40 @@ describe("WorkflowRunStore", () => {
       "run_first1"
     ]);
   });
+
+  it("marks queued and running records as failed when a new desktop process opens the store", () => {
+    const queued = createRun("run_queued1");
+    const running = createRun("run_running1");
+    running.status = "running";
+    running.startedAt = "2026-07-18T01:00:01.000Z";
+    running.nodeRuns[0]!.status = "running";
+    running.nodeRuns[0]!.startedAt = running.startedAt;
+    const waiting = createRun("run_waiting1");
+    waiting.status = "waiting_for_user";
+    waiting.startedAt = "2026-07-18T01:00:01.000Z";
+    waiting.error = "User takeover required.";
+    waiting.nodeRuns[0]!.status = "waiting_for_user";
+    waiting.nodeRuns[0]!.startedAt = waiting.startedAt;
+    waiting.nodeRuns[0]!.error = waiting.error;
+    store.save(queued);
+    store.save(running);
+    store.save(waiting);
+
+    store.close();
+    store = new WorkflowRunStore(join(directory, "work.db"));
+
+    expect(store.get(queued.runId)).toMatchObject({
+      status: "failed",
+      error: "Desktop app restarted before the Workflow run completed.",
+      nodeRuns: [{ status: "skipped" }]
+    });
+    expect(store.get(running.runId)).toMatchObject({
+      status: "failed",
+      error: "Desktop app restarted before the Workflow run completed.",
+      nodeRuns: [{ status: "failed" }]
+    });
+    expect(store.get(waiting.runId)).toEqual(waiting);
+  });
 });
 
 function createRun(

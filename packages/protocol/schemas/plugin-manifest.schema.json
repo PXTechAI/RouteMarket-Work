@@ -9,7 +9,7 @@
     "kind", "status", "distribution", "engines", "permissions", "activationEvents", "contributes"
   ],
   "properties": {
-    "schemaVersion": { "const": 1 },
+    "schemaVersion": { "enum": [1, 2] },
     "id": {
       "type": "string",
       "pattern": "^[a-z0-9][a-z0-9.-]{2,127}$"
@@ -21,15 +21,15 @@
       "pattern": "^\\d+\\.\\d+\\.\\d+(?:-[a-z0-9.-]+)?$"
     },
     "publisher": { "type": "string", "minLength": 1, "maxLength": 128 },
-    "kind": { "enum": ["host_runtime", "declarative_plugin"] },
+    "kind": { "enum": ["host_runtime", "declarative_plugin", "desktop_extension"] },
     "status": { "enum": ["available", "planned", "disabled"] },
     "distribution": {
       "type": "object",
       "additionalProperties": false,
       "required": ["source", "packageFormat"],
       "properties": {
-        "source": { "enum": ["bundled", "marketplace"] },
-        "packageFormat": { "const": "declarative" },
+        "source": { "enum": ["bundled", "marketplace", "local"] },
+        "packageFormat": { "enum": ["declarative", "desktop-extension"] },
         "integrity": false,
         "signature": false
       }
@@ -49,7 +49,10 @@
       "items": {
         "enum": [
           "project.read", "project.write", "network", "process", "external_apps",
-          "browser.read", "browser.interact", "artifact.read", "artifact.write"
+          "browser.read", "browser.interact", "artifact.read", "artifact.write",
+          "device.gpu", "data.read", "media.read", "media.write", "media.upload.cloud",
+          "models.manage", "models.invoke.local", "models.invoke.cloud",
+          "biometric.face", "biometric.voice"
         ]
       }
     },
@@ -58,6 +61,24 @@
       "maxItems": 64,
       "uniqueItems": true,
       "items": { "type": "string", "minLength": 3, "maxLength": 256 }
+    },
+    "runtime": { "$ref": "#/$defs/runtime" },
+    "requiresCapabilities": {
+      "type": "array",
+      "maxItems": 64,
+      "items": { "$ref": "#/$defs/capabilityRequirement" }
+    },
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["models"],
+      "properties": {
+        "models": {
+          "type": "array",
+          "maxItems": 64,
+          "items": { "$ref": "#/$defs/modelResource" }
+        }
+      }
     },
     "contributes": {
       "type": "object",
@@ -83,11 +104,141 @@
           "type": "array",
           "maxItems": 64,
           "items": { "$ref": "#/$defs/connector" }
+        },
+        "navigation": {
+          "type": "array",
+          "maxItems": 32,
+          "items": { "$ref": "#/$defs/navigation" }
+        },
+        "pages": {
+          "type": "array",
+          "maxItems": 32,
+          "items": { "$ref": "#/$defs/page" }
         }
       }
     }
   },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "kind": { "const": "desktop_extension" } },
+        "required": ["kind"]
+      },
+      "then": {
+        "required": ["runtime"],
+        "properties": {
+          "runtime": {},
+          "schemaVersion": { "const": 2 },
+          "distribution": {
+            "type": "object",
+            "properties": { "packageFormat": { "const": "desktop-extension" } }
+          },
+          "permissions": { "type": "array", "contains": { "const": "process" } },
+          "contributes": {
+            "type": "object",
+            "required": ["navigation", "pages"],
+            "properties": {
+              "navigation": { "type": "array", "minItems": 1 },
+              "pages": { "type": "array", "minItems": 1 }
+            }
+          }
+        }
+      },
+      "else": {
+        "not": {
+          "properties": { "runtime": {} },
+          "required": ["runtime"]
+        }
+      }
+    }
+  ],
   "$defs": {
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "command", "args", "transport"],
+      "properties": {
+        "type": { "const": "local_process" },
+        "command": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "args": {
+          "type": "array",
+          "maxItems": 64,
+          "items": { "type": "string", "maxLength": 1024 }
+        },
+        "transport": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "healthPath"],
+          "properties": {
+            "type": { "const": "http" },
+            "healthPath": { "$ref": "#/$defs/httpPath" }
+          }
+        }
+      }
+    },
+    "navigation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "pageId", "group"],
+      "properties": {
+        "id": { "$ref": "#/$defs/contributionId" },
+        "title": { "$ref": "#/$defs/title" },
+        "pageId": { "$ref": "#/$defs/contributionId" },
+        "group": { "enum": ["creation", "workspace", "tools"] },
+        "icon": { "enum": ["audio-lines", "video", "image", "wand-sparkles", "puzzle", "box", "cpu"] },
+        "order": { "type": "integer", "minimum": -10000, "maximum": 10000 }
+      }
+    },
+    "page": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "source", "path"],
+      "properties": {
+        "id": { "$ref": "#/$defs/contributionId" },
+        "title": { "$ref": "#/$defs/title" },
+        "source": { "const": "runtime" },
+        "path": { "$ref": "#/$defs/httpPath" }
+      }
+    },
+    "modelResource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "kind", "required"],
+      "properties": {
+        "id": { "$ref": "#/$defs/contributionId" },
+        "title": { "$ref": "#/$defs/title" },
+        "kind": { "enum": ["language", "tts", "speech_to_text", "speech_to_speech", "music", "lip_sync", "portrait_animation", "avatar_generation", "realtime_avatar", "upscaler"] },
+        "required": { "type": "boolean" },
+        "recommendedVramMb": { "type": "integer", "minimum": 0, "maximum": 1048576 },
+        "license": { "type": "string", "maxLength": 256 },
+        "sourceUrl": { "type": "string", "format": "uri", "maxLength": 2048 },
+        "capabilities": {
+          "type": "array",
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/contributionId" }
+        },
+        "supportsStreaming": { "type": "boolean" },
+        "commercialUse": { "enum": ["allowed", "restricted", "review_required"] }
+      }
+    },
+    "capabilityRequirement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version", "execution"],
+      "properties": {
+        "id": { "$ref": "#/$defs/contributionId" },
+        "version": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "execution": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 2,
+          "uniqueItems": true,
+          "items": { "enum": ["local", "cloud"] }
+        },
+        "optional": { "type": "boolean" }
+      }
+    },
     "viewer": {
       "type": "object",
       "additionalProperties": false,
@@ -153,5 +304,7 @@
     },
     "contributionStatus": { "enum": ["available", "planned", "disabled"] },
     "title": { "type": "string", "minLength": 1, "maxLength": 256 }
+    ,
+    "httpPath": { "type": "string", "pattern": "^/[A-Za-z0-9._~!$&'()*+,;=:@%/-]*$", "maxLength": 1024 }
   }
 }

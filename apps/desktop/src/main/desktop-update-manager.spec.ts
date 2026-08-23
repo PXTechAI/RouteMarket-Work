@@ -22,15 +22,11 @@ const mocks = vi.hoisted(() => {
     }
   };
   return {
-    updater,
-    showMessageBox: vi.fn()
+    updater
   };
 });
 
 vi.mock("electron-updater", () => ({ autoUpdater: mocks.updater }));
-vi.mock("electron", () => ({
-  dialog: { showMessageBox: mocks.showMessageBox }
-}));
 
 import { DesktopUpdateManager } from "./desktop-update-manager";
 
@@ -38,7 +34,6 @@ beforeEach(() => {
   vi.useFakeTimers();
   vi.stubEnv("ROUTEMARKET_WORK_UPDATE_CHANNEL", "stable");
   vi.stubEnv("ROUTEMARKET_WORK_UPDATE_URL", "");
-  mocks.showMessageBox.mockReset();
   mocks.updater.setFeedURL.mockClear();
   mocks.updater.checkForUpdates.mockClear();
   mocks.updater.downloadUpdate.mockClear();
@@ -52,13 +47,16 @@ afterEach(() => {
 });
 
 describe("DesktopUpdateManager", () => {
-  it("configures a signed feed, checks periodically and downloads with consent", async () => {
+  it("configures a signed feed, checks periodically and downloads on request", async () => {
     const activity = vi.fn();
+    const onState = vi.fn();
+    const window = { setProgressBar: vi.fn() } as unknown as BrowserWindow;
     const manager = new DesktopUpdateManager(
       "production",
       "https://downloads.example.com/work",
-      () => ({}) as BrowserWindow,
-      activity
+      () => window,
+      activity,
+      onState
     );
     manager.start();
 
@@ -67,39 +65,54 @@ describe("DesktopUpdateManager", () => {
     expect(mocks.updater.setFeedURL).toHaveBeenCalledWith({
       provider: "generic",
       url: "https://downloads.example.com/work",
-      channel: "latest"
+      channel: "latest",
+      useMultipleRangeRequest: false
     });
     await vi.advanceTimersByTimeAsync(15_000);
     expect(mocks.updater.checkForUpdates).toHaveBeenCalledTimes(1);
 
-    mocks.showMessageBox.mockResolvedValueOnce({ response: 1 });
     mocks.updater.emit("update-available", { version: "0.3.0" });
-    await vi.waitFor(() =>
-      expect(mocks.updater.downloadUpdate).toHaveBeenCalledTimes(1)
-    );
+    expect(manager.getState()).toMatchObject({ status: "available", version: "0.3.0" });
+    await manager.downloadUpdate();
+    expect(mocks.updater.downloadUpdate).toHaveBeenCalledTimes(1);
     expect(activity).toHaveBeenCalledWith(
       "job.started",
       "正在下载桌面更新",
       "0.3.0"
     );
 
+    mocks.updater.emit("download-progress", {
+      percent: 42.4,
+      transferred: 4_240,
+      total: 10_000,
+      bytesPerSecond: 2_000
+    });
+    expect(onState).toHaveBeenLastCalledWith(expect.objectContaining({
+      status: "downloading",
+      percent: 42.4,
+      transferredBytes: 4_240,
+      totalBytes: 10_000
+    }));
+    expect(window.setProgressBar).toHaveBeenLastCalledWith(0.424);
+
     manager.stop();
     expect(mocks.updater.removeAllListeners).toHaveBeenCalled();
   });
 
-  it("installs a downloaded update only after restart confirmation", async () => {
+  it("installs a downloaded update only after the renderer requests restart", () => {
+    const window = { setProgressBar: vi.fn() } as unknown as BrowserWindow;
     const manager = new DesktopUpdateManager(
       "production",
       "https://downloads.example.com/work",
-      () => ({}) as BrowserWindow,
+      () => window,
       vi.fn()
     );
     manager.start();
-    mocks.showMessageBox.mockResolvedValueOnce({ response: 1 });
     mocks.updater.emit("update-downloaded", { version: "0.3.0" });
-    await vi.waitFor(() =>
-      expect(mocks.updater.quitAndInstall).toHaveBeenCalledWith(false, true)
-    );
+    expect(manager.getState()).toMatchObject({ status: "downloaded", version: "0.3.0" });
+    expect(mocks.updater.quitAndInstall).not.toHaveBeenCalled();
+    expect(manager.installUpdate()).toBe(true);
+    expect(mocks.updater.quitAndInstall).toHaveBeenCalledWith(false, true);
     manager.stop();
   });
 

@@ -37,6 +37,7 @@ export function useAgentWorkspace({ api, active, authStatus, selectedProject, pr
     const [activeRequestId, setActiveRequestId] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
     const sessionIdsRef = useRef(new Map<string, string>());
+    const lastReturnRefreshAtRef = useRef(0);
     const selectedAgentsByProjectRef = useRef(new Map<string, string>());
     const selectionProjectIdRef = useRef<string | null>(null);
     const activeRequestRef = useRef<{
@@ -90,6 +91,27 @@ export function useAgentWorkspace({ api, active, authStatus, selectedProject, pr
             void refreshAgents(true);
         }, 60000);
         return () => window.clearInterval(timer);
+    }, [active, authStatus, refreshAgents]);
+    useEffect(() => {
+        if (!active || authStatus !== "signed_in")
+            return;
+        const refreshAfterReturn = () => {
+            const now = Date.now();
+            if (now - lastReturnRefreshAtRef.current < 1000)
+                return;
+            lastReturnRefreshAtRef.current = now;
+            void refreshAgents(true);
+        };
+        const refreshAfterVisibilityChange = () => {
+            if (document.visibilityState === "visible")
+                refreshAfterReturn();
+        };
+        window.addEventListener("focus", refreshAfterReturn);
+        document.addEventListener("visibilitychange", refreshAfterVisibilityChange);
+        return () => {
+            window.removeEventListener("focus", refreshAfterReturn);
+            document.removeEventListener("visibilitychange", refreshAfterVisibilityChange);
+        };
     }, [active, authStatus, refreshAgents]);
     useEffect(() => {
         if (authStatus === "signed_in")
@@ -172,7 +194,8 @@ export function useAgentWorkspace({ api, active, authStatus, selectedProject, pr
             setMessagesByConversation((current) => updateAssistantMessage(current, key, event.requestId, (message) => ({
                 ...message,
                 content: event.content,
-                stopped: event.type === "stopped"
+                stopped: event.type === "stopped",
+                ...(event.type === "complete" ? { responseMeta: event.responseMeta } : {})
             })));
             if (event.type === "complete" || event.type === "stopped") {
                 activeRequestRef.current = null;
@@ -335,7 +358,9 @@ function updateAssistantMessage(state: Record<string, ChatMessage[]>, conversati
 function updateToolActivity(tools: NonNullable<ChatMessage["tools"]>, event: Extract<ProjectChatEvent, {
     type: "tool_started" | "tool_completed" | "tool_error";
 }>) {
+    const existing = tools.find((tool) => tool.toolCallId === event.toolCallId);
     const next = {
+        ...existing,
         toolCallId: event.toolCallId,
         toolName: event.toolName,
         title: event.title,
@@ -344,6 +369,15 @@ function updateToolActivity(tools: NonNullable<ChatMessage["tools"]>, event: Ext
             : event.type === "tool_completed"
                 ? "completed" as const
                 : "error" as const,
+        ...(event.type === "tool_started"
+            ? {
+                startedAt: event.startedAt,
+                ...(event.inputPreview ? { inputPreview: event.inputPreview } : {})
+            }
+            : {
+                endedAt: event.endedAt,
+                ...(event.outputPreview ? { outputPreview: event.outputPreview } : {})
+            }),
         ...(event.type === "tool_completed"
             ? { detail: event.summary }
             : event.type === "tool_error"

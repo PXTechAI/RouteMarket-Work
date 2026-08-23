@@ -1,3 +1,4 @@
+import "./workflow-node-registry.scss";
 import { tr } from "../../../i18n";
 import { Workflow } from "lucide-react";
 import type { WorkflowPageModel } from "../types";

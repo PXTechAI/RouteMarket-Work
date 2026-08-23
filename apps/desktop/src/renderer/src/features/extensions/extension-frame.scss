@@ -1,0 +1,43 @@
+.rm-extension-frame-shell {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  background: var(--rm-surface);
+}
+
+.rm-extension-frame {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: var(--rm-surface);
+}
+
+.rm-extension-state {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 10px;
+  width: 100%;
+  height: 100%;
+  min-height: 320px;
+  color: var(--rm-text-muted);
+  text-align: center;
+}
+
+.rm-extension-state strong {
+  color: var(--rm-text);
+  font-size: 15px;
+}
+
+.rm-extension-state button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.rm-extension-error span {
+  max-width: 680px;
+  white-space: pre-wrap;
+}

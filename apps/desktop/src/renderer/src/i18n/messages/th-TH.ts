@@ -93,6 +93,7 @@ export const thTH = {
   "settings.appearance.title": "รูปลักษณ์",
   "settings.appearance.description": "เลือกรูปแบบการแสดงผลของ RouteMarket Work",
   "settings.appearance.theme": "ธีม",
+  "settings.appearance.scale": "ขนาดส่วนติดต่อ",
   "settings.appearance.light": "สว่าง",
   "settings.appearance.dark": "มืด",
   "settings.appearance.system": "ระบบ",

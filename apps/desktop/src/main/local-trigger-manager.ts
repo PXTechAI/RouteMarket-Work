@@ -4,15 +4,12 @@ import { watch, type FSWatcher } from "node:fs";
 import { realpath, stat } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import type {
-  LocalTriggerInput,
-  LocalTriggerKind,
-  LocalTriggerSummary
-} from "../shared/desktop-api";
+import type { LocalTriggerInput, LocalTriggerKind, LocalTriggerSummary } from "../shared/desktop-api";
 
 type TriggerRow = {
   trigger_id: string;
   local_project_id: string;
+  workflow_id: string | null;
   name: string;
   kind: LocalTriggerKind;
   enabled: number;
@@ -22,6 +19,7 @@ type TriggerRow = {
   status: LocalTriggerSummary["status"];
   last_error: string | null;
   last_fired_at: string | null;
+  next_run_at: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -46,8 +44,8 @@ export class LocalTriggerManager {
   constructor(
     databasePath: string,
     private readonly resolveProjectRoot: (localProjectId: string) => Promise<string>,
-    private readonly onFire: (event: LocalTriggerEvent) => void,
-    private readonly hotkeys: HotkeyAdapter
+    private readonly onFire: (event: LocalTriggerEvent) => unknown | Promise<unknown>,
+    private readonly hotkeys: HotkeyAdapter,
   ) {
     this.db = new DatabaseSync(databasePath);
     this.db.exec("PRAGMA journal_mode = WAL;");
@@ -55,6 +53,7 @@ export class LocalTriggerManager {
       CREATE TABLE IF NOT EXISTS local_triggers (
         trigger_id TEXT PRIMARY KEY,
         local_project_id TEXT NOT NULL,
+        workflow_id TEXT,
         name TEXT NOT NULL,
         kind TEXT NOT NULL,
         enabled INTEGER NOT NULL,
@@ -64,23 +63,40 @@ export class LocalTriggerManager {
         status TEXT NOT NULL,
         last_error TEXT,
         last_fired_at TEXT,
+        next_run_at TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
       CREATE INDEX IF NOT EXISTS local_triggers_project_idx
         ON local_triggers(local_project_id, updated_at DESC);
     `);
+    const columns = new Set(
+      (this.db.prepare("PRAGMA table_info(local_triggers)").all() as Array<{ name: string }>).map(
+        (column) => column.name,
+      ),
+    );
+    if (!columns.has("workflow_id")) {
+      this.db.exec("ALTER TABLE local_triggers ADD COLUMN workflow_id TEXT;");
+    }
+    if (!columns.has("next_run_at")) {
+      this.db.exec("ALTER TABLE local_triggers ADD COLUMN next_run_at TEXT;");
+    }
   }
 
   list(localProjectId?: string): LocalTriggerSummary[] {
-    const rows = (localProjectId
-      ? this.db.prepare("SELECT * FROM local_triggers WHERE local_project_id = ? ORDER BY updated_at DESC").all(localProjectId)
-      : this.db.prepare("SELECT * FROM local_triggers ORDER BY updated_at DESC").all()) as TriggerRow[];
+    const rows = (
+      localProjectId
+        ? this.db
+            .prepare("SELECT * FROM local_triggers WHERE local_project_id = ? ORDER BY updated_at DESC")
+            .all(localProjectId)
+        : this.db.prepare("SELECT * FROM local_triggers ORDER BY updated_at DESC").all()
+    ) as TriggerRow[];
     return rows.map(mapRow);
   }
 
   get(triggerId: string): LocalTriggerSummary | null {
-    const row = this.db.prepare("SELECT * FROM local_triggers WHERE trigger_id = ?").get(triggerId) as TriggerRow | undefined;
+    const row = this.db.prepare("SELECT * FROM local_triggers WHERE trigger_id = ?").get(triggerId) as
+      TriggerRow | undefined;
     return row ? mapRow(row) : null;
   }
 
@@ -95,13 +111,16 @@ export class LocalTriggerManager {
     const id = triggerId ?? `trigger_${randomUUID().replaceAll("-", "")}`;
     const now = new Date().toISOString();
     this.disposeOne(id);
-    this.db.prepare(`
+    this.db
+      .prepare(
+        `
       INSERT INTO local_triggers (
-        trigger_id, local_project_id, name, kind, enabled, relative_path,
+        trigger_id, local_project_id, workflow_id, name, kind, enabled, relative_path,
         interval_minutes, accelerator, status, last_error, last_fired_at,
-        created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'inactive', NULL, ?, ?, ?)
+        next_run_at, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'inactive', NULL, ?, NULL, ?, ?)
       ON CONFLICT(trigger_id) DO UPDATE SET
+        workflow_id = excluded.workflow_id,
         name = excluded.name,
         kind = excluded.kind,
         enabled = excluded.enabled,
@@ -110,20 +129,24 @@ export class LocalTriggerManager {
         accelerator = excluded.accelerator,
         status = 'inactive',
         last_error = NULL,
+        next_run_at = NULL,
         updated_at = excluded.updated_at
-    `).run(
-      id,
-      normalized.localProjectId,
-      normalized.name,
-      normalized.kind,
-      normalized.enabled ? 1 : 0,
-      normalized.relativePath ?? null,
-      normalized.intervalMinutes ?? null,
-      normalized.accelerator ?? null,
-      existing?.lastFiredAt ?? null,
-      existing?.createdAt ?? now,
-      now
-    );
+    `,
+      )
+      .run(
+        id,
+        normalized.localProjectId,
+        normalized.workflowId ?? null,
+        normalized.name,
+        normalized.kind,
+        normalized.enabled ? 1 : 0,
+        normalized.relativePath ?? null,
+        normalized.intervalMinutes ?? null,
+        normalized.accelerator ?? null,
+        existing?.lastFiredAt ?? null,
+        existing?.createdAt ?? now,
+        now,
+      );
     if (normalized.enabled) await this.activate(id);
     return this.get(id)!;
   }
@@ -134,17 +157,40 @@ export class LocalTriggerManager {
   }
 
   async startAll(): Promise<void> {
-    await Promise.all(this.list().filter((trigger) => trigger.enabled).map((trigger) => this.activate(trigger.triggerId)));
+    await Promise.all(
+      this.list()
+        .filter((trigger) => trigger.enabled)
+        .map((trigger) => this.activate(trigger.triggerId)),
+    );
   }
 
-  async fire(triggerId: string, reason: LocalTriggerEvent["reason"] = "manual", relativePath: string | null = null): Promise<LocalTriggerSummary> {
+  async fire(
+    triggerId: string,
+    reason: LocalTriggerEvent["reason"] = "manual",
+    relativePath: string | null = null,
+  ): Promise<LocalTriggerSummary> {
     const trigger = this.get(triggerId);
     if (!trigger) throw new Error("Local trigger not found.");
     const occurredAt = new Date().toISOString();
-    this.db.prepare("UPDATE local_triggers SET last_fired_at = ?, updated_at = ? WHERE trigger_id = ?")
-      .run(occurredAt, occurredAt, triggerId);
+    const nextRunAt =
+      trigger.kind === "schedule" && trigger.enabled
+        ? new Date(Date.now() + trigger.intervalMinutes! * 60_000).toISOString()
+        : null;
+    this.db
+      .prepare("UPDATE local_triggers SET last_fired_at = ?, next_run_at = ?, updated_at = ? WHERE trigger_id = ?")
+      .run(occurredAt, nextRunAt, occurredAt, triggerId);
     const next = this.get(triggerId)!;
-    this.onFire({ trigger: next, reason, relativePath, occurredAt });
+    try {
+      await this.onFire({ trigger: next, reason, relativePath, occurredAt });
+      if (next.enabled) this.setRuntimeState(triggerId, "active", null);
+    } catch (error) {
+      this.setRuntimeState(
+        triggerId,
+        "error",
+        error instanceof Error ? error.message : "Local trigger execution failed.",
+      );
+      throw error;
+    }
     return next;
   }
 
@@ -159,8 +205,13 @@ export class LocalTriggerManager {
     const trigger = this.get(triggerId);
     if (!trigger || !trigger.enabled) return;
     try {
+      this.setNextRunAt(triggerId, null);
       if (trigger.kind === "schedule") {
-        const timer = setInterval(() => void this.fire(triggerId, "schedule"), trigger.intervalMinutes! * 60_000);
+        this.setNextRunAt(triggerId, new Date(Date.now() + trigger.intervalMinutes! * 60_000).toISOString());
+        const timer = setInterval(
+          () => void this.fire(triggerId, "schedule").catch(() => undefined),
+          trigger.intervalMinutes! * 60_000,
+        );
         timer.unref();
         this.disposers.set(triggerId, () => clearInterval(timer));
       } else if (trigger.kind === "hotkey") {
@@ -179,18 +230,29 @@ export class LocalTriggerManager {
           if (watchedFile && changed !== watchedFile) return;
           if (trigger.kind === "folder_added") {
             if (eventType !== "rename" || !changed) return;
-            void stat(resolve(directory, changed)).then((item) => {
-              if (item.isDirectory()) this.queueFire(triggerId, "folder_added", relative(root, resolve(directory, changed)));
-            }).catch(() => undefined);
+            void stat(resolve(directory, changed))
+              .then((item) => {
+                if (item.isDirectory())
+                  this.queueFire(triggerId, "folder_added", relative(root, resolve(directory, changed)));
+              })
+              .catch(() => undefined);
           } else {
-            this.queueFire(triggerId, "file_changed", changed ? relative(root, resolve(directory, changed)) : trigger.relativePath);
+            this.queueFire(
+              triggerId,
+              "file_changed",
+              changed ? relative(root, resolve(directory, changed)) : trigger.relativePath,
+            );
           }
         });
         this.disposers.set(triggerId, () => watcher.close());
       }
       this.setRuntimeState(triggerId, "active", null);
     } catch (error) {
-      this.setRuntimeState(triggerId, "error", error instanceof Error ? error.message : "Local trigger activation failed.");
+      this.setRuntimeState(
+        triggerId,
+        "error",
+        error instanceof Error ? error.message : "Local trigger activation failed.",
+      );
     }
   }
 
@@ -206,8 +268,13 @@ export class LocalTriggerManager {
   }
 
   private setRuntimeState(triggerId: string, status: LocalTriggerSummary["status"], lastError: string | null): void {
-    this.db.prepare("UPDATE local_triggers SET status = ?, last_error = ? WHERE trigger_id = ?")
+    this.db
+      .prepare("UPDATE local_triggers SET status = ?, last_error = ? WHERE trigger_id = ?")
       .run(status, lastError, triggerId);
+  }
+
+  private setNextRunAt(triggerId: string, nextRunAt: string | null): void {
+    this.db.prepare("UPDATE local_triggers SET next_run_at = ? WHERE trigger_id = ?").run(nextRunAt, triggerId);
   }
 
   private disposeOne(triggerId: string): void {
@@ -225,14 +292,24 @@ function validateInput(input: LocalTriggerInput): LocalTriggerInput {
   if (!(["file_changed", "folder_added", "schedule", "hotkey"] as LocalTriggerKind[]).includes(input.kind)) {
     throw new Error("Unsupported local trigger kind.");
   }
-  const result: LocalTriggerInput = { localProjectId: input.localProjectId, name, kind: input.kind, enabled: Boolean(input.enabled) };
+  const workflowId = input.workflowId?.trim();
+  if (workflowId && workflowId.length > 256) throw new Error("Workflow ID is too long.");
+  const result: LocalTriggerInput = {
+    localProjectId: input.localProjectId,
+    ...(workflowId ? { workflowId } : {}),
+    name,
+    kind: input.kind,
+    enabled: Boolean(input.enabled),
+  };
   if (input.kind === "file_changed" || input.kind === "folder_added") {
     const path = (input.relativePath ?? ".").trim().replaceAll("\\", "/");
-    if (isAbsolute(path) || path.split("/").includes("..")) throw new Error("Trigger path must stay inside the project.");
+    if (isAbsolute(path) || path.split("/").includes(".."))
+      throw new Error("Trigger path must stay inside the project.");
     result.relativePath = path || ".";
   } else if (input.kind === "schedule") {
     const minutes = Number(input.intervalMinutes);
-    if (!Number.isFinite(minutes) || minutes < 1 || minutes > 525_600) throw new Error("Schedule interval must be between 1 and 525600 minutes.");
+    if (!Number.isFinite(minutes) || minutes < 1 || minutes > 525_600)
+      throw new Error("Schedule interval must be between 1 and 525600 minutes.");
     result.intervalMinutes = minutes;
   } else {
     const accelerator = (input.accelerator ?? "").trim();
@@ -256,6 +333,7 @@ function mapRow(row: TriggerRow): LocalTriggerSummary {
   return {
     triggerId: row.trigger_id,
     localProjectId: row.local_project_id,
+    workflowId: row.workflow_id,
     name: row.name,
     kind: row.kind,
     enabled: row.enabled === 1,
@@ -265,7 +343,8 @@ function mapRow(row: TriggerRow): LocalTriggerSummary {
     status: row.status,
     lastError: row.last_error,
     lastFiredAt: row.last_fired_at,
+    nextRunAt: row.next_run_at,
     createdAt: row.created_at,
-    updatedAt: row.updated_at
+    updatedAt: row.updated_at,
   };
 }

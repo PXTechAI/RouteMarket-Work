@@ -15,7 +15,8 @@ test("packages signed-update metadata without deleting local data on uninstall",
   assert.deepEqual(desktopPackage.build.publish, [{
     provider: "generic",
     url: "${env.ROUTEMARKET_WORK_UPDATE_URL}",
-    channel: "latest"
+    channel: "latest",
+    useMultipleRangeRequest: false
   }]);
   assert.equal(
     desktopPackage.dependencies["electron-updater"],

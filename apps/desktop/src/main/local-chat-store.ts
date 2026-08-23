@@ -6,6 +6,7 @@ import type {
   LocalProjectChatMessage,
   LocalProjectChatSummary,
   ProjectChatArtifact,
+  ProjectChatResponseMeta,
   ProjectChatToolActivity
 } from "../shared/desktop-api";
 
@@ -21,6 +22,7 @@ type MessageRow = {
   attachments_json: string | null;
   artifacts_json: string | null;
   tools_json: string | null;
+  response_meta_json: string | null;
   stopped: number;
   failed: number;
   agent_id: string | null;
@@ -55,6 +57,7 @@ export class LocalChatStore {
         attachments_json TEXT,
         artifacts_json TEXT,
         tools_json TEXT,
+        response_meta_json TEXT,
         stopped INTEGER NOT NULL DEFAULT 0,
         failed INTEGER NOT NULL DEFAULT 0,
         agent_id TEXT,
@@ -108,6 +111,9 @@ export class LocalChatStore {
     if (!messageColumns.has("tools_json")) {
       this.db.exec("ALTER TABLE local_chat_messages ADD COLUMN tools_json TEXT;");
     }
+    if (!messageColumns.has("response_meta_json")) {
+      this.db.exec("ALTER TABLE local_chat_messages ADD COLUMN response_meta_json TEXT;");
+    }
     if (!messageColumns.has("agent_name")) {
       this.db.exec("ALTER TABLE local_chat_messages ADD COLUMN agent_name TEXT;");
     }
@@ -134,6 +140,7 @@ export class LocalChatStore {
           attachments_json TEXT,
           artifacts_json TEXT,
           tools_json TEXT,
+          response_meta_json TEXT,
           stopped INTEGER NOT NULL DEFAULT 0,
           failed INTEGER NOT NULL DEFAULT 0,
           agent_id TEXT,
@@ -144,12 +151,12 @@ export class LocalChatStore {
         );
         INSERT INTO local_chat_messages_next (
           id, session_id, local_project_id, role, content, reasoning_summary, sent_at, context_file,
-          attachments_json, artifacts_json, tools_json, stopped, failed,
+          attachments_json, artifacts_json, tools_json, response_meta_json, stopped, failed,
           agent_id, agent_revision, agent_name, agent_avatar_url
         )
         SELECT
           id, session_id, local_project_id, role, content, reasoning_summary, sent_at, context_file,
-          attachments_json, artifacts_json, tools_json, stopped, failed,
+          attachments_json, artifacts_json, tools_json, response_meta_json, stopped, failed,
           agent_id, agent_revision, agent_name, agent_avatar_url
         FROM local_chat_messages;
         DROP TABLE local_chat_messages;
@@ -195,6 +202,7 @@ export class LocalChatStore {
         attachments_json TEXT,
         artifacts_json TEXT,
         tools_json TEXT,
+        response_meta_json TEXT,
         stopped INTEGER NOT NULL DEFAULT 0,
         failed INTEGER NOT NULL DEFAULT 0,
         agent_id TEXT,
@@ -205,12 +213,12 @@ export class LocalChatStore {
       );
       INSERT INTO local_chat_messages_scope_next (
         id, session_id, local_project_id, role, content, reasoning_summary, sent_at, context_file,
-        attachments_json, artifacts_json, tools_json, stopped, failed,
+        attachments_json, artifacts_json, tools_json, response_meta_json, stopped, failed,
         agent_id, agent_revision, agent_name, agent_avatar_url
       )
       SELECT
         id, session_id, local_project_id, role, content, reasoning_summary, sent_at, context_file,
-        attachments_json, artifacts_json, tools_json, stopped, failed,
+        attachments_json, artifacts_json, tools_json, response_meta_json, stopped, failed,
         agent_id, agent_revision, agent_name, agent_avatar_url
       FROM local_chat_messages;
       DROP TABLE local_chat_messages;
@@ -331,9 +339,9 @@ export class LocalChatStore {
     this.db.prepare(`
       INSERT OR REPLACE INTO local_chat_messages (
         id, session_id, local_project_id, role, content, reasoning_summary, sent_at, context_file,
-        attachments_json, artifacts_json, tools_json, stopped, failed,
+        attachments_json, artifacts_json, tools_json, response_meta_json, stopped, failed,
         agent_id, agent_revision, agent_name, agent_avatar_url
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       message.id,
       message.sessionId,
@@ -350,6 +358,7 @@ export class LocalChatStore {
         ? JSON.stringify(message.artifacts)
         : null,
       message.tools?.length ? JSON.stringify(message.tools) : null,
+      message.responseMeta ? JSON.stringify(message.responseMeta) : null,
       message.stopped ? 1 : 0,
       message.failed ? 1 : 0,
       message.agentId ?? null,
@@ -427,6 +436,7 @@ function mapMessage(row: MessageRow): LocalProjectChatMessage {
   const attachments = parseAttachments(row.attachments_json);
   const artifacts = parseArtifacts(row.artifacts_json);
   const tools = parseTools(row.tools_json);
+  const responseMeta = parseResponseMeta(row.response_meta_json);
   return {
     id: row.id,
     sessionId: row.session_id,
@@ -439,6 +449,7 @@ function mapMessage(row: MessageRow): LocalProjectChatMessage {
     ...(attachments.length ? { attachments } : {}),
     ...(artifacts.length ? { artifacts } : {}),
     ...(tools.length ? { tools } : {}),
+    ...(responseMeta ? { responseMeta } : {}),
     ...(row.stopped ? { stopped: true } : {}),
     ...(row.failed ? { failed: true } : {}),
     ...(row.agent_id ? { agentId: row.agent_id } : {}),
@@ -467,12 +478,52 @@ function parseTools(value: string | null): ProjectChatToolActivity[] {
         toolName: tool.toolName,
         title: tool.title,
         status: tool.status as ProjectChatToolActivity["status"],
-        ...(typeof tool.detail === "string" ? { detail: tool.detail } : {})
+        ...(typeof tool.detail === "string" ? { detail: tool.detail.slice(0, 4_000) } : {}),
+        ...(isNonNegativeFiniteNumber(tool.startedAt) ? { startedAt: tool.startedAt } : {}),
+        ...(isNonNegativeFiniteNumber(tool.endedAt) ? { endedAt: tool.endedAt } : {}),
+        ...(typeof tool.inputPreview === "string" ? { inputPreview: tool.inputPreview.slice(0, 4_000) } : {}),
+        ...(typeof tool.outputPreview === "string" ? { outputPreview: tool.outputPreview.slice(0, 4_000) } : {})
       }];
     }).slice(0, 100);
   } catch {
     return [];
   }
+}
+
+function parseResponseMeta(value: string | null): ProjectChatResponseMeta | null {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    const meta = parsed as Record<string, unknown>;
+    if (typeof meta.modelCode !== "string" || !meta.modelCode.trim()) return null;
+    if (!isNonNegativeFiniteNumber(meta.elapsedMs)) return null;
+    const tokenFields = [
+      "inputTokens",
+      "outputTokens",
+      "totalTokens",
+      "cachedInputTokens",
+      "cacheCreationInputTokens"
+    ] as const;
+    if (!tokenFields.every((field) => meta[field] === null || isNonNegativeFiniteNumber(meta[field]))) {
+      return null;
+    }
+    return {
+      modelCode: meta.modelCode.slice(0, 512),
+      inputTokens: meta.inputTokens as number | null,
+      outputTokens: meta.outputTokens as number | null,
+      totalTokens: meta.totalTokens as number | null,
+      cachedInputTokens: meta.cachedInputTokens as number | null,
+      cacheCreationInputTokens: meta.cacheCreationInputTokens as number | null,
+      elapsedMs: meta.elapsedMs
+    };
+  } catch {
+    return null;
+  }
+}
+
+function isNonNegativeFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0;
 }
 
 function parseArtifacts(value: string | null): ProjectChatArtifact[] {

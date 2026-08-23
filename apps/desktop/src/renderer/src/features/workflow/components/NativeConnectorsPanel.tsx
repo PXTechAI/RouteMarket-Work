@@ -1,3 +1,4 @@
+import "./native-connectors-panel.scss";
 import { tr } from "../../../i18n";
 import { File, FileText, FolderOpen, LoaderCircle, Play } from "lucide-react";
 import type { WorkflowPageActions, WorkflowPageModel } from "../types";

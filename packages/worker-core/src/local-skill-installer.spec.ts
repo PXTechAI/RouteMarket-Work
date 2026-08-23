@@ -50,6 +50,44 @@ describe("LocalSkillInstaller", () => {
     ]);
   }, 15_000);
 
+  it("imports a standalone SKILL.md and a complete Skill directory", async () => {
+    const fixture = await createFixture();
+    const markdownPath = join(fixture.root, "SKILL.md");
+    await writeFile(markdownPath, skillMarkdown("single-file", "1.0.0"));
+
+    const markdownReceipt = await fixture.installer.installSource(
+      fixture.project.localProjectId,
+      markdownPath,
+      "markdown"
+    );
+    expect(markdownReceipt).toMatchObject({
+      skillId: "single-file",
+      source: "local_directory",
+      sourceLabel: "SKILL.md",
+      status: "ready",
+      managed: true
+    });
+
+    const directoryPath = join(fixture.root, "folder-skill");
+    await mkdir(join(directoryPath, "references"), { recursive: true });
+    await writeFile(join(directoryPath, "SKILL.md"), skillMarkdown("folder-skill", "2.1.0"));
+    await writeFile(join(directoryPath, "references", "guide.md"), "# Guide");
+
+    const directoryReceipt = await fixture.installer.installSource(
+      fixture.project.localProjectId,
+      directoryPath,
+      "directory"
+    );
+    expect(directoryReceipt).toMatchObject({
+      skillId: "folder-skill",
+      version: "2.1.0",
+      source: "local_directory",
+      sourceLabel: "folder-skill",
+      status: "ready",
+      managed: true
+    });
+  }, 15_000);
+
   it("refuses to delete a managed Skill after local edits", async () => {
     const fixture = await createFixture();
     const archivePath = await writeArchive(fixture.root, {

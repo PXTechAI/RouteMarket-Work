@@ -65,6 +65,16 @@ describe("buildDesktopWorkflowNodeRegistry", () => {
     expect(registry.definitions.every((definition) =>
       /^sha256:[a-f0-9]{64}$/.test(definition.definitionHash)
     )).toBe(true);
+
+    const navigate = registry.definitions.find(
+      (definition) => definition.executorKey === "local.browser.navigate"
+    );
+    expect(navigate?.inputSchema).toEqual(expect.objectContaining({
+      required: ["url"],
+      properties: expect.objectContaining({
+        url: expect.objectContaining({ type: "string", format: "uri" })
+      })
+    }));
   });
 
   it("produces the same hashes regardless of generation time", () => {

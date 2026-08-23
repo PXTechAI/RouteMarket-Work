@@ -1,0 +1,194 @@
+.chat-agent-picker {
+  position: relative;
+  z-index: 6;
+}
+
+.chat-agent-picker-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 30px;
+  max-width: 230px;
+  padding: 4px 9px 4px 5px;
+  color: var(--rm-text);
+  background: var(--rm-surface-muted);
+  border: 1px solid var(--rm-border);
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.chat-agent-picker-trigger > span:not(.agent-avatar) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-agent-picker-trigger > svg:last-child {
+  flex: 0 0 auto;
+  color: var(--rm-text-muted);
+  transition: transform 140ms ease;
+}
+
+.chat-agent-picker-trigger > svg:last-child.open {
+  transform: rotate(180deg);
+}
+
+.chat-agent-picker-trigger:hover:not(:disabled),
+.chat-agent-picker-trigger[aria-expanded="true"] {
+  background: var(--rm-accent-soft);
+  border-color: color-mix(in srgb, var(--rm-accent) 28%, var(--rm-border));
+}
+
+.chat-agent-picker-trigger:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.chat-agent-picker-spinner {
+  color: var(--rm-accent);
+  animation: message-tool-spin 900ms linear infinite;
+}
+
+.chat-agent-picker-dropdown {
+  position: absolute;
+  bottom: calc(100% + 9px);
+  left: 0;
+  width: min(340px, calc(100vw - 60px));
+  max-height: 330px;
+  padding: 0;
+  overflow: hidden;
+  background: var(--rm-surface);
+  border: 1px solid var(--rm-border);
+  border-radius: 14px;
+  box-shadow: var(--rm-shadow-menu);
+  z-index: 30;
+}
+
+.chat-agent-picker-options {
+  max-height: 274px;
+  padding: 7px;
+  overflow-y: auto;
+}
+
+.chat-agent-picker-heading {
+  padding: 5px 8px 7px;
+  color: var(--rm-text-weak);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.chat-agent-picker-option {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) 16px;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-height: 46px;
+  padding: 7px 8px;
+  color: var(--rm-text);
+  background: transparent;
+  border: 0;
+  border-radius: 9px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.chat-agent-picker-option:hover,
+.chat-agent-picker-option.active {
+  background: var(--rm-accent-soft);
+}
+
+.chat-agent-picker-option > span:not(.agent-avatar) {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.chat-agent-picker-name-row {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 6px;
+}
+
+.chat-agent-picker-name-row strong {
+  min-width: 0;
+}
+
+.chat-agent-picker-option .chat-agent-picker-origin {
+  flex: none;
+  padding: 1px 5px;
+  color: var(--rm-text-muted);
+  background: var(--rm-surface-muted);
+  border: 1px solid var(--rm-border);
+  border-radius: 999px;
+  font-size: 9.5px;
+  font-weight: 400;
+}
+
+.chat-agent-picker-option strong,
+.chat-agent-picker-option small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-agent-picker-option strong {
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.chat-agent-picker-option small {
+  color: var(--rm-text-muted);
+  font-size: 11px;
+}
+
+.chat-agent-picker-option > svg {
+  color: var(--rm-accent);
+}
+
+.chat-agent-picker-empty {
+  padding: 20px 12px;
+  color: var(--rm-text-muted);
+  text-align: center;
+  font-size: 11px;
+}
+
+.chat-agent-picker-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px;
+  border-top: 1px solid var(--rm-border);
+  background: var(--rm-surface);
+}
+
+.chat-agent-picker-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 5px 8px;
+  color: var(--rm-text-muted);
+  background: transparent;
+  border: 0;
+  border-radius: 7px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.chat-agent-picker-actions button:hover:not(:disabled) {
+  color: var(--rm-text);
+  background: var(--rm-surface-muted);
+}
+
+.chat-agent-picker-actions button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}

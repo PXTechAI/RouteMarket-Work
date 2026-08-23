@@ -32,7 +32,14 @@ describe("readProjectChatStream", () => {
         id: "call_1",
         name: "project_search",
         arguments: '{"query":"RouteMarket"}'
-      }]
+      }],
+      usage: {
+        inputTokens: null,
+        outputTokens: null,
+        totalTokens: null,
+        cachedInputTokens: null,
+        cacheCreationInputTokens: null
+      }
     });
   });
 
@@ -75,5 +82,23 @@ describe("readProjectChatStream", () => {
       "Inspecting the project",
       "Inspecting the project structure."
     ]);
+  });
+
+  it("collects final token and cache usage from streamed model events", async () => {
+    const result = await readProjectChatStream(
+      stream(
+        'data: {"choices":[],"usage":{"prompt_tokens":120,"completion_tokens":30,"total_tokens":150,"prompt_tokens_details":{"cached_tokens":90}}}\n\n',
+        "data: [DONE]\n\n"
+      ),
+      new AbortController().signal,
+      () => undefined
+    );
+    expect(result.usage).toEqual({
+      inputTokens: 120,
+      outputTokens: 30,
+      totalTokens: 150,
+      cachedInputTokens: 90,
+      cacheCreationInputTokens: null
+    });
   });
 });

@@ -1,40 +1,14 @@
 import { tr } from "../../i18n";
+import "./workflow.scss";
 import { CircleAlert, Search, X } from "lucide-react";
 import { LocalTriggersPanel } from "./components/LocalTriggersPanel";
 import { NativeConnectorsPanel } from "./components/NativeConnectorsPanel";
 import { WorkflowCanvas } from "./components/WorkflowCanvas";
 import { WorkflowNodeRegistry } from "./components/WorkflowNodeRegistry";
 import type { WorkflowPageProps, WorkflowPanel } from "./types";
-function panelContent(): Record<WorkflowPanel, {
-    title: string;
-    description: string;
-}> { return {
-    canvas: {
-        title: "Workflow Canvas",
-        description: tr("ui.aae3260e653d")
-    },
-    nodes: {
-        title: tr("ui.5bd6c3f75384"),
-        description: tr("ui.24dcb452bd27")
-    },
-    triggers: {
-        title: tr("ui.bab7876c60f8"),
-        description: tr("ui.fd407c8da8a1")
-    },
-    connectors: {
-        title: tr("ui.244747cf2f44"),
-        description: tr("ui.b1ee498c9473")
-    }
-}; }
 export function WorkflowPage({ model, actions }: WorkflowPageProps) {
-    const content = panelContent()[model.panel];
     return (<section className="workflow-pane">
       <div className="workflow-registry-header">
-        <div>
-          <span className="eyebrow">Desktop Node Registry</span>
-          <h2>{content.title}</h2>
-          <p>{content.description}</p>
-        </div>
         <div className="workflow-header-actions">
           <div className="workflow-panel-switch" role="tablist" aria-label={tr("ui.202fff00e85f")}>
             <PanelButton panel="canvas" current={model.panel} onSelect={actions.navigation.onPanelChange}>{tr("ui.95b2102fbb99")}</PanelButton>

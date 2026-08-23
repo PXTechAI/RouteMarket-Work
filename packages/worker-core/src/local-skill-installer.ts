@@ -2,13 +2,14 @@ import { createHash, randomUUID } from "node:crypto";
 import {
   lstat,
   mkdir,
+  readdir,
   readFile,
   realpath,
   rename,
   rm,
   writeFile
 } from "node:fs/promises";
-import { basename, dirname, extname, relative, resolve, sep } from "node:path";
+import { basename, dirname, extname, join, relative, resolve, sep } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import JSZip from "jszip";
 import { WorkerError } from "./errors";
@@ -58,6 +59,14 @@ export type LocalSkillInstallReceipt = {
   operations: string[];
 };
 
+export type LocalSkillImportKind = "archive" | "directory" | "markdown";
+
+type ParsedSkillPackage = {
+  skillId: string;
+  version: string;
+  files: Array<{ relativePath: string; content: Buffer }>;
+};
+
 export class LocalSkillInstaller {
   private readonly db: DatabaseSync;
 
@@ -99,10 +108,6 @@ export class LocalSkillInstaller {
         "Choose a .zip Skill package."
       );
     }
-    const project = this.registry.get(localProjectId);
-    if (!project) {
-      throw new WorkerError("PROJECT_NOT_BOUND", "Project is not bound on this device.");
-    }
     const archive = await readFile(sourcePath);
     if (!archive.length || archive.length > MAX_ARCHIVE_BYTES) {
       throw new WorkerError(
@@ -111,6 +116,41 @@ export class LocalSkillInstaller {
       );
     }
     const parsed = await parseArchive(archive);
+    return this.installParsed(localProjectId, parsed, sourceLabel, sourceKind);
+  }
+
+  async installSource(
+    localProjectId: string,
+    sourcePath: string,
+    importKind: LocalSkillImportKind
+  ): Promise<LocalSkillInstallReceipt> {
+    if (!["archive", "directory", "markdown"].includes(importKind)) {
+      throw new WorkerError("SKILL_PACKAGE_INVALID", "Unsupported Skill import source.");
+    }
+    if (importKind === "archive") {
+      return this.installArchive(localProjectId, sourcePath);
+    }
+    const parsed = importKind === "markdown"
+      ? await parseMarkdownFile(sourcePath)
+      : await parseSkillDirectory(sourcePath);
+    return this.installParsed(
+      localProjectId,
+      parsed,
+      basename(sourcePath),
+      "local_directory"
+    );
+  }
+
+  private async installParsed(
+    localProjectId: string,
+    parsed: ParsedSkillPackage,
+    sourceLabel: string,
+    sourceKind: "local_archive" | "web_library" | "local_directory"
+  ): Promise<LocalSkillInstallReceipt> {
+    const project = this.registry.get(localProjectId);
+    if (!project) {
+      throw new WorkerError("PROJECT_NOT_BOUND", "Project is not bound on this device.");
+    }
     const skillsRoot = await safeSkillsRoot(project.realRootPath);
     const target = resolve(skillsRoot, parsed.skillId);
     assertInside(skillsRoot, target);
@@ -233,7 +273,9 @@ export class LocalSkillInstaller {
         currentPackageDigest: null,
         source: receipt.source_kind === "web_library"
           ? "web_library"
-          : "local_archive",
+          : receipt.source_kind === "local_directory"
+            ? "local_directory"
+            : "local_archive",
         sourceLabel: receipt.source_label,
         publisherFingerprint: receipt.publisher_fingerprint,
         installedAt: receipt.installed_at,
@@ -296,11 +338,61 @@ export class LocalSkillInstaller {
   }
 }
 
-async function parseArchive(archive: Buffer): Promise<{
-  skillId: string;
-  version: string;
-  files: Array<{ relativePath: string; content: Buffer }>;
-}> {
+async function parseMarkdownFile(sourcePath: string): Promise<ParsedSkillPackage> {
+  const source = await lstat(sourcePath).catch(() => null);
+  if (!source?.isFile() || source.isSymbolicLink() || basename(sourcePath) !== "SKILL.md") {
+    throw new WorkerError(
+      "SKILL_PACKAGE_INVALID",
+      "Choose a file named exactly SKILL.md."
+    );
+  }
+  const content = await readFile(sourcePath);
+  return parseSkillFiles([{ relativePath: "SKILL.md", content }]);
+}
+
+async function parseSkillDirectory(sourcePath: string): Promise<ParsedSkillPackage> {
+  const source = await lstat(sourcePath).catch(() => null);
+  if (!source?.isDirectory() || source.isSymbolicLink()) {
+    throw new WorkerError("SKILL_PACKAGE_INVALID", "Choose a Skill directory.");
+  }
+  const files: Array<{ relativePath: string; content: Buffer }> = [];
+  let totalBytes = 0;
+  let entryCount = 0;
+  const walk = async (directory: string, prefix: string): Promise<void> => {
+    const entries = (await readdir(directory, { withFileTypes: true }))
+      .sort((left, right) => left.name.localeCompare(right.name));
+    for (const entry of entries) {
+      entryCount += 1;
+      if (entryCount > MAX_FILES) {
+        throw new WorkerError("SKILL_PACKAGE_TOO_LARGE", `Skill directory cannot contain more than ${MAX_FILES} entries.`);
+      }
+      const absolutePath = join(directory, entry.name);
+      const relativePath = prefix ? `${prefix}/${entry.name}` : entry.name;
+      assertSafeRelativePath(relativePath);
+      const stats = await lstat(absolutePath);
+      if (stats.isSymbolicLink()) {
+        throw new WorkerError("SKILL_PACKAGE_UNSAFE", "Skill directory cannot contain symbolic links.");
+      }
+      if (stats.isDirectory()) {
+        await walk(absolutePath, relativePath);
+        continue;
+      }
+      if (!stats.isFile()) {
+        throw new WorkerError("SKILL_PACKAGE_UNSAFE", "Skill directory contains an unsupported file type.");
+      }
+      if (stats.size > MAX_FILE_BYTES || totalBytes + stats.size > MAX_EXPANDED_BYTES) {
+        throw new WorkerError("SKILL_PACKAGE_TOO_LARGE", "Skill directory exceeds the allowed size.");
+      }
+      const content = await readFile(absolutePath);
+      totalBytes += content.length;
+      files.push({ relativePath, content });
+    }
+  };
+  await walk(sourcePath, "");
+  return parseSkillFiles(files);
+}
+
+async function parseArchive(archive: Buffer): Promise<ParsedSkillPackage> {
   let zip: JSZip;
   try {
     zip = await JSZip.loadAsync(archive, { checkCRC32: true, createFolders: false });
@@ -345,7 +437,27 @@ async function parseArchive(archive: Buffer): Promise<{
     assertSafeRelativePath(relativePath);
     files.push({ relativePath, content });
   }
-    const skillMarkdown = files.find(
+  return parseSkillFiles(files);
+}
+
+function parseSkillFiles(
+  files: Array<{ relativePath: string; content: Buffer }>
+): ParsedSkillPackage {
+  if (!files.length || files.length > MAX_FILES) {
+    throw new WorkerError(
+      "SKILL_PACKAGE_INVALID",
+      `Skill package must contain between 1 and ${MAX_FILES} files.`
+    );
+  }
+  let totalBytes = 0;
+  for (const file of files) {
+    assertSafeRelativePath(file.relativePath);
+    totalBytes += file.content.length;
+    if (file.content.length > MAX_FILE_BYTES || totalBytes > MAX_EXPANDED_BYTES) {
+      throw new WorkerError("SKILL_PACKAGE_TOO_LARGE", "Skill package exceeds the allowed size.");
+    }
+  }
+  const skillMarkdown = files.find(
     (file) => file.relativePath.toLocaleLowerCase() === "skill.md"
   )?.content.toString("utf8") ?? "";
   if (!files.some((file) => file.relativePath === "SKILL.md")) {
@@ -362,13 +474,13 @@ async function parseArchive(archive: Buffer): Promise<{
   if (!skillId || !SKILL_ID.test(skillId)) {
     throw new WorkerError(
       "SKILL_PACKAGE_INVALID",
-      "Downloaded SKILL.md must declare a safe id in YAML frontmatter."
+      "SKILL.md must declare a safe id in YAML frontmatter."
     );
   }
   if (!version || !SEMVER.test(version)) {
     throw new WorkerError(
       "SKILL_PACKAGE_INVALID",
-      "Downloaded SKILL.md must declare a semantic version."
+      "SKILL.md must declare a semantic version."
     );
   }
   return { skillId, version, files };
@@ -475,7 +587,9 @@ function mapReceipt(
     source: receipt
       ? receipt.source_kind === "web_library"
         ? "web_library"
-        : "local_archive"
+        : receipt.source_kind === "local_directory"
+          ? "local_directory"
+          : "local_archive"
       : "local_directory",
     sourceLabel: receipt?.source_label ?? "Project folder",
     publisherFingerprint: receipt?.publisher_fingerprint ?? null,

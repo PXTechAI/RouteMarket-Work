@@ -2,6 +2,11 @@ import { trMain } from "./i18n";
 import { createHash } from "node:crypto";
 import type { PluginManifest } from "@routemarket/work-protocol";
 import type {
+  ManagedBrowserConsoleEntry,
+  ManagedBrowserDomElement,
+  ManagedBrowserElementActionResult,
+  ManagedBrowserNetworkEntry,
+  ManagedBrowserPerformance,
   ManagedProcessSummary,
   ManagedBrowserState,
   ProjectFileEntry,
@@ -9,6 +14,7 @@ import type {
   ReadResult
 } from "../shared/desktop-api";
 import type { ManagedBrowserManager } from "./managed-browser-manager";
+import type { AttachedBrowserManager } from "./attached-browser-manager";
 import { ProjectChatMcpToolRuntime } from "./project-chat-mcp-tools";
 import { ProjectChatPluginRegistry } from "./project-chat-plugin-registry";
 import { ProjectChatSkillRuntime } from "./project-chat-skill-tools";
@@ -22,7 +28,7 @@ import type {
   ProjectChatToolDefinition,
   ProjectChatToolExecution
 } from "./project-chat-tools";
-import { PROJECT_CHAT_TOOLS } from "./project-chat-tools";
+import { ATTACHED_BROWSER_CHAT_TOOLS, PROJECT_CHAT_TOOLS } from "./project-chat-tools";
 
 const MAX_PATH_LENGTH = 1_024;
 const MAX_WRITE_CHARACTERS = 1_000_000;
@@ -48,9 +54,34 @@ type ProjectChatBrowser = Pick<
   | "setUserTakeover"
   | "navigate"
   | "click"
+  | "clickRef"
+  | "clickPoint"
+  | "scroll"
+  | "press"
   | "type"
+  | "typeRef"
   | "upload"
   | "extract"
+  | "inspect"
+  | "waitFor"
+  | "getConsole"
+  | "getNetwork"
+  | "getNetworkBody"
+  | "getPerformance"
+  | "screenshot"
+>;
+
+type ProjectChatAttachedBrowser = Pick<
+  AttachedBrowserManager,
+  | "state"
+  | "navigate"
+  | "inspect"
+  | "clickRef"
+  | "typeRef"
+  | "getConsole"
+  | "getNetwork"
+  | "getNetworkBody"
+  | "screenshot"
 >;
 
 type ProjectChatToolRunnerOptions = {
@@ -74,6 +105,7 @@ type ProjectChatToolRunnerOptions = {
   >>;
   toolBroker: LocalToolBroker;
   getBrowser?: () => ProjectChatBrowser;
+  getAttachedBrowser?: () => ProjectChatAttachedBrowser;
   mcpClient?: Pick<
     WorkerClient,
     "listMcpServers" | "startMcpServer" | "callMcpTool"
@@ -160,6 +192,9 @@ export class ProjectChatToolRunner {
 
   async listTools(localProjectId: string): Promise<ProjectChatToolDefinition[]> {
     const tools = [...PROJECT_CHAT_TOOLS, ...this.pluginRegistry.listDefinitions()];
+    if (this.options.getAttachedBrowser?.().state().connected) {
+      tools.push(...ATTACHED_BROWSER_CHAT_TOOLS);
+    }
     if (this.skillRuntime) {
       try {
         tools.push(...await this.skillRuntime.listDefinitions(localProjectId));
@@ -469,6 +504,256 @@ export class ProjectChatToolRunner {
         );
       }
 
+      if (call.name === "browser_attached_navigate") {
+        assertNoUnexpectedKeys(args, ["url"]);
+        const url = requiredString(args, "url", MAX_BROWSER_URL_LENGTH);
+        const browser = this.requireAttachedBrowser();
+        return await this.runAuthorized(
+          localProjectId,
+          {
+            capability: "local.browser.navigate",
+            risk: "R1",
+            title: "AI requests Attached Browser navigation",
+            detail: clipDetail(url),
+            auditDetail: "Attached Browser",
+            approvalKey: `attached:navigate:${url}`
+          },
+          "Navigate attached browser",
+          clipDetail(url),
+          async () => {
+            throwIfAborted(signal);
+            const state = await browser.navigate(url);
+            return {
+              content: stringifyToolResult({
+                connected: state.connected,
+                target_id: state.target?.targetId ?? null,
+                title: state.target?.title ?? "",
+                url: sanitizeBrowserToolUrl(state.target?.url ?? "about:blank")
+              }),
+              summary: `Navigated Attached Browser to ${sanitizeBrowserToolUrl(state.target?.url ?? url)}`
+            };
+          },
+          approvalMode
+        );
+      }
+
+      if (call.name === "browser_attached_inspect") {
+        assertNoUnexpectedKeys(args, ["max_elements"]);
+        const maxElements = optionalInteger(args, "max_elements", 1, 500, 200);
+        const browser = this.requireAttachedBrowser();
+        return await this.runAuthorized(
+          localProjectId,
+          {
+            capability: "local.browser.read",
+            risk: "R2",
+            title: "AI requests Attached Browser DOM inspection",
+            detail: browser.state().target?.title ?? "Attached Browser",
+            auditDetail: "Attached Browser visible DOM",
+            approvalKey: `attached:dom:${browser.state().target?.targetId ?? "page"}`
+          },
+          "Inspect attached browser",
+          browser.state().target?.title ?? "Attached Browser",
+          async () => {
+            throwIfAborted(signal);
+            const inspected = await browser.inspect(maxElements);
+            const clipped = clipText(inspected.text);
+            return {
+              content: stringifyToolResult({
+                page_id: inspected.pageId,
+                url: inspected.url,
+                title: inspected.title,
+                text: clipped.text,
+                text_truncated: clipped.truncated,
+                elements: inspected.elements.map(sanitizeBrowserDomElement),
+                elements_truncated: inspected.truncated
+              }),
+              summary: `Inspected ${inspected.elements.length} Attached Browser element(s)`
+            };
+          },
+          approvalMode
+        );
+      }
+
+      if (call.name === "browser_attached_click_ref") {
+        assertNoUnexpectedKeys(args, ["ref_id"]);
+        const refId = requiredString(args, "ref_id", MAX_BROWSER_ID_LENGTH);
+        const browser = this.requireAttachedBrowser();
+        return await this.runAuthorized(
+          localProjectId,
+          {
+            capability: "local.browser.click",
+            risk: "R2",
+            title: "AI requests an Attached Browser click",
+            detail: refId,
+            auditDetail: "Attached Browser inspected element reference",
+            approvalKey: `attached:click-ref:${refId}`
+          },
+          "Click attached browser element",
+          refId,
+          async () => {
+            throwIfAborted(signal);
+            const result = await browser.clickRef(refId);
+            return {
+              content: stringifyToolResult(sanitizeBrowserElementAction(result)),
+              summary: `Clicked Attached Browser ${result.target.tag} element`
+            };
+          },
+          approvalMode
+        );
+      }
+
+      if (call.name === "browser_attached_type_ref") {
+        assertNoUnexpectedKeys(args, ["ref_id", "text"]);
+        const refId = requiredString(args, "ref_id", MAX_BROWSER_ID_LENGTH);
+        const text = requiredBrowserText(args);
+        const browser = this.requireAttachedBrowser();
+        return await this.runAuthorized(
+          localProjectId,
+          {
+            capability: "local.browser.type",
+            risk: "R2",
+            title: "AI requests Attached Browser input",
+            detail: refId,
+            auditDetail: "Attached Browser inspected element reference",
+            approvalKey: `attached:type-ref:${refId}:${sha256(text)}`
+          },
+          "Type in attached browser",
+          refId,
+          async () => {
+            throwIfAborted(signal);
+            const result = await browser.typeRef(refId, text);
+            return {
+              content: stringifyToolResult(sanitizeBrowserElementAction(result)),
+              summary: `Typed into Attached Browser ${result.target.tag} element`
+            };
+          },
+          approvalMode
+        );
+      }
+
+      if (call.name === "browser_attached_get_console") {
+        assertNoUnexpectedKeys(args, ["limit"]);
+        const limit = optionalInteger(args, "limit", 1, 200, 100);
+        const browser = this.requireAttachedBrowser();
+        return await this.runAuthorized(
+          localProjectId,
+          {
+            capability: "local.browser.read",
+            risk: "R2",
+            title: "AI requests Attached Browser console output",
+            detail: browser.state().target?.title ?? "Attached Browser",
+            auditDetail: "Attached Browser console",
+            approvalKey: `attached:console:${browser.state().target?.targetId ?? "page"}`
+          },
+          "Read attached browser console",
+          browser.state().target?.title ?? "Attached Browser",
+          async () => {
+            throwIfAborted(signal);
+            const entries = browser.getConsole(limit);
+            return {
+              content: stringifyToolResult({ entries: entries.map(sanitizeBrowserConsoleEntry) }),
+              summary: `Read ${entries.length} Attached Browser console entr${entries.length === 1 ? "y" : "ies"}`
+            };
+          },
+          approvalMode
+        );
+      }
+
+      if (call.name === "browser_attached_get_network") {
+        assertNoUnexpectedKeys(args, ["limit"]);
+        const limit = optionalInteger(args, "limit", 1, 300, 100);
+        const browser = this.requireAttachedBrowser();
+        return await this.runAuthorized(
+          localProjectId,
+          {
+            capability: "local.browser.read",
+            risk: "R2",
+            title: "AI requests Attached Browser network metadata",
+            detail: browser.state().target?.title ?? "Attached Browser",
+            auditDetail: "Attached Browser Network metadata",
+            approvalKey: `attached:network:${browser.state().target?.targetId ?? "page"}`
+          },
+          "Read attached browser network",
+          browser.state().target?.title ?? "Attached Browser",
+          async () => {
+            throwIfAborted(signal);
+            const entries = browser.getNetwork(limit);
+            return {
+              content: stringifyToolResult({ entries: entries.map(sanitizeBrowserNetworkEntry) }),
+              summary: `Read ${entries.length} Attached Browser network request(s)`
+            };
+          },
+          approvalMode
+        );
+      }
+
+      if (call.name === "browser_attached_get_network_body") {
+        assertNoUnexpectedKeys(args, ["request_id", "max_characters"]);
+        const requestId = requiredString(args, "request_id", MAX_BROWSER_ID_LENGTH);
+        const maxCharacters = optionalInteger(args, "max_characters", 1, 200_000, 100_000);
+        const browser = this.requireAttachedBrowser();
+        return await this.runAuthorized(
+          localProjectId,
+          {
+            capability: "local.browser.read",
+            risk: "R3",
+            title: "AI requests an Attached Browser response body",
+            detail: requestId,
+            auditDetail: "Attached Browser Network response body",
+            approvalKey: `attached:network-body:${requestId}`
+          },
+          "Read attached response body",
+          requestId,
+          async () => {
+            throwIfAborted(signal);
+            const result = await browser.getNetworkBody(requestId, maxCharacters);
+            return {
+              content: stringifyToolResult({
+                request_id: result.requestId,
+                mime_type: result.mimeType,
+                body: result.body,
+                base64_encoded: result.base64Encoded,
+                truncated: result.truncated
+              }),
+              summary: `Read ${result.body.length} Attached Browser response character(s)`
+            };
+          },
+          approvalMode
+        );
+      }
+
+      if (call.name === "browser_attached_screenshot") {
+        assertNoUnexpectedKeys(args, []);
+        const browser = this.requireAttachedBrowser();
+        return await this.runAuthorized(
+          localProjectId,
+          {
+            capability: "local.browser.screenshot",
+            risk: "R2",
+            title: "AI requests an Attached Browser screenshot",
+            detail: browser.state().target?.title ?? "Attached Browser",
+            auditDetail: "Attached Browser screenshot",
+            approvalKey: `attached:screenshot:${browser.state().target?.targetId ?? "page"}`
+          },
+          "Capture attached browser screenshot",
+          browser.state().target?.title ?? "Attached Browser",
+          async () => {
+            throwIfAborted(signal);
+            const dataUrl = await browser.screenshot("agent");
+            return {
+              content: stringifyToolResult({
+                target_id: browser.state().target?.targetId ?? null,
+                url: sanitizeBrowserToolUrl(browser.state().target?.url ?? "about:blank"),
+                image_attached: true
+              }),
+              summary: "Captured Attached Browser screenshot",
+              images: [dataUrl]
+            };
+          },
+          approvalMode
+        );
+      }
+
       if (call.name === "browser_get_state") {
         assertNoUnexpectedKeys(args, []);
         return await this.runPassive(
@@ -481,6 +766,42 @@ export class ProjectChatToolRunner {
             return {
               content: stringifyToolResult(sanitizeBrowserState(state)),
               summary: trMain("ui.0391ccac18e5", [state.pages.length])
+            };
+          },
+          approvalMode
+        );
+      }
+
+      if (call.name === "browser_request_user_login") {
+        assertNoUnexpectedKeys(args, ["page_id"]);
+        const pageId = optionalString(args, "page_id", MAX_BROWSER_ID_LENGTH);
+        const browser = this.requireBrowser();
+        await this.assertAgentBrowserControl(browser, localProjectId, pageId);
+        return await this.runPassive(
+          localProjectId,
+          "local.browser.takeover",
+          "Request user login",
+          pageId ?? "active page",
+          async () => {
+            throwIfAborted(signal);
+            if (pageId) await browser.selectPage(localProjectId, pageId);
+            const state = await browser.setUserTakeover(
+              localProjectId,
+              true,
+              pageId,
+              context
+            );
+            return {
+              content: stringifyToolResult({
+                requires_user_action: true,
+                action: "sign_in_in_managed_browser",
+                page_id: state.activePageId,
+                url: sanitizeBrowserToolUrl(state.url),
+                user_takeover: state.userTakeover,
+                instructions:
+                  "Sign in directly in the Managed Browser. Enter the password there or use any password manager, passkey, verification code, QR scan or CAPTCHA available on that page; do not send credentials in chat. When finished, return control to the Agent and tell it to continue."
+              }),
+              summary: "Waiting for the user to sign in in the Managed Browser"
             };
           },
           approvalMode
@@ -605,6 +926,157 @@ export class ProjectChatToolRunner {
         );
       }
 
+      if (call.name === "browser_click_at") {
+        assertNoUnexpectedKeys(args, ["x", "y", "page_id"]);
+        const x = requiredInteger(args, "x", 0, 100_000);
+        const y = requiredInteger(args, "y", 0, 100_000);
+        const pageId = optionalString(args, "page_id", MAX_BROWSER_ID_LENGTH);
+        const browser = this.requireBrowser();
+        await this.assertAgentBrowserControl(browser, localProjectId, pageId);
+        return await this.runAuthorized(
+          localProjectId,
+          {
+            capability: "local.browser.click",
+            risk: "R2",
+            title: "AI requests a browser coordinate click",
+            detail: `${x}, ${y}`,
+            auditDetail: "Managed Browser mouse input",
+            approvalKey: `${pageId ?? "active"}:${x}:${y}`
+          },
+          "Click browser coordinates",
+          `${x}, ${y}`,
+          async () => {
+            throwIfAborted(signal);
+            const before = await this.activateAgentBrowserPage(
+              browser,
+              localProjectId,
+              pageId
+            );
+            await browser.clickPoint(localProjectId, x, y, pageId, context);
+            return {
+              content: stringifyToolResult({
+                completed: true,
+                page_id: before.activePageId,
+                url: before.url,
+                x,
+                y
+              }),
+              summary: `Clicked browser coordinates ${x}, ${y}`
+            };
+          },
+          approvalMode
+        );
+      }
+
+      if (call.name === "browser_click_ref") {
+        assertNoUnexpectedKeys(args, ["ref_id", "page_id"]);
+        const refId = requiredString(args, "ref_id", MAX_BROWSER_ID_LENGTH);
+        const pageId = optionalString(args, "page_id", MAX_BROWSER_ID_LENGTH);
+        const browser = this.requireBrowser();
+        await this.assertAgentBrowserControl(browser, localProjectId, pageId);
+        return await this.runAuthorized(
+          localProjectId,
+          {
+            capability: "local.browser.click",
+            risk: "R2",
+            title: "AI requests a referenced browser click",
+            detail: refId,
+            auditDetail: "Managed Browser inspected element reference",
+            approvalKey: `${pageId ?? "active"}:click-ref:${refId}`
+          },
+          "Click referenced browser element",
+          refId,
+          async () => {
+            throwIfAborted(signal);
+            await this.activateAgentBrowserPage(browser, localProjectId, pageId);
+            const result = await browser.clickRef(localProjectId, refId, pageId, context);
+            return {
+              content: stringifyToolResult(sanitizeBrowserElementAction(result)),
+              summary: `Clicked referenced ${result.target.tag} element`
+            };
+          },
+          approvalMode
+        );
+      }
+
+      if (call.name === "browser_scroll") {
+        assertNoUnexpectedKeys(args, ["delta_x", "delta_y", "page_id"]);
+        const deltaX = optionalInteger(args, "delta_x", -100_000, 100_000, 0);
+        const deltaY = requiredInteger(args, "delta_y", -100_000, 100_000);
+        const pageId = optionalString(args, "page_id", MAX_BROWSER_ID_LENGTH);
+        const browser = this.requireBrowser();
+        await this.assertAgentBrowserControl(browser, localProjectId, pageId);
+        return await this.runAuthorized(
+          localProjectId,
+          {
+            capability: "local.browser.click",
+            risk: "R2",
+            title: "AI requests browser scrolling",
+            detail: `${deltaX}, ${deltaY}`,
+            auditDetail: "Managed Browser mouse wheel",
+            approvalKey: `${pageId ?? "active"}:scroll:${deltaX}:${deltaY}`
+          },
+          "Scroll browser page",
+          `${deltaX}, ${deltaY}`,
+          async () => {
+            throwIfAborted(signal);
+            const before = await this.activateAgentBrowserPage(browser, localProjectId, pageId);
+            await browser.scroll(localProjectId, deltaX, deltaY, pageId, context);
+            return {
+              content: stringifyToolResult({
+                completed: true,
+                page_id: before.activePageId,
+                url: before.url,
+                delta_x: deltaX,
+                delta_y: deltaY
+              }),
+              summary: `Scrolled browser by ${deltaX}, ${deltaY}`
+            };
+          },
+          approvalMode
+        );
+      }
+
+      if (call.name === "browser_press") {
+        assertNoUnexpectedKeys(args, ["key", "modifiers", "page_id"]);
+        const key = requiredString(args, "key", 32);
+        const modifiers = args.modifiers === undefined
+          ? []
+          : requiredStringArray(args, "modifiers", 4, 16);
+        const pageId = optionalString(args, "page_id", MAX_BROWSER_ID_LENGTH);
+        const browser = this.requireBrowser();
+        await this.assertAgentBrowserControl(browser, localProjectId, pageId);
+        return await this.runAuthorized(
+          localProjectId,
+          {
+            capability: "local.browser.type",
+            risk: "R2",
+            title: "AI requests a browser key press",
+            detail: [...modifiers, key].join("+"),
+            auditDetail: "Managed Browser keyboard input",
+            approvalKey: `${pageId ?? "active"}:key:${modifiers.join("+")}:${key}`
+          },
+          "Press browser key",
+          [...modifiers, key].join("+"),
+          async () => {
+            throwIfAborted(signal);
+            const before = await this.activateAgentBrowserPage(browser, localProjectId, pageId);
+            await browser.press(localProjectId, key, modifiers, pageId, context);
+            return {
+              content: stringifyToolResult({
+                completed: true,
+                page_id: before.activePageId,
+                url: before.url,
+                key,
+                modifiers
+              }),
+              summary: `Pressed ${[...modifiers, key].join("+")}`
+            };
+          },
+          approvalMode
+        );
+      }
+
       if (call.name === "browser_type") {
         assertNoUnexpectedKeys(args, ["selector", "text", "page_id"]);
         const selector = requiredString(args, "selector", MAX_BROWSER_SELECTOR_LENGTH);
@@ -640,6 +1112,38 @@ export class ProjectChatToolRunner {
                 characters: text.length
               }),
               summary: trMain("ui.a73c079e96e6", [text.length])
+            };
+          },
+          approvalMode
+        );
+      }
+
+      if (call.name === "browser_type_ref") {
+        assertNoUnexpectedKeys(args, ["ref_id", "text", "page_id"]);
+        const refId = requiredString(args, "ref_id", MAX_BROWSER_ID_LENGTH);
+        const text = requiredBrowserText(args);
+        const pageId = optionalString(args, "page_id", MAX_BROWSER_ID_LENGTH);
+        const browser = this.requireBrowser();
+        await this.assertAgentBrowserControl(browser, localProjectId, pageId);
+        return await this.runAuthorized(
+          localProjectId,
+          {
+            capability: "local.browser.type",
+            risk: "R2",
+            title: "AI requests referenced browser input",
+            detail: refId,
+            auditDetail: "Managed Browser inspected element reference",
+            approvalKey: `${pageId ?? "active"}:type-ref:${refId}:${sha256(text)}`
+          },
+          "Type into referenced browser element",
+          refId,
+          async () => {
+            throwIfAborted(signal);
+            await this.activateAgentBrowserPage(browser, localProjectId, pageId);
+            const result = await browser.typeRef(localProjectId, refId, text, pageId, context);
+            return {
+              content: stringifyToolResult(sanitizeBrowserElementAction(result)),
+              summary: `Typed into referenced ${result.target.tag} element`
             };
           },
           approvalMode
@@ -726,6 +1230,449 @@ export class ProjectChatToolRunner {
                 truncated: extracted.truncated
               }),
               summary: trMain("ui.864b87e5af1e", [extracted.text.length])
+            };
+          },
+          approvalMode
+        );
+      }
+
+      if (call.name === "browser_inspect") {
+        assertNoUnexpectedKeys(args, ["page_id", "max_elements"]);
+        const pageId = optionalString(args, "page_id", MAX_BROWSER_ID_LENGTH);
+        const maxElements = optionalInteger(args, "max_elements", 1, 500, 200);
+        const browser = this.requireBrowser();
+        await this.assertAgentBrowserControl(browser, localProjectId, pageId);
+        return await this.runAuthorized(
+          localProjectId,
+          {
+            capability: "local.browser.read",
+            risk: "R1",
+            title: "AI requests browser DOM inspection",
+            detail: pageId ?? "active page",
+            auditDetail: "Managed Browser visible DOM",
+            approvalKey: `${pageId ?? "active"}:dom`
+          },
+          "Inspect browser DOM",
+          pageId ?? "active page",
+          async () => {
+            throwIfAborted(signal);
+            await this.activateAgentBrowserPage(browser, localProjectId, pageId);
+            const inspected = await browser.inspect(localProjectId, pageId, maxElements);
+            const text = clipText(inspected.text);
+            return {
+              content: stringifyToolResult({
+                page_id: inspected.pageId,
+                url: inspected.url,
+                title: inspected.title,
+                text: text.text,
+                text_truncated: text.truncated,
+                elements: inspected.elements.map((element) => ({
+                  index: element.index,
+                  ref_id: element.refId,
+                  tag: element.tag,
+                  role: element.role,
+                  name: element.name,
+                  text: element.text,
+                  selector: element.selector,
+                  locator: element.locator,
+                  context: element.context,
+                  input_type: element.inputType,
+                  href: element.href,
+                  disabled: element.disabled,
+                  checked: element.checked,
+                  x: element.x,
+                  y: element.y,
+                  center_x: element.centerX,
+                  center_y: element.centerY,
+                  width: element.width,
+                  height: element.height
+                })),
+                elements_truncated: inspected.truncated
+              }),
+              summary: `Inspected ${inspected.elements.length} interactive element(s)`
+            };
+          },
+          approvalMode
+        );
+      }
+
+      if (call.name === "browser_wait_for") {
+        assertNoUnexpectedKeys(args, ["condition", "value", "timeout_ms", "page_id"]);
+        const conditionValue = requiredString(args, "condition", 16);
+        if (!["load", "selector", "text"].includes(conditionValue)) {
+          throw new Error("condition must be load, selector or text.");
+        }
+        const condition = conditionValue as "load" | "selector" | "text";
+        const value = optionalString(args, "value", MAX_BROWSER_TEXT_LENGTH);
+        const timeoutMs = optionalInteger(args, "timeout_ms", 100, 30_000, 10_000);
+        const pageId = optionalString(args, "page_id", MAX_BROWSER_ID_LENGTH);
+        const browser = this.requireBrowser();
+        await this.assertAgentBrowserControl(browser, localProjectId, pageId);
+        return await this.runPassive(
+          localProjectId,
+          "local.browser.read",
+          "Wait for browser page",
+          condition,
+          async () => {
+            throwIfAborted(signal);
+            await this.activateAgentBrowserPage(browser, localProjectId, pageId);
+            const result = await browser.waitFor(
+              localProjectId,
+              condition,
+              value,
+              timeoutMs,
+              pageId
+            );
+            return {
+              content: stringifyToolResult({
+                page_id: result.pageId,
+                url: result.url,
+                condition: result.condition,
+                matched: result.matched,
+                elapsed_ms: result.elapsedMs
+              }),
+              summary: `Browser ${condition} condition matched`
+            };
+          },
+          approvalMode
+        );
+      }
+
+      if (call.name === "browser_get_console") {
+        assertNoUnexpectedKeys(args, ["page_id", "limit"]);
+        const pageId = optionalString(args, "page_id", MAX_BROWSER_ID_LENGTH);
+        const limit = optionalInteger(args, "limit", 1, 200, 100);
+        const browser = this.requireBrowser();
+        await this.assertAgentBrowserControl(browser, localProjectId, pageId);
+        return await this.runAuthorized(
+          localProjectId,
+          {
+            capability: "local.browser.read",
+            risk: "R1",
+            title: "AI requests browser console output",
+            detail: pageId ?? "active page",
+            auditDetail: "Managed Browser console",
+            approvalKey: `${pageId ?? "active"}:console`
+          },
+          "Read browser console",
+          pageId ?? "active page",
+          async () => {
+            throwIfAborted(signal);
+            await this.activateAgentBrowserPage(browser, localProjectId, pageId);
+            const entries = await browser.getConsole(localProjectId, pageId, limit);
+            return {
+              content: stringifyToolResult({
+                entries: entries.map((entry) => ({
+                  entry_id: entry.entryId,
+                  page_id: entry.pageId,
+                  level: entry.level,
+                  message: entry.message,
+                  source: entry.source,
+                  line: entry.line,
+                  timestamp: entry.timestamp
+                }))
+              }),
+              summary: `Read ${entries.length} browser console entr${entries.length === 1 ? "y" : "ies"}`
+            };
+          },
+          approvalMode
+        );
+      }
+
+      if (call.name === "browser_get_network") {
+        assertNoUnexpectedKeys(args, ["page_id", "limit"]);
+        const pageId = optionalString(args, "page_id", MAX_BROWSER_ID_LENGTH);
+        const limit = optionalInteger(args, "limit", 1, 200, 100);
+        const browser = this.requireBrowser();
+        await this.assertAgentBrowserControl(browser, localProjectId, pageId);
+        return await this.runAuthorized(
+          localProjectId,
+          {
+            capability: "local.browser.read",
+            risk: "R1",
+            title: "AI requests browser network activity",
+            detail: pageId ?? "active page",
+            auditDetail: "Managed Browser network metadata",
+            approvalKey: `${pageId ?? "active"}:network`
+          },
+          "Read browser network",
+          pageId ?? "active page",
+          async () => {
+            throwIfAborted(signal);
+            await this.activateAgentBrowserPage(browser, localProjectId, pageId);
+            const entries = await browser.getNetwork(localProjectId, pageId, limit);
+            return {
+              content: stringifyToolResult({
+                entries: entries.map((entry) => ({
+                  request_id: entry.requestId,
+                  page_id: entry.pageId,
+                  method: entry.method,
+                  url: entry.url,
+                  resource_type: entry.resourceType,
+                  status: entry.status,
+                  status_line: entry.statusLine,
+                  mime_type: entry.mimeType,
+                  request_headers: entry.requestHeaders,
+                  response_headers: entry.responseHeaders,
+                  from_cache: entry.fromCache,
+                  failed: entry.failed,
+                  error: entry.error,
+                  started_at: entry.startedAt,
+                  finished_at: entry.finishedAt,
+                  duration_ms: entry.durationMs
+                }))
+              }),
+              summary: `Read ${entries.length} browser network request(s)`
+            };
+          },
+          approvalMode
+        );
+      }
+
+      if (call.name === "browser_get_network_body") {
+        assertNoUnexpectedKeys(args, ["request_id", "max_characters", "page_id"]);
+        const requestId = requiredString(args, "request_id", MAX_BROWSER_ID_LENGTH);
+        const maxCharacters = optionalInteger(
+          args,
+          "max_characters",
+          1,
+          200_000,
+          100_000
+        );
+        const pageId = optionalString(args, "page_id", MAX_BROWSER_ID_LENGTH);
+        const browser = this.requireBrowser();
+        await this.assertAgentBrowserControl(browser, localProjectId, pageId);
+        return await this.runAuthorized(
+          localProjectId,
+          {
+            capability: "local.browser.read",
+            risk: "R2",
+            title: "AI requests a browser response body",
+            detail: requestId,
+            auditDetail: "Managed Browser Network response body",
+            approvalKey: `${pageId ?? "active"}:network-body:${requestId}`
+          },
+          "Read browser response body",
+          requestId,
+          async () => {
+            throwIfAborted(signal);
+            await this.activateAgentBrowserPage(browser, localProjectId, pageId);
+            const result = await browser.getNetworkBody(
+              localProjectId,
+              requestId,
+              pageId,
+              maxCharacters
+            );
+            return {
+              content: stringifyToolResult({
+                request_id: result.requestId,
+                mime_type: result.mimeType,
+                body: result.body,
+                base64_encoded: result.base64Encoded,
+                truncated: result.truncated
+              }),
+              summary: `Read ${result.body.length} response body character(s)`
+            };
+          },
+          approvalMode
+        );
+      }
+
+      if (call.name === "browser_get_performance") {
+        assertNoUnexpectedKeys(args, ["page_id"]);
+        const pageId = optionalString(args, "page_id", MAX_BROWSER_ID_LENGTH);
+        const browser = this.requireBrowser();
+        await this.assertAgentBrowserControl(browser, localProjectId, pageId);
+        return await this.runAuthorized(
+          localProjectId,
+          {
+            capability: "local.browser.read",
+            risk: "R1",
+            title: "AI requests browser performance metrics",
+            detail: pageId ?? "active page",
+            auditDetail: "Managed Browser Navigation and Resource Timing",
+            approvalKey: `${pageId ?? "active"}:performance`
+          },
+          "Read browser performance",
+          pageId ?? "active page",
+          async () => {
+            throwIfAborted(signal);
+            await this.activateAgentBrowserPage(browser, localProjectId, pageId);
+            const performance = await browser.getPerformance(localProjectId, pageId);
+            return {
+              content: stringifyToolResult(sanitizeBrowserPerformance(performance)),
+              summary: `Read performance metrics for ${performance.resources.count} resource(s)`
+            };
+          },
+          approvalMode
+        );
+      }
+
+      if (call.name === "browser_get_diagnostics") {
+        assertNoUnexpectedKeys(args, ["page_id", "console_limit", "network_limit"]);
+        const pageId = optionalString(args, "page_id", MAX_BROWSER_ID_LENGTH);
+        const consoleLimit = optionalInteger(args, "console_limit", 1, 200, 100);
+        const networkLimit = optionalInteger(args, "network_limit", 1, 200, 100);
+        const browser = this.requireBrowser();
+        await this.assertAgentBrowserControl(browser, localProjectId, pageId);
+        return await this.runAuthorized(
+          localProjectId,
+          {
+            capability: "local.browser.read",
+            risk: "R1",
+            title: "AI requests a browser diagnostics snapshot",
+            detail: pageId ?? "active page",
+            auditDetail: "Managed Browser console, network and performance summary",
+            approvalKey: `${pageId ?? "active"}:diagnostics:${consoleLimit}:${networkLimit}`
+          },
+          "Diagnose browser page",
+          pageId ?? "active page",
+          async () => {
+            throwIfAborted(signal);
+            await this.activateAgentBrowserPage(browser, localProjectId, pageId);
+            const [consoleEntries, networkEntries, performance] = await Promise.all([
+              browser.getConsole(localProjectId, pageId, consoleLimit),
+              browser.getNetwork(localProjectId, pageId, networkLimit),
+              browser.getPerformance(localProjectId, pageId)
+            ]);
+            const consoleProblems = consoleEntries.filter(
+              (entry) => entry.level === "warning" || entry.level === "error"
+            );
+            const networkProblems = networkEntries.filter(
+              (entry) => entry.failed || (entry.status !== null && entry.status >= 400)
+            );
+            return {
+              content: stringifyToolResult({
+                page_id: performance.pageId,
+                url: performance.url,
+                summary: {
+                  console_entries_inspected: consoleEntries.length,
+                  console_problems: consoleProblems.length,
+                  network_entries_inspected: networkEntries.length,
+                  network_problems: networkProblems.length
+                },
+                console_problems: consoleProblems.map((entry) => ({
+                  level: entry.level,
+                  message: entry.message,
+                  source: entry.source,
+                  line: entry.line,
+                  timestamp: entry.timestamp
+                })),
+                network_problems: networkProblems.map((entry) => ({
+                  request_id: entry.requestId,
+                  method: entry.method,
+                  url: entry.url,
+                  resource_type: entry.resourceType,
+                  status: entry.status,
+                  failed: entry.failed,
+                  error: entry.error,
+                  duration_ms: entry.durationMs
+                })),
+                performance: sanitizeBrowserPerformance(performance)
+              }),
+              summary: `Found ${consoleProblems.length + networkProblems.length} browser problem(s)`
+            };
+          },
+          approvalMode
+        );
+      }
+
+      if (call.name === "browser_export_har") {
+        assertNoUnexpectedKeys(args, ["path", "page_id", "limit"]);
+        const path = requiredPath(args);
+        if (!path.toLowerCase().endsWith(".har")) {
+          throw new Error("Browser HAR export path must end with .har.");
+        }
+        const pageId = optionalString(args, "page_id", MAX_BROWSER_ID_LENGTH);
+        const limit = optionalInteger(args, "limit", 1, 300, 300);
+        const browser = this.requireBrowser();
+        await this.assertAgentBrowserControl(browser, localProjectId, pageId);
+        return await this.runAuthorized(
+          localProjectId,
+          {
+            capability: "local.fs.create",
+            risk: "R2",
+            title: "AI requests a redacted browser HAR export",
+            detail: path,
+            auditDetail: "Managed Browser HAR without bodies or cookies",
+            approvalKey: `${pageId ?? "active"}:har:${path}:${limit}`
+          },
+          "Export browser HAR",
+          path,
+          async () => {
+            throwIfAborted(signal);
+            const state = await this.activateAgentBrowserPage(browser, localProjectId, pageId);
+            const entries = await browser.getNetwork(localProjectId, pageId, limit);
+            const text = JSON.stringify(
+              buildRedactedHar(state.activePageId ?? "page", state.title, state.url, entries),
+              null,
+              2
+            );
+            const result = await this.options.workerClient.createProjectFile(
+              localProjectId,
+              path,
+              text
+            );
+            const artifact = {
+              id: `artifact_${sha256(`${localProjectId}:${path}:${result.sha256}`).slice(0, 24)}`,
+              kind: "file" as const,
+              relativePath: path,
+              filename: path.split("/").at(-1)!,
+              mimeType: "application/json",
+              size: result.bytesRead,
+              uri: result.uri,
+              providerId: "ai.routemarket.browser-har"
+            };
+            return {
+              content: stringifyToolResult({
+                path,
+                request_count: entries.length,
+                includes_response_bodies: false,
+                includes_cookies: false,
+                output_files: [artifact]
+              }),
+              summary: `Exported ${entries.length} request(s) to ${path}`,
+              artifacts: [artifact]
+            };
+          },
+          approvalMode
+        );
+      }
+
+      if (call.name === "browser_screenshot") {
+        assertNoUnexpectedKeys(args, ["page_id"]);
+        const pageId = optionalString(args, "page_id", MAX_BROWSER_ID_LENGTH);
+        const browser = this.requireBrowser();
+        await this.assertAgentBrowserControl(browser, localProjectId, pageId);
+        return await this.runAuthorized(
+          localProjectId,
+          {
+            capability: "local.browser.screenshot",
+            risk: "R1",
+            title: "AI requests a browser screenshot",
+            detail: pageId ?? "active page",
+            auditDetail: "Managed Browser screenshot",
+            approvalKey: `${pageId ?? "active"}:screenshot`
+          },
+          trMain("ui.963479826cf8"),
+          pageId ?? "active page",
+          async () => {
+            throwIfAborted(signal);
+            const before = await this.activateAgentBrowserPage(browser, localProjectId, pageId);
+            const dataUrl = await browser.screenshot(
+              localProjectId,
+              pageId,
+              context,
+              "agent"
+            );
+            return {
+              content: stringifyToolResult({
+                page_id: before.activePageId,
+                url: before.url,
+                image_attached: true
+              }),
+              summary: "Captured browser screenshot",
+              images: [dataUrl]
             };
           },
           approvalMode
@@ -856,6 +1803,14 @@ export class ProjectChatToolRunner {
       throw error;
     }
     return process;
+  }
+
+  private requireAttachedBrowser(): ProjectChatAttachedBrowser {
+    const browser = this.options.getAttachedBrowser?.();
+    if (!browser?.state().connected) {
+      throw new Error("Attached Browser is not connected. Connect it from the Browser UI first.");
+    }
+    return browser;
   }
 
   private requireBrowser(): ProjectChatBrowser {
@@ -1042,6 +1997,16 @@ function optionalInteger(
   return value as number;
 }
 
+function requiredInteger(
+  args: Record<string, unknown>,
+  key: string,
+  minimum: number,
+  maximum: number
+): number {
+  if (args[key] === undefined) throw new Error(`${key} is required.`);
+  return optionalInteger(args, key, minimum, maximum, minimum);
+}
+
 function flattenEntries(
   entries: ProjectFileEntry[],
   output: Array<{ path: string; kind: "file" | "directory" }> = []
@@ -1128,6 +2093,236 @@ function sanitizeBrowserState(state: ManagedBrowserState) {
   };
 }
 
+function sanitizeBrowserElementAction(result: ManagedBrowserElementActionResult) {
+  return {
+    completed: result.completed,
+    page_id: result.pageId,
+    ref_id: result.refId,
+    url_before: result.urlBefore,
+    url_after: result.urlAfter,
+    navigated: result.navigated,
+    target: {
+      tag: result.target.tag,
+      role: result.target.role,
+      name: result.target.name,
+      input_type: result.target.inputType,
+      x: result.target.x,
+      y: result.target.y
+    }
+  };
+}
+
+function sanitizeBrowserDomElement(element: ManagedBrowserDomElement) {
+  return {
+    index: element.index,
+    ref_id: element.refId,
+    tag: element.tag,
+    role: element.role,
+    name: element.name,
+    text: element.text,
+    selector: element.selector,
+    locator: element.locator,
+    context: element.context,
+    input_type: element.inputType,
+    href: element.href,
+    disabled: element.disabled,
+    checked: element.checked,
+    x: element.x,
+    y: element.y,
+    center_x: element.centerX,
+    center_y: element.centerY,
+    width: element.width,
+    height: element.height
+  };
+}
+
+function sanitizeBrowserConsoleEntry(entry: ManagedBrowserConsoleEntry) {
+  return {
+    entry_id: entry.entryId,
+    page_id: entry.pageId,
+    level: entry.level,
+    message: entry.message,
+    source: entry.source,
+    line: entry.line,
+    timestamp: entry.timestamp
+  };
+}
+
+function sanitizeBrowserNetworkEntry(entry: ManagedBrowserNetworkEntry) {
+  return {
+    request_id: entry.requestId,
+    page_id: entry.pageId,
+    method: entry.method,
+    url: entry.url,
+    resource_type: entry.resourceType,
+    status: entry.status,
+    status_line: entry.statusLine,
+    mime_type: entry.mimeType,
+    request_headers: entry.requestHeaders,
+    response_headers: entry.responseHeaders,
+    from_cache: entry.fromCache,
+    failed: entry.failed,
+    error: entry.error,
+    started_at: entry.startedAt,
+    finished_at: entry.finishedAt,
+    duration_ms: entry.durationMs
+  };
+}
+
+function sanitizeBrowserToolUrl(value: string): string {
+  try {
+    const url = new URL(value);
+    url.username = "";
+    url.password = "";
+    for (const key of [...url.searchParams.keys()]) {
+      if (/token|secret|password|passwd|auth|session|code|key/i.test(key)) {
+        url.searchParams.set(key, "[redacted]");
+      }
+    }
+    return url.toString().slice(0, MAX_BROWSER_URL_LENGTH);
+  } catch {
+    return value.slice(0, MAX_BROWSER_URL_LENGTH);
+  }
+}
+
+function sanitizeBrowserPerformance(performance: ManagedBrowserPerformance) {
+  return {
+    page_id: performance.pageId,
+    url: performance.url,
+    captured_at: performance.capturedAt,
+    time_origin: performance.timeOrigin,
+    navigation_type: performance.navigationType,
+    timings: {
+      response_start_ms: performance.timings.responseStartMs,
+      response_end_ms: performance.timings.responseEndMs,
+      dom_interactive_ms: performance.timings.domInteractiveMs,
+      dom_content_loaded_ms: performance.timings.domContentLoadedMs,
+      load_event_ms: performance.timings.loadEventMs,
+      first_paint_ms: performance.timings.firstPaintMs,
+      first_contentful_paint_ms: performance.timings.firstContentfulPaintMs
+    },
+    resources: {
+      count: performance.resources.count,
+      transfer_size: performance.resources.transferSize,
+      encoded_body_size: performance.resources.encodedBodySize,
+      decoded_body_size: performance.resources.decodedBodySize,
+      slowest: performance.resources.slowest.map((resource) => ({
+        url: resource.url,
+        initiator_type: resource.initiatorType,
+        start_time_ms: resource.startTimeMs,
+        duration_ms: resource.durationMs,
+        transfer_size: resource.transferSize,
+        encoded_body_size: resource.encodedBodySize,
+        decoded_body_size: resource.decodedBodySize
+      }))
+    }
+  };
+}
+
+export function buildRedactedHar(
+  pageId: string,
+  title: string,
+  url: string,
+  entries: ManagedBrowserNetworkEntry[]
+): Record<string, unknown> {
+  const startedAt = entries[0]?.startedAt ?? new Date().toISOString();
+  return {
+    log: {
+      version: "1.2",
+      creator: { name: "RouteMarket Managed Browser", version: "1" },
+      pages: [{
+        startedDateTime: startedAt,
+        id: pageId,
+        title,
+        pageTimings: {},
+        _url: url
+      }],
+      entries: entries.map((entry) => ({
+        pageref: pageId,
+        startedDateTime: entry.startedAt,
+        time: entry.durationMs ?? 0,
+        request: {
+          method: entry.method,
+          url: entry.url,
+          httpVersion: "",
+          cookies: [],
+          headers: toHarHeaders(entry.requestHeaders),
+          queryString: toHarQuery(entry.url),
+          headersSize: -1,
+          bodySize: -1
+        },
+        response: {
+          status: entry.status ?? 0,
+          statusText: harStatusText(entry.statusLine),
+          httpVersion: "",
+          cookies: [],
+          headers: toHarHeaders(entry.responseHeaders),
+          content: {
+            size: -1,
+            mimeType: entry.mimeType ?? ""
+          },
+          redirectURL: harRedirectUrl(entry.responseHeaders.location),
+          headersSize: -1,
+          bodySize: -1
+        },
+        cache: {},
+        timings: {
+          blocked: -1,
+          dns: -1,
+          connect: -1,
+          send: 0,
+          wait: entry.durationMs ?? 0,
+          receive: 0,
+          ssl: -1
+        },
+        _requestId: entry.requestId,
+        _resourceType: entry.resourceType,
+        _fromCache: entry.fromCache,
+        _failed: entry.failed,
+        _error: entry.error
+      }))
+    }
+  };
+}
+
+function toHarHeaders(headers: Record<string, string>): Array<{ name: string; value: string }> {
+  return Object.entries(headers)
+    .filter(([name]) => !/^(?:cookie|set-cookie)$/i.test(name))
+    .map(([name, value]) => ({ name, value }));
+}
+
+function toHarQuery(value: string): Array<{ name: string; value: string }> {
+  try {
+    return [...new URL(value).searchParams.entries()].map(([name, queryValue]) => ({
+      name,
+      value: queryValue
+    }));
+  } catch {
+    return [];
+  }
+}
+
+function harStatusText(statusLine: string | null): string {
+  return statusLine?.replace(/^HTTP\/\S+\s+\d+\s*/i, "").slice(0, 256) ?? "";
+}
+
+function harRedirectUrl(value: string | undefined): string {
+  if (!value || value === "[redacted]") return "";
+  try {
+    const redirect = new URL(value);
+    redirect.username = "";
+    redirect.password = "";
+    for (const key of [...redirect.searchParams.keys()]) {
+      if (/token|secret|password|passwd|auth|session|code|key/i.test(key)) {
+        redirect.searchParams.set(key, "[redacted]");
+      }
+    }
+    return redirect.toString().slice(0, MAX_BROWSER_URL_LENGTH);
+  } catch {
+    return "";
+  }
+}
+
 function browserPageSummary(state: ManagedBrowserState): string {
   return `${state.title || state.url || "about:blank"} · ${state.activePageId}`;
 }
@@ -1175,6 +2370,7 @@ function mimeTypeForPath(path: string): string {
   const extension = path.split(".").at(-1)?.toLocaleLowerCase();
   if (extension === "md" || extension === "txt") return "text/plain";
   if (extension === "json") return "application/json";
+  if (extension === "har") return "application/json";
   if (extension === "csv") return "text/csv";
   if (extension === "html" || extension === "htm") return "text/html";
   if (extension === "svg") return "image/svg+xml";

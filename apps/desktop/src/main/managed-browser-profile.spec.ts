@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   browserPartition,
-  normalizeBrowserProfileInput
+  normalizeBrowserProfileInput,
+  workflowBrowserProfileId
 } from "./managed-browser-profile";
 
 describe("managed browser profiles", () => {
@@ -40,5 +41,12 @@ describe("managed browser profiles", () => {
       .not.toBe(browserPartition({ ...base, persistence: "persistent" }));
     expect(browserPartition({ ...base, persistence: "persistent" }, "scope_b"))
       .not.toBe(browserPartition({ ...base, persistence: "persistent" }, "scope_a"));
+  });
+
+  it("assigns each workflow a stable, isolated browser profile", () => {
+    const first = workflowBrowserProfileId("workflow_price_monitor");
+    expect(first).toBe(workflowBrowserProfileId("workflow_price_monitor"));
+    expect(first).not.toBe(workflowBrowserProfileId("workflow_other"));
+    expect(first).toMatch(/^profile_workflow_[a-f0-9]{24}$/);
   });
 });

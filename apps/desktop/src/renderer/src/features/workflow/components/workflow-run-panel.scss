@@ -1,0 +1,399 @@
+.workflow-run-panel {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 42px;
+  overflow: hidden;
+  background: var(--rm-surface);
+  border-top: 1px solid var(--rm-border);
+  box-shadow: 0 -4px 18px color-mix(in srgb, var(--rm-text) 5%, transparent);
+}
+
+.workflow-run-panel.expanded {
+  flex-basis: min(34vh, 320px);
+  min-height: 220px;
+  max-height: 360px;
+}
+
+.workflow-run-header {
+  display: flex;
+  flex: 0 0 42px;
+  align-items: center;
+  min-width: 0;
+  gap: 10px;
+  padding: 0 10px 0 12px;
+  background: var(--rm-surface);
+}
+
+.workflow-run-summary {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 8px;
+  padding: 0;
+  color: var(--rm-text-muted);
+  text-align: left;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.workflow-run-summary.succeeded {
+  color: var(--rm-success);
+}
+
+.workflow-run-summary.waiting_for_user {
+  color: var(--rm-warning);
+}
+
+.workflow-run-summary.failed,
+.workflow-run-summary.canceled {
+  color: var(--rm-danger);
+}
+
+.workflow-run-summary > span {
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
+  gap: 8px;
+}
+
+.workflow-run-summary strong {
+  color: currentcolor;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.workflow-run-summary small {
+  overflow: hidden;
+  color: var(--rm-text-weak);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workflow-run-actions {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+}
+
+.workflow-run-actions button,
+.workflow-run-expand,
+.workflow-run-artifact button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 28px;
+  padding: 0 9px;
+  color: var(--rm-text-muted);
+  background: var(--rm-surface);
+  border: 1px solid var(--rm-border-strong);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.workflow-run-actions button:first-child {
+  color: var(--rm-on-accent);
+  background: var(--rm-brand-gradient);
+  border-color: transparent;
+}
+
+.workflow-run-actions button:disabled,
+.workflow-run-artifact button:disabled {
+  cursor: default;
+  opacity: 0.42;
+}
+
+.workflow-run-expand {
+  flex: 0 0 28px;
+  width: 28px;
+  padding: 0;
+}
+
+.workflow-user-action {
+  display: grid;
+  flex: 0 0 auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  min-height: 52px;
+  padding: 7px 12px;
+  color: var(--rm-warning-strong);
+  background: color-mix(in srgb, var(--rm-warning) 11%, var(--rm-surface));
+  border-top: 1px solid color-mix(in srgb, var(--rm-warning) 28%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--rm-warning) 28%, transparent);
+}
+
+.workflow-user-action > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.workflow-user-action strong,
+.workflow-user-action small {
+  color: currentcolor;
+}
+
+.workflow-user-action strong {
+  font-size: 12px;
+}
+
+.workflow-user-action small {
+  overflow: hidden;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workflow-user-action button {
+  min-height: 30px;
+  padding: 0 11px;
+  color: var(--rm-on-accent);
+  font-size: 11px;
+  font-weight: 700;
+  background: var(--rm-brand-gradient);
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.workflow-run-tabs {
+  display: flex;
+  flex: 0 0 36px;
+  align-items: end;
+  gap: 2px;
+  padding: 0 10px;
+  background: var(--rm-surface);
+  border-top: 1px solid var(--rm-border);
+  border-bottom: 1px solid var(--rm-border);
+}
+
+.workflow-run-tabs button {
+  position: relative;
+  height: 35px;
+  padding: 0 12px;
+  color: var(--rm-text-muted);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.workflow-run-tabs button[aria-current="page"] {
+  color: var(--rm-accent);
+}
+
+.workflow-run-tabs button[aria-current="page"]::after {
+  position: absolute;
+  right: 10px;
+  bottom: -1px;
+  left: 10px;
+  height: 2px;
+  content: "";
+  background: var(--rm-accent);
+  border-radius: 2px 2px 0 0;
+}
+
+.workflow-run-content {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--rm-surface-muted);
+}
+
+.workflow-run-timeline,
+.workflow-run-results {
+  display: grid;
+  flex: 1 1 auto;
+  align-content: start;
+  min-width: 0;
+  min-height: 0;
+  gap: 6px;
+  padding: 9px 10px;
+  overflow: auto;
+}
+
+.workflow-run-input {
+  display: grid;
+  flex: 1 1 auto;
+  grid-template-rows: auto auto minmax(80px, 1fr);
+  min-width: 0;
+  min-height: 0;
+  gap: 3px;
+  padding: 10px 12px 12px;
+  color: var(--rm-text);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.workflow-run-input small {
+  margin-bottom: 4px;
+  color: var(--rm-text-muted);
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.workflow-run-input textarea {
+  min-width: 0;
+  min-height: 80px;
+  resize: none;
+  padding: 9px 10px;
+  color: var(--rm-text);
+  background: var(--rm-surface);
+  border: 1px solid var(--rm-border-strong);
+  border-radius: 7px;
+  outline: none;
+  font: 12px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+.workflow-run-input textarea:focus {
+  border-color: var(--rm-accent);
+  box-shadow: var(--rm-focus-ring);
+}
+
+.workflow-node-run {
+  display: grid;
+  grid-template-columns: 8px minmax(140px, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+  padding: 7px 9px;
+  background: var(--rm-surface);
+  border: 1px solid var(--rm-border);
+  border-radius: 7px;
+}
+
+.workflow-node-run-dot {
+  width: 8px;
+  height: 8px;
+  background: var(--rm-text-weak);
+  border-radius: 50%;
+}
+
+.workflow-node-run.running .workflow-node-run-dot {
+  background: var(--rm-accent);
+}
+
+.workflow-node-run.waiting_for_user .workflow-node-run-dot {
+  background: var(--rm-warning);
+}
+
+.workflow-node-run.succeeded .workflow-node-run-dot {
+  background: var(--rm-success);
+}
+
+.workflow-node-run.failed .workflow-node-run-dot,
+.workflow-node-run.canceled .workflow-node-run-dot {
+  background: var(--rm-danger);
+}
+
+.workflow-node-run > div {
+  display: grid;
+  min-width: 0;
+}
+
+.workflow-node-run strong,
+.workflow-node-run code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workflow-node-run strong {
+  color: var(--rm-text);
+  font-size: 12px;
+}
+
+.workflow-node-run code,
+.workflow-node-run > span {
+  color: var(--rm-text-weak);
+  font-size: 11px;
+}
+
+.workflow-node-run details {
+  grid-column: 2 / -1;
+  min-width: 0;
+}
+
+.workflow-node-run summary {
+  color: var(--rm-accent);
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.workflow-node-run pre {
+  max-height: 120px;
+  margin: 6px 0 0;
+  padding: 8px;
+  overflow: auto;
+  color: var(--rm-text-muted);
+  background: var(--rm-surface-muted);
+  border-radius: 5px;
+  font: 11px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.workflow-run-artifact {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 6px;
+  align-items: center;
+  padding: 8px 9px;
+  color: var(--rm-success);
+  background: color-mix(in srgb, var(--rm-success) 9%, var(--rm-surface));
+  border: 1px solid color-mix(in srgb, var(--rm-success) 28%, transparent);
+  border-radius: 7px;
+}
+
+.workflow-run-artifact > div {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+
+.workflow-run-artifact strong,
+.workflow-run-artifact small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workflow-run-artifact strong {
+  color: currentcolor;
+  font-size: 12px;
+}
+
+.workflow-run-artifact small {
+  color: var(--rm-text-weak);
+  font-size: 11px;
+}
+
+.workflow-run-empty {
+  display: grid;
+  min-height: 90px;
+  color: var(--rm-text-weak);
+  font-size: 12px;
+  place-items: center;
+}
+
+@media (max-width: 900px) {
+  .workflow-run-summary small {
+    display: none;
+  }
+
+  .workflow-run-actions button {
+    min-width: 28px;
+    padding: 0 6px;
+  }
+}

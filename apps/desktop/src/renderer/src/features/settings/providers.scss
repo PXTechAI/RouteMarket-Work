@@ -1,0 +1,289 @@
+.rm-provider-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: -5px 0 14px;
+  gap: 20px;
+}
+.rm-provider-toolbar strong {
+  font-size: 12px;
+}
+.rm-provider-toolbar p {
+  margin: 4px 0 0;
+  color: var(--rm-text-muted);
+  font-size: 9px;
+  line-height: 1.5;
+}
+.rm-provider-toolbar button {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  height: 32px;
+  padding: 0 11px;
+  gap: 6px;
+  color: var(--rm-on-accent);
+  background: var(--rm-accent);
+  border: 1px solid var(--rm-accent);
+  border-radius: 7px;
+  cursor: pointer;
+  font-size: 10px;
+}
+.rm-provider-page-error {
+  margin: 0 0 12px;
+}
+.rm-provider-list {
+  display: grid;
+  margin-bottom: 18px;
+  gap: 9px;
+}
+.rm-provider-empty {
+  display: grid;
+  justify-items: center;
+  padding: 42px 20px;
+  color: var(--rm-text-muted);
+  background: var(--rm-surface);
+  border: 1px dashed var(--rm-border);
+  border-radius: 11px;
+  text-align: center;
+}
+.rm-provider-empty strong {
+  margin-top: 10px;
+  color: var(--rm-text);
+  font-size: 11px;
+}
+.rm-provider-empty p {
+  max-width: 440px;
+  margin: 5px 0 0;
+  font-size: 9px;
+  line-height: 1.55;
+}
+.rm-provider-card {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  align-items: start;
+  padding: 13px;
+  gap: 11px;
+  background: var(--rm-surface);
+  border: 1px solid var(--rm-border);
+  border-radius: 11px;
+}
+.rm-provider-card-icon {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  color: var(--rm-accent);
+  background: color-mix(in srgb, var(--rm-accent) 9%, transparent);
+  border-radius: 8px;
+}
+.rm-provider-card-copy {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+.rm-provider-card-copy > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.rm-provider-card-copy strong {
+  font-size: 11px;
+}
+.rm-provider-card-copy span {
+  padding: 2px 6px;
+  color: var(--rm-text-muted);
+  background: var(--rm-bg);
+  border: 1px solid var(--rm-border);
+  border-radius: 9px;
+  font-size: 8px;
+}
+.rm-provider-card-copy code {
+  overflow: hidden;
+  color: var(--rm-text-muted);
+  font-family: inherit;
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rm-provider-card-copy p {
+  margin: 0;
+  color: var(--rm-text-muted);
+  font-size: 9px;
+}
+.rm-provider-card-copy p.error {
+  color: var(--rm-danger);
+}
+.rm-provider-card-actions {
+  display: flex;
+  gap: 4px;
+}
+.rm-provider-card-actions button {
+  display: grid;
+  place-items: center;
+  width: 29px;
+  height: 29px;
+  padding: 0;
+  color: var(--rm-text-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.rm-provider-card-actions button:hover {
+  color: var(--rm-text);
+  background: var(--rm-bg);
+  border-color: var(--rm-border);
+}
+.rm-provider-card-actions button.danger:hover {
+  color: var(--rm-danger);
+  background: var(--rm-danger-soft);
+}
+.rm-provider-card-actions button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.rm-provider-modal {
+  width: min(720px, calc(100vw - 40px));
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+}
+.rm-provider-modal .rm-settings-modal-icon {
+  color: var(--rm-accent);
+  background: color-mix(in srgb, var(--rm-accent) 10%, transparent);
+}
+
+.rm-provider-form {
+  display: grid;
+  margin-top: 16px;
+  gap: 12px;
+}
+.rm-provider-form label {
+  display: grid;
+  gap: 6px;
+  color: var(--rm-text);
+  font-size: 9px;
+  font-weight: 600;
+}
+.rm-provider-form input:not([type="checkbox"]),
+.rm-provider-form select {
+  width: 100%;
+  height: 40px;
+  padding: 0 10px;
+  color: var(--rm-text);
+  background: var(--rm-bg);
+  border: 1px solid var(--rm-border);
+  border-radius: 10px;
+  outline: 0;
+  font: inherit;
+  font-weight: 400;
+}
+.rm-provider-form input:focus,
+.rm-provider-form select:focus {
+  border-color: var(--rm-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--rm-accent) 13%, transparent);
+}
+.rm-provider-template-summary {
+  display: grid;
+  overflow: hidden;
+  background: var(--rm-bg);
+  border: 1px solid var(--rm-border);
+  border-radius: 8px;
+}
+.rm-provider-template-summary > div {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  align-items: center;
+  min-height: 34px;
+  padding: 0 10px;
+  gap: 10px;
+  border-bottom: 1px solid var(--rm-border);
+}
+.rm-provider-template-summary > div:last-child {
+  border-bottom: 0;
+}
+.rm-provider-template-summary span {
+  color: var(--rm-text-muted);
+  font-size: 8px;
+}
+.rm-provider-template-summary strong,
+.rm-provider-template-summary code {
+  overflow: hidden;
+  color: var(--rm-text);
+  font-family: inherit;
+  font-size: 9px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rm-provider-form .rm-provider-enabled {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 500;
+}
+.rm-provider-enabled input {
+  accent-color: var(--rm-accent);
+}
+.rm-provider-security-note {
+  display: flex;
+  align-items: flex-start;
+  padding: 10px 11px;
+  gap: 9px;
+  color: var(--rm-text-muted);
+  background: color-mix(in srgb, var(--rm-accent) 5%, var(--rm-bg));
+  border: 1px solid color-mix(in srgb, var(--rm-accent) 16%, var(--rm-border));
+  border-radius: 9px;
+}
+.rm-provider-security-note > svg {
+  flex: none;
+  margin-top: 1px;
+  color: var(--rm-accent);
+}
+.rm-provider-security-note > div {
+  display: grid;
+  gap: 3px;
+}
+.rm-provider-security-note strong {
+  color: var(--rm-text);
+  font-size: 12px;
+  font-weight: 400;
+}
+.rm-provider-security-note span {
+  font-size: 11px;
+  line-height: 1.45;
+}
+.rm-provider-headers {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.rm-provider-empty p,
+.rm-provider-card-copy code,
+.rm-provider-card-copy p,
+.rm-provider-template-summary strong,
+.rm-provider-template-summary code {
+  font-size: 11px;
+}
+.rm-provider-toolbar p,
+.rm-provider-toolbar button,
+.rm-provider-card-copy strong,
+.rm-provider-form label {
+  font-size: 12px;
+}
+.rm-provider-card-copy span,
+.rm-provider-template-summary span {
+  font-size: 10px;
+}
+.rm-provider-toolbar strong,
+.rm-provider-empty strong {
+  font-size: 14px;
+}
+
+@media (max-width: 720px) {
+  .rm-provider-card {
+    grid-template-columns: 34px minmax(0, 1fr);
+  }
+  .rm-provider-card-actions {
+    grid-column: 2;
+  }
+}

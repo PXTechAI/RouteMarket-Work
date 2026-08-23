@@ -1,0 +1,118 @@
+.message-markdown {
+  white-space: normal;
+}
+
+.message-markdown > :first-child {
+  margin-top: 0;
+}
+
+.message-markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.message-markdown p,
+.message-markdown ul,
+.message-markdown ol,
+.message-markdown blockquote,
+.message-markdown pre {
+  margin: 0 0 12px;
+}
+
+.message-markdown h1,
+.message-markdown h2,
+.message-markdown h3 {
+  margin: 18px 0 8px;
+  line-height: 1.35;
+}
+
+.message-markdown h1 {
+  font-size: 19px;
+}
+
+.message-markdown h2 {
+  font-size: 17px;
+}
+
+.message-markdown h3 {
+  font-size: 15px;
+}
+
+.message-markdown ul,
+.message-markdown ol {
+  padding-left: 22px;
+}
+
+.message-markdown li + li {
+  margin-top: 4px;
+}
+
+.message-markdown blockquote {
+  margin: 0 0 12px;
+  padding-left: 14px;
+  color: var(--rm-text-muted);
+  background: transparent;
+  border-left: 3px solid color-mix(in srgb, var(--rm-accent) 34%, transparent);
+}
+
+.message-markdown pre {
+  overflow-x: auto;
+  padding: 13px 15px;
+  color: var(--rm-text);
+  background: var(--rm-surface-muted);
+  border: 1px solid var(--rm-border);
+  border-radius: 10px;
+}
+
+.message-markdown code {
+  padding: 2px 5px;
+  font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.9em;
+  background: var(--rm-surface-muted);
+  border-radius: 5px;
+}
+
+.message-markdown pre code {
+  padding: 0;
+  background: transparent;
+  border-radius: 0;
+}
+
+.message-markdown a {
+  color: var(--rm-accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.message-markdown-project-link {
+  display: inline;
+  padding: 0;
+  color: var(--rm-accent);
+  font: inherit;
+  text-align: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+  background: none;
+  border: 0;
+}
+
+.message-markdown-project-link:disabled {
+  color: var(--rm-text-muted);
+  cursor: default;
+}
+
+.message-markdown table {
+  display: block;
+  max-width: 100%;
+  margin: 0 0 12px;
+  overflow-x: auto;
+  border-spacing: 0;
+  border-collapse: collapse;
+}
+
+.message-markdown th,
+.message-markdown td {
+  padding: 7px 10px;
+  text-align: left;
+  border: 1px solid var(--rm-border);
+}

@@ -1,0 +1,32 @@
+.message-list {
+  width: min(100%, 920px);
+  padding: 28px 18px 46px;
+}
+
+/* Match the Web creator surface while retaining desktop-local controls. */
+.chat-pane .message-list {
+  display: grid;
+  align-content: start;
+  width: min(100%, 920px);
+  gap: 14px;
+  padding: 28px 20px 54px;
+}
+
+.virtual-message-list {
+  position: relative;
+  width: min(100%, 920px);
+  min-height: 100%;
+  margin: 0 auto;
+}
+
+.virtual-message-row {
+  position: absolute;
+  top: 0;
+  right: 20px;
+  left: 20px;
+  overflow-anchor: none;
+}
+
+.message-list {
+  margin: 0 auto;
+}

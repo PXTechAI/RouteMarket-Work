@@ -60,12 +60,26 @@ describe("LocalChatStore", () => {
         toolName: "spreadsheet",
         title: "Create spreadsheet",
         status: "completed",
-        detail: "Created report.xlsx"
+        detail: "Created report.xlsx",
+        startedAt: 1_000,
+        endedAt: 1_450,
+        inputPreview: "{\n  \"operation\": \"create\"\n}",
+        outputPreview: "Created report.xlsx"
       }],
       agentId: "agent_builder",
+      agentRevision: 7,
       failed: true,
       agentName: "Project Builder",
-      agentAvatarUrl: "emoji:🛠️|bg:#4f46e5"
+      agentAvatarUrl: "emoji:🛠️|bg:#4f46e5",
+      responseMeta: {
+        modelCode: "gpt-5.6-terra",
+        inputTokens: 120,
+        outputTokens: 45,
+        totalTokens: 165,
+        cachedInputTokens: 20,
+        cacheCreationInputTokens: 0,
+        elapsedMs: 2_450
+      }
     });
     first.close();
 
@@ -87,6 +101,7 @@ describe("LocalChatStore", () => {
           content: "The project looks healthy.",
           reasoning: "Checked the project structure and verification results.",
           agentId: "agent_builder",
+          agentRevision: 7,
           failed: true,
           agentName: "Project Builder",
           agentAvatarUrl: "emoji:🛠️|bg:#4f46e5",
@@ -98,8 +113,19 @@ describe("LocalChatStore", () => {
           tools: [{
             toolCallId: "tool_1",
             toolName: "spreadsheet",
-            status: "completed"
-          }]
+            status: "completed",
+            startedAt: 1_000,
+            endedAt: 1_450,
+            inputPreview: "{\n  \"operation\": \"create\"\n}",
+            outputPreview: "Created report.xlsx"
+          }],
+          responseMeta: {
+            modelCode: "gpt-5.6-terra",
+            inputTokens: 120,
+            outputTokens: 45,
+            totalTokens: 165,
+            elapsedMs: 2_450
+          }
         }
       ]
     });

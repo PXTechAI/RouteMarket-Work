@@ -43,3 +43,9 @@ export function browserPartition(
     .slice(0, 32);
   return `${profile.persistence === "persistent" ? "persist:" : ""}routemarket-${digest}`;
 }
+
+export function workflowBrowserProfileId(workflowId: string): string {
+  const normalized = workflowId.trim();
+  if (!normalized) throw new Error("Workflow ID is required for its Browser instance.");
+  return `profile_workflow_${createHash("sha256").update(normalized).digest("hex").slice(0, 24)}`;
+}

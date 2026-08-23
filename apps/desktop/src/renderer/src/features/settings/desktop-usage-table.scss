@@ -1,0 +1,155 @@
+.rm-usage-table-wrap,
+.rm-usage-table {
+  overflow: visible;
+}
+.rm-usage-table > div {
+  display: grid;
+  grid-template-columns:
+    minmax(125px, 1.4fr) minmax(72px, 0.75fr) minmax(72px, 0.8fr) minmax(145px, 1.6fr) repeat(3, minmax(44px, 0.5fr))
+    minmax(44px, 0.5fr) minmax(58px, 0.65fr) minmax(72px, 0.75fr);
+  align-items: center;
+  min-width: 0;
+  min-height: 36px;
+  gap: 8px;
+  border-top: 1px solid var(--rm-border);
+}
+.rm-usage-table > div.head {
+  min-height: 34px;
+  color: var(--rm-text-muted);
+  border-top: 0;
+  font-size: 12px;
+}
+.rm-usage-table > div:not(.head) {
+  min-height: 42px;
+  font-size: 12px;
+}
+.rm-usage-table > div:not(.head) {
+  margin: 0 -8px;
+  padding: 0 8px;
+  border-radius: 7px;
+  transition: background 0.12s ease;
+}
+.rm-usage-table > div:not(.head):hover {
+  background: color-mix(in srgb, var(--rm-accent) 6%, transparent);
+}
+.rm-usage-table time {
+  color: var(--rm-text-muted);
+}
+.rm-usage-table > div > * {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rm-usage-table span.success {
+  color: var(--rm-success-strong);
+}
+.rm-usage-table span.error {
+  color: var(--rm-danger);
+}
+$usage-pagination-button-height: 30px;
+
+.rm-usage-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 42px;
+  padding-top: 10px;
+  gap: 12px;
+  border-top: 1px solid var(--rm-border);
+  color: var(--rm-text-muted);
+  font-size: 12px;
+
+  > div {
+    display: flex;
+    gap: 8px;
+  }
+
+  button {
+    display: inline-flex;
+    align-items: center;
+    min-height: $usage-pagination-button-height;
+    padding: 0 10px;
+    gap: 4px;
+    color: var(--rm-text);
+    background: transparent;
+    border: 1px solid color-mix(in srgb, var(--rm-accent) 20%, var(--rm-border));
+    border-radius: 7px;
+    cursor: pointer;
+
+    &:hover:not(:disabled) {
+      color: var(--rm-accent);
+      border-color: color-mix(in srgb, var(--rm-accent) 52%, var(--rm-border));
+    }
+
+    &:disabled {
+      opacity: 0.4;
+      cursor: default;
+    }
+  }
+}
+.rm-usage-empty {
+  display: grid;
+  place-items: center;
+  min-height: 150px;
+  gap: 8px;
+  color: var(--rm-text-muted);
+  background: transparent;
+  border: 1px dashed var(--rm-border);
+  border-radius: 9px;
+  font-size: 12px;
+}
+
+@container (max-width: 760px) {
+  .rm-usage-filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .rm-usage-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .rm-usage-charts {
+    grid-template-columns: 1fr;
+  }
+  .rm-usage-table-wrap,
+  .rm-usage-table {
+    overflow: visible;
+  }
+  .rm-usage-table > div.head {
+    display: none;
+  }
+  .rm-usage-table > div:not(.head) {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    min-width: 0;
+    padding: 10px 0;
+    gap: 10px 14px;
+  }
+  .rm-usage-table > div:not(.head) > * {
+    display: grid;
+    min-width: 0;
+    gap: 3px;
+    white-space: normal;
+  }
+  .rm-usage-table > div:not(.head) > [data-label]::before {
+    content: attr(data-label);
+    color: var(--rm-text-muted);
+    font-size: 11px;
+  }
+}
+
+@container (max-width: 460px) {
+  .rm-usage-filters {
+    grid-template-columns: 1fr;
+  }
+  .rm-token-total {
+    grid-column: 1 / -1;
+  }
+  .rm-usage-table > div:not(.head) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .rm-usage-pagination {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .rm-usage-pagination > div {
+    justify-content: space-between;
+  }
+}

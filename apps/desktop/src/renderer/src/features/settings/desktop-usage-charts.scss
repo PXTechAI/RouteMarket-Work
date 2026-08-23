@@ -1,0 +1,186 @@
+.rm-usage-chart-card,
+.rm-usage-table-wrap {
+  min-width: 0;
+  padding: 16px;
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--rm-accent) 8%, var(--rm-border));
+  border-radius: 12px;
+  box-shadow: none;
+}
+.rm-usage-chart-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 9px;
+}
+.rm-usage-chart-heading > span {
+  font-size: 14px;
+  font-weight: 500;
+}
+.rm-usage-chart-heading > small {
+  color: var(--rm-text-muted);
+  font-size: 12px;
+}
+.rm-usage-trend svg {
+  display: block;
+  width: 100%;
+  height: 210px;
+  overflow: visible;
+}
+.rm-usage-trend svg line {
+  stroke: color-mix(in srgb, var(--rm-border) 80%, transparent);
+  stroke-width: 1;
+  stroke-dasharray: 3 5;
+  vector-effect: non-scaling-stroke;
+}
+.rm-usage-trend svg path {
+  fill: none;
+  vector-effect: non-scaling-stroke;
+}
+.rm-usage-trend svg .calls-area {
+  fill: url("#rm-usage-call-area");
+  stroke: none;
+}
+.rm-usage-trend svg .calls-line {
+  stroke: var(--rm-accent);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.rm-usage-trend svg .errors-line {
+  stroke: var(--rm-danger);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.rm-usage-trend svg .hit-area {
+  fill: transparent;
+  cursor: crosshair;
+}
+.rm-usage-trend svg .hover-guide {
+  stroke: color-mix(in srgb, var(--rm-accent) 60%, transparent);
+  stroke-dasharray: 4 4;
+}
+.rm-usage-trend svg .calls-point {
+  fill: var(--rm-bg);
+  stroke: var(--rm-accent);
+  stroke-width: 2.5;
+  vector-effect: non-scaling-stroke;
+  transition:
+    r 0.12s ease,
+    fill 0.12s ease;
+}
+.rm-usage-trend svg .errors-point {
+  fill: var(--rm-surface);
+  stroke: var(--rm-danger);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+  transition: r 0.12s ease;
+}
+.rm-usage-trend svg g.active .calls-point {
+  fill: var(--rm-accent);
+}
+.rm-usage-trend svg text {
+  fill: var(--rm-text-muted);
+  font-size: 14px;
+}
+.rm-usage-trend svg .axis-value {
+  font-size: 13px;
+}
+.rm-chart-tooltip {
+  pointer-events: none;
+}
+.rm-chart-tooltip rect {
+  fill: var(--rm-tooltip-bg);
+  stroke: var(--rm-tooltip-border);
+  stroke-width: 1;
+}
+.rm-usage-trend svg .rm-chart-tooltip text {
+  fill: var(--rm-tooltip-text);
+  font-size: 14px;
+}
+.rm-usage-trend svg .rm-chart-tooltip text.detail {
+  fill: var(--rm-tooltip-text-muted);
+  font-size: 13px;
+}
+.rm-usage-legend {
+  display: flex;
+  justify-content: flex-end;
+  gap: 14px;
+  color: var(--rm-text-muted);
+  font-size: 12px;
+}
+.rm-usage-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.rm-usage-legend i {
+  width: 7px;
+  height: 7px;
+  background: var(--rm-accent);
+  border-radius: 2px;
+}
+.rm-usage-legend i.errors {
+  background: var(--rm-danger);
+}
+.rm-usage-bars {
+  display: grid;
+  gap: 10px;
+}
+.rm-usage-bars > div {
+  display: grid;
+  gap: 5px;
+}
+.rm-usage-bar-row {
+  position: relative;
+  margin: 0 -7px;
+  padding: 7px;
+  border-radius: 8px;
+  outline: none;
+  transition:
+    background 0.14s ease,
+    transform 0.14s ease;
+}
+.rm-usage-bar-row:hover,
+.rm-usage-bar-row:focus-visible {
+  z-index: 4;
+  background: color-mix(in srgb, var(--rm-accent) 7%, transparent);
+  transform: translateY(-1px);
+}
+.rm-usage-bars > div > div:first-child {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.rm-usage-bars > div > div:first-child span {
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rm-usage-bars small {
+  color: var(--rm-text-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.rm-usage-bars .track {
+  overflow: hidden;
+  height: 9px;
+  background: transparent;
+  border: 1px solid var(--rm-border);
+  border-radius: 999px;
+}
+.rm-usage-bars .track span {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--rm-accent), color-mix(in srgb, var(--rm-accent) 55%, var(--rm-purple)));
+  border-radius: inherit;
+  box-shadow: 0 0 12px color-mix(in srgb, var(--rm-accent) 24%, transparent);
+  transition: filter 0.14s ease;
+}
+.rm-usage-bar-row:hover .track span,
+.rm-usage-bar-row:focus-visible .track span {
+  filter: brightness(1.12) saturate(1.12);
+}

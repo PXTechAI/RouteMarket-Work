@@ -12,26 +12,28 @@ function filenameFromPath(relativePath: string): string {
 
 export function buildOutputSources(
   files: ProjectFileTree | null,
-  selectedFilePath: string | null,
-  recentSourcePaths: string[],
+  conversationSourcePaths: string[],
   limit = 3
 ): ProjectFileEntry[] {
   const flattened = flattenFiles(files?.entries ?? []);
   const filesByPath = new Map(flattened.map((entry) => [entry.relativePath, entry]));
-  const priorityPaths = [...new Set([
-    ...(selectedFilePath ? [selectedFilePath] : []),
-    ...recentSourcePaths
-  ])];
-  const priorityEntries = priorityPaths.map((relativePath) => filesByPath.get(relativePath) ?? {
+  return [...new Set(conversationSourcePaths)].slice(0, limit).map((relativePath) => filesByPath.get(relativePath) ?? {
     name: filenameFromPath(relativePath),
     relativePath,
     kind: "file" as const
   });
-  const prioritySet = new Set(priorityPaths);
-  const remainingEntries = flattened
-    .filter((entry) => !prioritySet.has(entry.relativePath))
-    .sort((left, right) => left.relativePath.localeCompare(right.relativePath));
-  return [...priorityEntries, ...remainingEntries].slice(0, limit);
+}
+
+export function buildConversationFileTree(
+  files: ProjectFileTree | null,
+  conversationSourcePaths: string[]
+): ProjectFileTree {
+  const entries = buildOutputSources(files, conversationSourcePaths, Number.POSITIVE_INFINITY);
+  return {
+    entries,
+    totalEntries: entries.length,
+    truncated: false
+  };
 }
 
 export function sortOutputProcesses(processes: ManagedProcessSummary[]): ManagedProcessSummary[] {

@@ -1,0 +1,163 @@
+.rm-session-search-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: grid;
+  padding: 20px;
+  place-items: center;
+  background: var(--rm-overlay);
+  backdrop-filter: blur(4px);
+}
+
+.rm-session-search-dialog {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  align-self: start;
+  width: min(560px, calc(100vw - 32px));
+  max-height: min(72vh, 640px);
+  margin-top: 10vh;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--rm-surface) 98%, var(--rm-on-accent) 2%);
+  border: 1px solid var(--rm-border);
+  border-radius: 24px;
+  box-shadow: var(--rm-shadow-card);
+}
+
+.rm-session-search-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 62px;
+  gap: 10px;
+  padding: 14px 14px 14px 18px;
+  border-bottom: 1px solid var(--rm-border);
+}
+
+.rm-session-search-input-wrap {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  min-width: 0;
+}
+
+.rm-session-search-input-wrap > svg {
+  position: absolute;
+  left: 2px;
+  color: var(--rm-text-muted);
+  pointer-events: none;
+}
+
+.rm-session-search-input-wrap input {
+  appearance: none;
+  width: 100%;
+  padding: 4px 4px 4px 26px;
+  color: var(--rm-text);
+  font: inherit;
+  font-size: 16px;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  outline: 0;
+}
+
+.rm-session-search-input-wrap input::placeholder {
+  color: var(--rm-text-muted);
+}
+
+.rm-session-search-input-wrap input::-webkit-search-cancel-button {
+  display: none;
+}
+
+.rm-session-search-close {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  color: var(--rm-text-muted);
+  background: var(--rm-surface-strong);
+  border: 0;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.rm-session-search-close:hover,
+.rm-session-search-close:focus-visible {
+  color: var(--rm-text);
+  background: color-mix(in srgb, var(--rm-surface-strong) 72%, var(--rm-border) 28%);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--rm-accent) 12%, transparent);
+  outline: 0;
+}
+
+.rm-session-search-body {
+  min-height: 100px;
+  padding: 8px;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.rm-session-search-hint {
+  padding: 32px 12px;
+  color: var(--rm-text-muted);
+  font-size: 13px;
+  text-align: center;
+}
+
+.rm-session-search-results {
+  display: flex;
+  flex-direction: column;
+}
+
+.rm-session-search-result {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 3px;
+  width: 100%;
+  padding: 10px 12px;
+  color: var(--rm-text);
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--rm-border);
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.rm-session-search-result:last-child {
+  border-bottom: 0;
+}
+
+.rm-session-search-result:hover,
+.rm-session-search-result:focus-visible {
+  background: var(--rm-surface-strong);
+  outline: 0;
+}
+
+.rm-session-search-result-title {
+  overflow: hidden;
+  font-size: 13.5px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rm-session-search-result-title mark {
+  padding: 0 1px;
+  color: inherit;
+  background: color-mix(in srgb, var(--rm-accent) 32%, transparent);
+  border-radius: 3px;
+}
+
+.rm-session-search-result-meta {
+  overflow: hidden;
+  color: var(--rm-text-muted);
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.8;
+}

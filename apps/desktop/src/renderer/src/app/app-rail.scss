@@ -1,0 +1,293 @@
+.rm-rail {
+  grid-column: 1;
+  grid-row: 2;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 2px;
+  padding: 10px 12px;
+  color: var(--rm-text);
+  background: var(--rm-rail);
+  border-right: 1px solid var(--rm-rail-border);
+  transition: padding 160ms ease;
+  z-index: 40;
+  overflow: visible;
+}
+
+.rm-rail:not(.expanded) {
+  align-items: center;
+  padding-right: 11px;
+  padding-left: 11px;
+}
+
+.rm-rail-group {
+  display: grid;
+  width: 100%;
+  gap: 2px;
+}
+
+.rm-rail-capabilities {
+  margin-top: 4px;
+}
+
+.rm-rail-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 30px 30px;
+  align-items: center;
+  width: 100%;
+  min-height: 32px;
+  gap: 2px;
+  padding: 0;
+}
+
+.rm-rail-toolbar-label {
+  min-width: 0;
+  padding-left: 4px;
+  overflow: hidden;
+  color: var(--rm-text-muted);
+  font-size: 12px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rm-rail-toolbar button {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  color: var(--rm-text-muted);
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  cursor: pointer;
+  place-items: center;
+}
+
+.rm-rail-toolbar button:hover,
+.rm-rail-toolbar button:focus-visible,
+.rm-rail-toolbar button.active {
+  color: var(--rm-text);
+  background: color-mix(in srgb, var(--rm-accent) 8%, transparent);
+}
+
+.rm-rail:not(.expanded) .rm-rail-toolbar {
+  grid-template-columns: 30px;
+  justify-content: center;
+  padding: 0;
+}
+
+.rm-rail:not(.expanded) .rm-rail-toolbar-label,
+.rm-rail:not(.expanded) .rm-rail-toolbar-search {
+  display: none;
+}
+
+.rm-rail:not(.expanded) .rm-rail-sidebar-toggle {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+}
+
+.rm-rail-creation-toggle {
+  position: relative;
+  display: none;
+  grid-template-columns: 16px minmax(0, 1fr) 30px;
+  align-items: center;
+  width: 100%;
+  min-height: 38px;
+  gap: 10px;
+  padding: 0 0 0 8px;
+  color: var(--rm-text-muted);
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 14px;
+  cursor: pointer;
+}
+
+.rm-rail.expanded .rm-rail-creation-toggle {
+  display: grid;
+}
+
+.rm-rail-creation-toggle:hover {
+  color: var(--rm-text);
+  background: color-mix(in srgb, var(--rm-accent) 4%, transparent);
+}
+
+.rm-rail-creation-toggle::before {
+  position: absolute;
+  top: 8px;
+  bottom: 8px;
+  left: 0;
+  width: 3px;
+  background: var(--rm-accent);
+  border-radius: 0 99px 99px 0;
+  content: "";
+  opacity: 0;
+}
+
+.rm-rail-creation-toggle.active::before {
+  opacity: 1;
+}
+
+.rm-rail-creation-icon {
+  display: grid;
+  width: 16px;
+  height: 16px;
+  place-items: center;
+  color: var(--rm-text-muted);
+}
+
+.rm-rail-creation-toggle.active .rm-rail-creation-icon {
+  color: var(--rm-accent);
+}
+
+.rm-rail-creation-label {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--rm-text);
+  font-size: 13px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rm-rail-creation-chevron {
+  position: relative;
+  left: 1px;
+  justify-self: center;
+  color: var(--rm-text-muted);
+  transform: rotate(90deg);
+  transition: transform 160ms ease;
+}
+
+.rm-rail-creation.section-collapsed .rm-rail-creation-chevron {
+  transform: rotate(0);
+}
+
+.rm-rail-creation-items {
+  display: grid;
+  width: 100%;
+  gap: 2px;
+}
+
+.rm-rail-creation-items[hidden] {
+  display: none;
+}
+
+.rm-rail.expanded .rm-rail-creation-items {
+  padding-top: 0;
+  padding-left: 30px;
+}
+
+.rm-rail.expanded .rm-rail-creation-items .rm-rail-button {
+  min-height: 38px;
+  padding: 0 8px;
+  border-radius: 10px;
+}
+
+.rm-rail-spacer {
+  flex: 1;
+}
+
+.rm-rail-button {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 36px;
+  min-width: 36px;
+  gap: 10px;
+  padding: 0 8px;
+  color: var(--rm-text-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.rm-rail:not(.expanded) .rm-rail-button {
+  justify-content: center;
+  justify-self: center;
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  border-radius: 12px;
+}
+
+.rm-rail-button-icon {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+}
+
+.rm-rail:not(.expanded) .rm-rail-button-icon {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+}
+
+.rm-rail-button-label,
+.rm-rail-button-badge {
+  display: none;
+}
+
+.rm-rail.expanded .rm-rail-button-label {
+  display: block;
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rm-rail.expanded .rm-rail-button-badge {
+  display: block;
+  margin-left: auto;
+  color: var(--rm-text-weak);
+  font-size: 8px;
+  white-space: nowrap;
+}
+
+.rm-rail-button:hover {
+  color: var(--rm-text);
+  background: color-mix(in srgb, var(--rm-accent) 5%, transparent);
+}
+
+.rm-rail:not(.expanded) .rm-rail-button:hover {
+  background: transparent;
+}
+
+.rm-rail:not(.expanded) .rm-rail-button:hover .rm-rail-button-icon {
+  background: color-mix(in srgb, var(--rm-accent) 5%, transparent);
+}
+
+.rm-rail-button.active {
+  color: var(--rm-text);
+  border-color: transparent;
+  background: color-mix(in srgb, var(--rm-accent) 8%, transparent);
+  box-shadow: none;
+}
+
+.rm-rail:not(.expanded) .rm-rail-button.active {
+  background: transparent;
+}
+
+.rm-rail-button.active .rm-rail-button-icon {
+  color: var(--rm-accent);
+}
+
+.rm-rail:not(.expanded) .rm-rail-button.active .rm-rail-button-icon {
+  background: color-mix(in srgb, var(--rm-accent) 8%, transparent);
+}
+
+.rm-rail-button:disabled {
+  color: var(--rm-text-weak);
+  cursor: default;
+}
+
+.rm-rail-button:disabled:hover {
+  background: transparent;
+}

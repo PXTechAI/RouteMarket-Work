@@ -1,0 +1,25 @@
+.agent-avatar {
+  display: inline-grid;
+  place-items: center;
+  overflow: hidden;
+  color: var(--rm-on-accent);
+  background: var(--rm-brand-gradient);
+  border-radius: 50%;
+  line-height: 1;
+}
+
+.agent-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.agent-avatar.emoji {
+  font-size: 58%;
+}
+
+.agent-avatar.initials {
+  font-size: 32%;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}

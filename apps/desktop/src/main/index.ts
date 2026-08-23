@@ -3,6 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import {
   copyFile,
   readFile,
+  readdir,
   realpath,
   mkdir,
   lstat,
@@ -39,12 +40,14 @@ import type {
   BrowserBounds,
   DesktopChatAttachment,
   DesktopAnalyticsEvent,
+  DesktopExtensionFilePickRequest,
   DesktopMenuCommand,
   DesktopWorkflowRunEvent,
   DesktopWorkflowDraft,
   DesktopWorkflowNodeRegistry,
   DownloadableCloudSkill,
   LocalTriggerInput,
+  LocalSkillImportKind,
   LocalSkillInstallReceipt,
   MarketplaceCatalogResponse,
   ManagedBrowserProfileInput,
@@ -126,6 +129,9 @@ import { WorkerClient } from "./worker-client";
 import { DESKTOP_APP_ID, desktopWindowIconPath } from "./desktop-brand";
 import { resolveRuntimeEndpoint } from "./runtime-endpoints";
 import { DesktopUpdateManager } from "./desktop-update-manager";
+import { DesktopExtensionHost } from "./desktop-extension-host";
+import { LocalAssetService } from "./local-asset-service";
+import { PluginMediaCapabilityService } from "./plugin-media-capability-service";
 import { AgentCatalogStore } from "./agent-catalog-store";
 import { loadAuthenticatedCatalog } from "./authenticated-catalog";
 import { DataScopeIndex } from "./data-scope-index";
@@ -140,7 +146,9 @@ import {
 } from "./route-market-data-paths";
 import {
   MAX_CHAT_ATTACHMENTS,
-  uploadSelectedChatAttachments
+  releaseChatAttachment,
+  uploadSelectedChatAttachments,
+  uploadTransferredChatAttachments
 } from "./chat-attachment-service";
 
 declare const __ROUTEMARKET_WORK_BUILD_ENVIRONMENT__:
@@ -182,12 +190,14 @@ let desktopUsageStore: DesktopUsageStore | null = null;
 let routeMarketApiClient: RouteMarketApiClient | null = null;
 let marketplaceCatalogClient: MarketplaceCatalogClient | null = null;
 let marketplacePluginInstaller: MarketplacePluginInstaller | null = null;
+let desktopExtensionHost: DesktopExtensionHost | null = null;
+let localAssetService: LocalAssetService | null = null;
+let pluginMediaCapabilityService: PluginMediaCapabilityService | null = null;
 let developmentMarketplaceFixture: DevelopmentMarketplaceFixture | null = null;
-const preparedMarketplacePluginInstalls = new Map<string, {
-  archive: Buffer;
-  release: MarketplacePluginRelease;
-  expiresAt: number;
-}>();
+const preparedMarketplacePluginInstalls = new Map<string,
+  | { kind: "marketplace"; archive: Buffer; release: MarketplacePluginRelease; expiresAt: number }
+  | { kind: "local"; sourcePath: string; integrity: string; expiresAt: number }
+>();
 const MARKETPLACE_INSTALL_PREVIEW_TTL_MS = 10 * 60_000;
 let approvalStore: ApprovalStore | null = null;
 let activityStore: ActivityStore | null = null;
@@ -204,6 +214,7 @@ const activeLocalChats = new Map<string, {
   reasoning: string;
   artifacts: import("../shared/desktop-api").ProjectChatArtifact[];
   tools: import("../shared/desktop-api").ProjectChatToolActivity[];
+  responseMeta?: import("../shared/desktop-api").ProjectChatResponseMeta;
 }>();
 const selectedChatAttachments = new Map<string, DesktopChatAttachment>();
 let managedBrowser: ManagedBrowserManager | null = null;
@@ -224,6 +235,8 @@ let routeMarketAccountsRoot: string | null = null;
 let dataScopeSwitching = false;
 let switchDataScopeRuntime: ((account: DeviceAccount) => Promise<void>) | null = null;
 let desktopUpdateManager: DesktopUpdateManager | null = null;
+let quitAttachmentCleanupStarted = false;
+let quitAttachmentCleanupComplete = false;
 const attachedBrowser = new AttachedBrowserManager();
 const nativeAppConnectors = new NativeAppConnectorManager();
 let pendingDeepLink: string | null = null;
@@ -311,6 +324,7 @@ function createWindow(): void {
       sandbox: true
     }
   });
+  mainWindow.webContents.setZoomFactor(desktopPreferenceStore?.get().zoomFactor ?? 1.1);
   mainWindow.setMenuBarVisibility(false);
   managedBrowser = new ManagedBrowserManager(mainWindow, {
     dataScopeId: activeDataScopeId ?? "guest",
@@ -932,6 +946,43 @@ async function getWorkState(): Promise<WorkState> {
   };
 }
 
+function getAuthenticatedRouteMarketApiClient(): RouteMarketApiClient {
+  if (!routeMarketApiClient) {
+    throw new Error("RouteMarket API is unavailable.");
+  }
+  const accessToken = desktopAuthManager?.getAccessToken();
+  if (!accessToken) {
+    throw new Error(trMain("ui.14b469c15fbf"));
+  }
+  routeMarketApiClient.setAccessToken(accessToken);
+  return routeMarketApiClient;
+}
+
+async function releaseTrackedChatAttachment(
+  attachment: DesktopChatAttachment
+): Promise<void> {
+  const apiClient = getAuthenticatedRouteMarketApiClient();
+  await releaseChatAttachment(apiClient, attachment);
+  selectedChatAttachments.delete(attachment.id);
+}
+
+async function releaseAllTrackedChatAttachments(): Promise<void> {
+  const attachments = [...selectedChatAttachments.values()];
+  if (!attachments.length) return;
+  const results = await Promise.allSettled(
+    attachments.map((attachment) => releaseTrackedChatAttachment(attachment))
+  );
+  for (let index = 0; index < results.length; index += 1) {
+    const result = results[index];
+    if (result?.status !== "rejected") continue;
+    const attachment = attachments[index];
+    console.warn("Could not release a pending desktop chat attachment.", {
+      attachmentId: attachment?.id,
+      error: result.reason
+    });
+  }
+}
+
 function createScopedLocalTriggerManager(workDataPath: string): LocalTriggerManager {
   return new LocalTriggerManager(
     join(workDataPath, "work.db"),
@@ -944,7 +995,12 @@ function createScopedLocalTriggerManager(workDataPath: string): LocalTriggerMana
   );
 }
 
-function handleLocalTriggerEvent({ trigger, reason, relativePath }: LocalTriggerEvent): void {
+async function handleLocalTriggerEvent({
+  trigger,
+  reason,
+  relativePath,
+  occurredAt
+}: LocalTriggerEvent): Promise<void> {
   addActivity(
     "trigger.fired",
     trMain("ui.6d748eb7307b", [trigger.name]),
@@ -955,6 +1011,35 @@ function handleLocalTriggerEvent({ trigger, reason, relativePath }: LocalTrigger
     localProjectId: trigger.localProjectId,
     reason,
     relativePath
+  });
+  if (!trigger.workflowId) return;
+  if (!localWorkflowRuntime) {
+    throw new Error("Local Workflow runtime is unavailable.");
+  }
+  const unfinished = localWorkflowRuntime
+    .list(trigger.localProjectId, trigger.workflowId)
+    .find((run) =>
+      run.status === "queued" ||
+      run.status === "running" ||
+      run.status === "waiting_for_user"
+    );
+  if (unfinished) {
+    addActivity(
+      "job.attention",
+      `Scheduled Workflow skipped: ${unfinished.workflowName}`,
+      unfinished.status === "waiting_for_user"
+        ? unfinished.error ?? unfinished.runId
+        : `Previous run is ${unfinished.status}.`
+    );
+    return;
+  }
+  localWorkflowRuntime.run(trigger.localProjectId, trigger.workflowId, {
+    $trigger: {
+      triggerId: trigger.triggerId,
+      reason,
+      relativePath,
+      occurredAt
+    }
   });
 }
 
@@ -995,7 +1080,7 @@ function handleLocalWorkflowRunEvent(event: DesktopWorkflowRunEvent): void {
     if (Notification.isSupported()) {
       const notification = new Notification({
         title: trMain("ui.de4a5669ada9"),
-        body: trMain("ui.1b8fc3a5c520")
+        body: event.run.error ?? trMain("ui.1b8fc3a5c520")
       });
       notification.on("click", () => {
         mainWindow?.show();
@@ -1018,6 +1103,7 @@ function createScopedProjectChatRuntime(apiClient: RouteMarketApiClient): void {
     workerClient,
     toolBroker,
     getBrowser: () => requireBrowser(),
+    getAttachedBrowser: () => attachedBrowser,
     mcpClient: workerClient,
     skillClient: workerClient,
     pdfClient: {
@@ -1050,13 +1136,22 @@ function handleProjectChatEvent(event: ProjectChatEvent): void {
   if (active && (event.type === "tool_started" || event.type === "tool_completed" || event.type === "tool_error")) {
     const status = event.type === "tool_started" ? "running" : event.type === "tool_completed" ? "completed" : "error";
     const detail = event.type === "tool_started" ? undefined : event.type === "tool_completed" ? event.summary : event.message;
+    const existing = active.tools.find((tool) => tool.toolCallId === event.toolCallId);
     const next = {
+      ...existing,
       toolCallId: event.toolCallId,
       toolName: event.toolName,
       title: event.title,
       status,
+      ...(event.type === "tool_started" ? {
+        startedAt: event.startedAt,
+        ...(event.inputPreview ? { inputPreview: event.inputPreview } : {})
+      } : {
+        endedAt: event.endedAt,
+        ...(event.outputPreview ? { outputPreview: event.outputPreview } : {})
+      }),
       ...(detail ? { detail } : {})
-    } as const;
+    } satisfies import("../shared/desktop-api").ProjectChatToolActivity;
     const index = active.tools.findIndex((tool) => tool.toolCallId === event.toolCallId);
     if (index >= 0) active.tools[index] = next;
     else active.tools.push(next);
@@ -1072,6 +1167,7 @@ function handleProjectChatEvent(event: ProjectChatEvent): void {
       sentAt: active.sentAt,
       ...(active.artifacts.length ? { artifacts: active.artifacts } : {}),
       ...(active.tools.length ? { tools: active.tools } : {}),
+      ...(event.type === "complete" ? { responseMeta: event.responseMeta } : {}),
       ...(event.type === "stopped" ? { stopped: true } : {}),
       ...(event.type === "error" ? { failed: true } : {}),
       ...(active.agentId ? { agentId: active.agentId } : {}),
@@ -1086,9 +1182,9 @@ function handleProjectChatEvent(event: ProjectChatEvent): void {
 
 async function refreshMarketplacePluginActivation(): Promise<void> {
   if (!marketplacePluginInstaller || !projectChatToolRunner) return;
-  projectChatToolRunner.setMarketplacePluginManifests(
-    await marketplacePluginInstaller.listEnabledManifests()
-  );
+  const packages = await marketplacePluginInstaller.listEnabledPackages();
+  projectChatToolRunner.setMarketplacePluginManifests(packages.map((item) => item.manifest));
+  await desktopExtensionHost?.refresh(packages);
 }
 
 async function handleAuthenticatedCatalogFailure(error: unknown): Promise<boolean> {
@@ -1126,13 +1222,28 @@ function registerIpc(): void {
       case "paste": contents.paste(); break;
       case "delete": contents.delete(); break;
       case "selectAll": contents.selectAll(); break;
-      case "zoomIn": contents.setZoomFactor(Math.min(3, contents.getZoomFactor() + 0.1)); break;
-      case "zoomOut": contents.setZoomFactor(Math.max(0.5, contents.getZoomFactor() - 0.1)); break;
-      case "resetZoom": contents.setZoomFactor(1); break;
+      case "zoomIn": {
+        const zoomFactor = Math.round(Math.min(3, contents.getZoomFactor() + 0.1) * 10) / 10;
+        contents.setZoomFactor(zoomFactor);
+        await desktopPreferenceStore?.update({ zoomFactor });
+        break;
+      }
+      case "zoomOut": {
+        const zoomFactor = Math.round(Math.max(0.5, contents.getZoomFactor() - 0.1) * 10) / 10;
+        contents.setZoomFactor(zoomFactor);
+        await desktopPreferenceStore?.update({ zoomFactor });
+        break;
+      }
+      case "resetZoom":
+        contents.setZoomFactor(1);
+        await desktopPreferenceStore?.update({ zoomFactor: 1 });
+        break;
       case "toggleFullScreen": window.setFullScreen(!window.isFullScreen()); break;
       case "closeWindow": window.close(); break;
       case "quit": app.quit(); break;
       case "openDocumentation": await shell.openExternal("https://routemarket.ai"); break;
+      case "openMarketplace": await shell.openExternal(new URL("/marketplace", WEB_BASE_URL).toString()); break;
+      case "openAgentBuilder": await shell.openExternal(new URL("/app/agents", WEB_BASE_URL).toString()); break;
       case "openAccountCenter": await shell.openExternal(routeMarketAccountUrl(WEB_BASE_URL, "account_center")); break;
       case "openPlanUpgrade": await shell.openExternal(routeMarketAccountUrl(WEB_BASE_URL, "plan_upgrade")); break;
       case "openCreditsTopUp": await shell.openExternal(routeMarketAccountUrl(WEB_BASE_URL, "credits_top_up")); break;
@@ -1161,9 +1272,13 @@ function registerIpc(): void {
   ipcMain.handle("work:get-preferences", (): DesktopPreferences => {
     return desktopPreferenceStore?.get() ?? {};
   });
-  ipcMain.handle("work:update-preferences", (_event, patch: DesktopPreferences) => {
+  ipcMain.handle("work:update-preferences", async (_event, patch: DesktopPreferences) => {
     if (!desktopPreferenceStore) throw new Error("Desktop preferences are not ready.");
-    return desktopPreferenceStore.update(patch);
+    const preferences = await desktopPreferenceStore.update(patch);
+    if (patch.zoomFactor !== undefined && mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.setZoomFactor(preferences.zoomFactor ?? 1);
+    }
+    return preferences;
   });
   ipcMain.handle("work:set-locale", (_event, locale: import("../shared/desktop-api").DesktopLocale) => {
     setMainLocale(locale);
@@ -1233,9 +1348,87 @@ function registerIpc(): void {
     return desktopUpdateManager?.checkNow() ?? false;
   });
 
+  ipcMain.handle("work:get-update-state", () => {
+    return desktopUpdateManager?.getState() ?? {
+      status: "idle",
+      version: null,
+      percent: null,
+      transferredBytes: 0,
+      totalBytes: 0,
+      bytesPerSecond: 0,
+      error: null
+    };
+  });
+
+  ipcMain.handle("work:download-update", async () => {
+    return desktopUpdateManager?.downloadUpdate() ?? false;
+  });
+
+  ipcMain.handle("work:install-update", () => {
+    return desktopUpdateManager?.installUpdate() ?? false;
+  });
+
   ipcMain.handle("work:marketplace-catalog", async () => {
     return listMarketplaceCatalogForDesktop();
   });
+  ipcMain.handle("work:desktop-extensions-list", async () => {
+    if (!desktopExtensionHost) return [];
+    return desktopExtensionHost.list();
+  });
+  ipcMain.handle("work:desktop-extensions-refresh", async () => {
+    if (!desktopExtensionHost) return [];
+    const packages = marketplacePluginInstaller
+      ? await marketplacePluginInstaller.listEnabledPackages()
+      : [];
+    return desktopExtensionHost.refresh(packages);
+  });
+  ipcMain.handle("work:desktop-extension-open-page", async (_event, pluginId: string, pageId: string) => {
+    if (!desktopExtensionHost) throw new Error("Desktop extension host is unavailable.");
+    if (marketplacePluginInstaller) {
+      const packages = await marketplacePluginInstaller.listEnabledPackages();
+      await desktopExtensionHost.refresh(packages);
+    }
+    return desktopExtensionHost.openPage(pluginId, pageId);
+  });
+  ipcMain.handle(
+    "work:desktop-extension-pick-file",
+    async (_event, pluginId: string, request: DesktopExtensionFilePickRequest) => {
+      if (!mainWindow || !desktopExtensionHost) {
+        throw new Error("Desktop extension file picker is unavailable.");
+      }
+      if (!request || typeof request !== "object") throw new Error("Desktop extension picker request is invalid.");
+      const purposes = {
+        "data-input": { permission: "data.read", directory: false, fallbackTitle: "选择数据文件" },
+        "media-input": { permission: "media.read", directory: false, fallbackTitle: "选择媒体文件" },
+        "media-output-directory": { permission: "media.write", directory: true, fallbackTitle: "选择输出目录" },
+        "model-directory": { permission: "models.manage", directory: true, fallbackTitle: "选择模型目录" },
+        "runtime-executable": { permission: "process", directory: false, fallbackTitle: "选择运行程序" },
+        "runtime-directory": { permission: "process", directory: true, fallbackTitle: "选择运行目录" }
+      } as const;
+      const policy = purposes[request.purpose];
+      if (!policy) throw new Error("Desktop extension picker purpose is invalid.");
+      const extension = desktopExtensionHost.assertPermission(pluginId, policy.permission);
+      const title = typeof request.title === "string" && request.title.trim()
+        ? request.title.trim().slice(0, 120)
+        : `${extension.name} · ${policy.fallbackTitle}`;
+      const extensions = Array.isArray(request.extensions)
+        ? request.extensions
+            .filter((value): value is string => typeof value === "string" && /^[A-Za-z0-9]{1,12}$/.test(value))
+            .slice(0, 24)
+        : [];
+      const selection = await dialog.showOpenDialog(mainWindow, {
+        title,
+        properties: [policy.directory ? "openDirectory" : "openFile"],
+        ...(!policy.directory && extensions.length
+          ? { filters: [{ name: "Supported files", extensions }] }
+          : {})
+      });
+      return {
+        canceled: selection.canceled || !selection.filePaths[0],
+        path: selection.canceled ? null : selection.filePaths[0] ?? null
+      };
+    }
+  );
 
   ipcMain.handle("work:marketplace-plugin-installations", async () => {
     if (!marketplacePluginInstaller) throw new Error("RouteMarket Marketplace is unavailable.");
@@ -1280,12 +1473,14 @@ function registerIpc(): void {
     }
     const installToken = randomUUID();
     preparedMarketplacePluginInstalls.set(installToken, {
+      kind: "marketplace",
       archive,
       release,
       expiresAt: now + MARKETPLACE_INSTALL_PREVIEW_TTL_MS
     });
     return {
       installToken,
+      source: "marketplace",
       pluginId: manifest.id,
       name: manifest.name,
       description: manifest.description,
@@ -1295,7 +1490,56 @@ function registerIpc(): void {
       tools: manifest.contributes.tools.map(({ name, title, risk }) => ({ name, title, risk })),
       viewers: manifest.contributes.viewers.map(({ id, title, mode }) => ({ id, title, mode })),
       workflowNodes: manifest.contributes.workflowNodes.map(({ executorKey, title }) => ({ executorKey, title })),
-      connectors: manifest.contributes.connectors.map(({ id, title, kind }) => ({ id, title, kind }))
+      connectors: manifest.contributes.connectors.map(({ id, title, kind }) => ({ id, title, kind })),
+      navigation: (manifest.contributes.navigation ?? []).map(({ id, title, pageId }) => ({ id, title, pageId })),
+      pages: (manifest.contributes.pages ?? []).map(({ id, title }) => ({ id, title })),
+      models: (manifest.resources?.models ?? []).map(({ id, title, kind, required }) => ({ id, title, kind, required }))
+    };
+  });
+
+  ipcMain.handle("work:local-plugin-prepare", async () => {
+    if (!mainWindow || !marketplacePluginInstaller) {
+      throw new Error("RouteMarket plugin installer is unavailable.");
+    }
+    const selection = await dialog.showOpenDialog(mainWindow, {
+      title: "选择本地插件目录",
+      buttonLabel: "检查插件",
+      properties: ["openDirectory"]
+    });
+    const sourcePath = selection.filePaths[0];
+    if (selection.canceled || !sourcePath) return null;
+    const inspected = await marketplacePluginInstaller.inspectLocalDirectory(sourcePath);
+    const { manifest } = inspected;
+    const now = Date.now();
+    for (const [token, prepared] of preparedMarketplacePluginInstalls) {
+      if (prepared.expiresAt <= now) preparedMarketplacePluginInstalls.delete(token);
+    }
+    if (preparedMarketplacePluginInstalls.size >= 5) {
+      throw new Error("Too many plugin installations are awaiting confirmation.");
+    }
+    const installToken = randomUUID();
+    preparedMarketplacePluginInstalls.set(installToken, {
+      kind: "local",
+      sourcePath,
+      integrity: inspected.integrity,
+      expiresAt: now + MARKETPLACE_INSTALL_PREVIEW_TTL_MS
+    });
+    return {
+      installToken,
+      source: "local",
+      pluginId: manifest.id,
+      name: manifest.name,
+      description: manifest.description,
+      publisher: manifest.publisher,
+      version: manifest.version,
+      permissions: [...manifest.permissions],
+      tools: manifest.contributes.tools.map(({ name, title, risk }) => ({ name, title, risk })),
+      viewers: manifest.contributes.viewers.map(({ id, title, mode }) => ({ id, title, mode })),
+      workflowNodes: manifest.contributes.workflowNodes.map(({ executorKey, title }) => ({ executorKey, title })),
+      connectors: manifest.contributes.connectors.map(({ id, title, kind }) => ({ id, title, kind })),
+      navigation: (manifest.contributes.navigation ?? []).map(({ id, title, pageId }) => ({ id, title, pageId })),
+      pages: (manifest.contributes.pages ?? []).map(({ id, title }) => ({ id, title })),
+      models: (manifest.resources?.models ?? []).map(({ id, title, kind, required }) => ({ id, title, kind, required }))
     };
   });
 
@@ -1308,10 +1552,9 @@ function registerIpc(): void {
     if (!prepared || prepared.expiresAt <= Date.now()) {
       throw new Error("Plugin installation confirmation expired. Review the plugin again.");
     }
-    const installation = await marketplacePluginInstaller.installArchive(
-      prepared.archive,
-      prepared.release
-    );
+    const installation = prepared.kind === "marketplace"
+      ? await marketplacePluginInstaller.installArchive(prepared.archive, prepared.release)
+      : await marketplacePluginInstaller.installLocalDirectory(prepared.sourcePath, prepared.integrity);
     await refreshMarketplacePluginActivation();
     return installation;
   });
@@ -1454,11 +1697,13 @@ function registerIpc(): void {
   });
 
   ipcMain.handle("work:sign-out", async (): Promise<WorkState> => {
+    await releaseAllTrackedChatAttachments();
     await desktopAuthManager?.signOut();
     return getWorkState();
   });
 
   ipcMain.handle("work:switch-space", async (_event, spaceId: string): Promise<WorkState> => {
+    await releaseAllTrackedChatAttachments();
     await desktopAuthManager?.switchSpace(spaceId);
     const account = desktopAuthManager?.getState().account;
     if (account) await switchDataScopeRuntime?.(account);
@@ -1512,7 +1757,8 @@ function registerIpc(): void {
   );
 
   ipcMain.handle("work:chat-attachments-choose", async (_event, maxCount: number) => {
-    if (!mainWindow || !routeMarketApiClient) return [];
+    if (!mainWindow) return [];
+    const apiClient = getAuthenticatedRouteMarketApiClient();
     const allowedCount = Number.isInteger(maxCount)
       ? Math.min(MAX_CHAT_ATTACHMENTS, Math.max(0, maxCount))
       : 0;
@@ -1527,8 +1773,20 @@ function registerIpc(): void {
       throw new Error(trMain("ui.2a2ef22d4f76", [allowedCount]));
     }
     const attachments = await uploadSelectedChatAttachments(
-      routeMarketApiClient,
+      apiClient,
       selection.filePaths
+    );
+    for (const attachment of attachments) {
+      selectedChatAttachments.set(attachment.id, attachment);
+    }
+    return attachments;
+  });
+
+  ipcMain.handle("work:chat-attachments-upload", async (_event, files: unknown) => {
+    const apiClient = getAuthenticatedRouteMarketApiClient();
+    const attachments = await uploadTransferredChatAttachments(
+      apiClient,
+      files
     );
     for (const attachment of attachments) {
       selectedChatAttachments.set(attachment.id, attachment);
@@ -1541,30 +1799,7 @@ function registerIpc(): void {
     async (_event, attachmentId: string) => {
       const attachment = selectedChatAttachments.get(attachmentId);
       if (!attachment) return;
-      selectedChatAttachments.delete(attachmentId);
-      if (!routeMarketApiClient) return;
-      const response = await routeMarketApiClient.request(
-        "/api/app/v1/assets/references/release",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            asset_id: attachment.assetId,
-            reference_type: "chat_upload",
-            reference_id: attachment.id
-          })
-        },
-        "required"
-      );
-      if (!response.ok) {
-        const payload = await response.json().catch(() => null);
-        const message =
-          payload && typeof payload === "object" &&
-          typeof (payload as Record<string, unknown>).message === "string"
-            ? (payload as Record<string, string>).message
-            : trMain("ui.3f3d984dcffb", [response.status]);
-        throw new Error(message);
-      }
+      await releaseTrackedChatAttachment(attachment);
     }
   );
 
@@ -1672,22 +1907,34 @@ function registerIpc(): void {
     return workerClient.listProjectSkillReceipts(localProjectId);
   });
 
-  ipcMain.handle("work:local-skill-install", async (_event, localProjectId: string) => {
+  ipcMain.handle("work:local-skill-install", async (
+    _event,
+    localProjectId: string,
+    importKind: LocalSkillImportKind = "archive"
+  ) => {
     if (!mainWindow || !workerClient) return null;
     const project = (await workerClient.listProjects()).find(
       (candidate) => candidate.localProjectId === localProjectId
     );
     if (!project) throw new Error("Project is unavailable.");
-    const selection = await dialog.showOpenDialog(mainWindow, {
-      title: trMain("ui.386330ddf532", [project.displayName]),
-      properties: ["openFile"],
-      filters: [{ name: "Skill package", extensions: ["zip"] }]
-    });
+    const selection = await dialog.showOpenDialog(mainWindow, importKind === "directory"
+      ? {
+          title: trMain("ui.386330ddf532", [project.displayName]),
+          properties: ["openDirectory"]
+        }
+      : {
+          title: trMain("ui.386330ddf532", [project.displayName]),
+          properties: ["openFile"],
+          filters: importKind === "markdown"
+            ? [{ name: "SKILL.md", extensions: ["md"] }]
+            : [{ name: "Skill package", extensions: ["zip"] }]
+        });
     const sourcePath = selection.filePaths[0];
     if (selection.canceled || !sourcePath) return null;
-    const receipt = await workerClient.installProjectSkillArchive(
+    const receipt = await workerClient.installProjectSkillSource(
       localProjectId,
-      sourcePath
+      sourcePath,
+      importKind
     );
     addActivity(
       "project.bound",
@@ -1863,9 +2110,20 @@ function registerIpc(): void {
     }
     return localWorkflowRuntime.cancel(runId);
   });
-  ipcMain.handle("work:workflow-run-resume", (_event, runId: string) => {
+  ipcMain.handle("work:workflow-run-resume", async (_event, runId: string) => {
     if (!localWorkflowRuntime) {
       throw new Error("Local Workflow runtime is unavailable.");
+    }
+    const run = localWorkflowRuntime.get(runId);
+    const waitingBrowserNode = run?.nodeRuns.find(
+      (nodeRun) => nodeRun.status === "waiting_for_user" && nodeRun.executorKey.startsWith("local.browser."),
+    );
+    if (run && waitingBrowserNode) {
+      const browser = requireBrowser();
+      const state = await browser.getWorkflowState(run.localProjectId, run.workflowId);
+      if (state.userTakeover) {
+        await browser.setUserTakeover(run.localProjectId, false, state.activePageId, { source: "workflow" });
+      }
     }
     return localWorkflowRuntime.resume(runId);
   });
@@ -2183,6 +2441,16 @@ function registerIpc(): void {
   );
   ipcMain.handle("work:browser-show", (_event, localProjectId: string, bounds: BrowserBounds) =>
     requireBrowser().show(localProjectId, bounds)
+  );
+  ipcMain.handle(
+    "work:workflow-browser-state",
+    (_event, localProjectId: string, workflowId: string) =>
+      requireBrowser().getWorkflowState(localProjectId, workflowId)
+  );
+  ipcMain.handle(
+    "work:workflow-browser-show",
+    (_event, localProjectId: string, workflowId: string, bounds: BrowserBounds) =>
+      requireBrowser().showWorkflow(localProjectId, workflowId, bounds)
   );
   ipcMain.handle("work:browser-hide", () => requireBrowser().hide());
   ipcMain.handle("work:browser-bounds", (_event, bounds: BrowserBounds) => {
@@ -2657,6 +2925,45 @@ function registerIpc(): void {
     );
   });
 
+  ipcMain.handle("work:list-media-models", async (_event, kind) => {
+    if (!projectChatClient) {
+      throw new Error("RouteMarket media is unavailable.");
+    }
+    if (kind !== "image" && kind !== "video" && kind !== "audio") {
+      throw new Error("Unsupported media category.");
+    }
+    if (dataScopeSwitching) return [];
+    if ((desktopAuthManager?.getState().authStatus ?? "signed_out") !== "signed_in") {
+      return modelProviderStore?.listMediaModels(kind) ?? [];
+    }
+    return projectChatClient.listMediaModels(kind);
+  });
+
+  ipcMain.handle("work:list-media-inspiration", async (_event, input) => {
+    if (!projectChatClient || dataScopeSwitching) {
+      throw new Error("RouteMarket media inspiration is unavailable.");
+    }
+    if (!input || (input.kind !== "image" && input.kind !== "video" && input.kind !== "audio")) {
+      throw new Error("Unsupported media category.");
+    }
+    return projectChatClient.listMediaInspiration(input);
+  });
+
+  ipcMain.handle("work:list-media-inspiration-tags", async (_event, kind) => {
+    if (!projectChatClient || dataScopeSwitching) return [];
+    if (kind !== "image" && kind !== "video" && kind !== "audio") {
+      throw new Error("Unsupported media category.");
+    }
+    return projectChatClient.listMediaInspirationTags(kind);
+  });
+
+  ipcMain.handle("work:generate-media", async (_event, input) => {
+    if (!projectChatClient || dataScopeSwitching) {
+      throw new Error("RouteMarket media is unavailable.");
+    }
+    return projectChatClient.generateMedia(input);
+  });
+
   ipcMain.handle("work:model-providers-list", async () => {
     if (!modelProviderStore) throw new Error("Model provider storage is unavailable.");
     return modelProviderStore.list();
@@ -2886,6 +3193,56 @@ function dataScopeIdentity(account: DeviceAccount | null | undefined) {
   };
 }
 
+async function createAccountModelProviderStore(
+  accountsRoot: string,
+  accountKey: string
+): Promise<ModelProviderStore> {
+  const accountRoot = join(accountsRoot, accountKey);
+  const store = new ModelProviderStore(join(accountRoot, "model-providers.json"));
+  const spacesRoot = join(accountRoot, "spaces");
+  const spaces = await readdir(spacesRoot, { withFileTypes: true }).catch(
+    (error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return [];
+      throw error;
+    }
+  );
+  const legacyFiles = spaces
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => join(spacesRoot, entry.name, "model-providers.json"));
+  if (legacyFiles.length) {
+    await store.migrateFrom(legacyFiles).catch((error) => {
+      console.warn("Could not migrate space-scoped model providers to the account scope.", error);
+    });
+  }
+  return store;
+}
+
+async function createAccountAgentCatalogStore(
+  accountsRoot: string,
+  accountKey: string
+): Promise<AgentCatalogStore> {
+  const accountRoot = join(accountsRoot, accountKey);
+  await mkdir(accountRoot, { recursive: true });
+  const store = new AgentCatalogStore(join(accountRoot, "agent-catalog.db"));
+  try {
+    const spacesRoot = join(accountRoot, "spaces");
+    const spaces = await readdir(spacesRoot, { withFileTypes: true }).catch(
+      (error: NodeJS.ErrnoException) => {
+        if (error.code === "ENOENT") return [];
+        throw error;
+      }
+    );
+    const legacyDatabases = spaces
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => join(spacesRoot, entry.name, "work.db"));
+    store.migrateFrom(legacyDatabases);
+    return store;
+  } catch (error) {
+    store.close();
+    throw error;
+  }
+}
+
 function findDeepLink(argv: string[]): string | undefined {
   return argv.find((value) => value.startsWith(`${PROTOCOL}://`));
 }
@@ -2942,6 +3299,24 @@ if (!hasSingleInstanceLock) {
     registerProtocolClient();
     const userDataPath = app.getPath("userData");
     const dataPaths = routeMarketDataPaths(homedir());
+    localAssetService = new LocalAssetService(join(dataPaths.root, "assets", "local-assets.db"));
+    pluginMediaCapabilityService = new PluginMediaCapabilityService({
+      listMediaModels: async (kind) => {
+        if (!projectChatClient) throw new Error("RouteMarket media catalog is unavailable.");
+        return projectChatClient.listMediaModels(kind);
+      },
+      generateMedia: async (input) => {
+        if (!projectChatClient) throw new Error("RouteMarket media generation is unavailable.");
+        return projectChatClient.generateMedia(input);
+      }
+    });
+    desktopExtensionHost = new DesktopExtensionHost(
+      join(dataPaths.root, "plugins", "dev"),
+      join(dataPaths.root, "plugins", "data"),
+      process.env.ROUTEMARKET_EXTENSION_DEV_MODE === "1",
+      localAssetService,
+      pluginMediaCapabilityService
+    );
     routeMarketAccountsRoot = dataPaths.accountsRoot;
     dataScopeIndex = new DataScopeIndex(dataPaths.dataScopeIndex);
     await migrateLegacyRouteMarketData(join(userDataPath, "worker"), dataPaths.root);
@@ -2996,24 +3371,18 @@ if (!hasSingleInstanceLock) {
     approvalStore = new ApprovalStore(join(workDataPath, "work.db"));
     activityStore = new ActivityStore(join(workDataPath, "work.db"));
     localChatStore = new LocalChatStore(join(workDataPath, "work.db"));
-    agentCatalogStore = new AgentCatalogStore(join(workDataPath, "work.db"));
-    modelProviderStore = new ModelProviderStore(join(workDataPath, "model-providers.json"));
+    agentCatalogStore = await createAccountAgentCatalogStore(
+      dataPaths.accountsRoot,
+      dataScope.accountKey
+    );
+    modelProviderStore = await createAccountModelProviderStore(
+      dataPaths.accountsRoot,
+      dataScope.accountKey
+    );
     localTriggerManager = new LocalTriggerManager(
       join(workDataPath, "work.db"),
       (localProjectId) => workerClient!.projectRoot(localProjectId),
-      ({ trigger, reason, relativePath }) => {
-        addActivity(
-          "trigger.fired",
-          trMain("ui.6d748eb7307b", [trigger.name]),
-          [reason, relativePath].filter(Boolean).join(" · ")
-        );
-        mainWindow?.webContents.send("work:local-trigger-fired", {
-          triggerId: trigger.triggerId,
-          localProjectId: trigger.localProjectId,
-          reason,
-          relativePath
-        });
-      },
+      handleLocalTriggerEvent,
       {
         register: (accelerator, callback) => globalShortcut.register(accelerator, callback),
         unregister: (accelerator) => globalShortcut.unregister(accelerator)
@@ -3067,44 +3436,7 @@ if (!hasSingleInstanceLock) {
         getBrowser: requireBrowser,
         nativeAppConnectors
       }),
-      (event) => {
-        mainWindow?.webContents.send("work:workflow-run-event", event);
-        if (event.run.status === "succeeded") {
-          addActivity(
-            "job.succeeded",
-            `Workflow completed: ${event.run.workflowName}`,
-            event.run.runId
-          );
-        } else if (event.run.status === "waiting_for_user") {
-          addActivity(
-            "job.attention",
-            trMain("ui.11f9f72e1666", [event.run.workflowName]),
-            event.run.error ?? event.run.runId
-          );
-          mainWindow?.flashFrame(true);
-          mainWindow?.once("focus", () => mainWindow?.flashFrame(false));
-          if (Notification.isSupported()) {
-            const notification = new Notification({
-              title: trMain("ui.de4a5669ada9"),
-              body: trMain("ui.1b8fc3a5c520")
-            });
-            notification.on("click", () => {
-              mainWindow?.show();
-              mainWindow?.focus();
-            });
-            notification.show();
-          }
-        } else if (
-          event.run.status === "failed" ||
-          event.run.status === "canceled"
-        ) {
-          addActivity(
-            "job.failed",
-            `Workflow ${event.run.status}: ${event.run.workflowName}`,
-            event.run.error ?? event.run.runId
-          );
-        }
-      }
+      handleLocalWorkflowRunEvent
     );
     for (const item of transientActivities.reverse()) activityStore.append(item);
     transientActivities.length = 0;
@@ -3200,8 +3532,14 @@ if (!hasSingleInstanceLock) {
         approvalStore = new ApprovalStore(join(nextScope.root, "work.db"));
         activityStore = new ActivityStore(join(nextScope.root, "work.db"));
         localChatStore = new LocalChatStore(join(nextScope.root, "work.db"));
-        agentCatalogStore = new AgentCatalogStore(join(nextScope.root, "work.db"));
-        modelProviderStore = new ModelProviderStore(join(nextScope.root, "model-providers.json"));
+        agentCatalogStore = await createAccountAgentCatalogStore(
+          dataPaths.accountsRoot,
+          nextScope.accountKey
+        );
+        modelProviderStore = await createAccountModelProviderStore(
+          dataPaths.accountsRoot,
+          nextScope.accountKey
+        );
         localTriggerManager = createScopedLocalTriggerManager(nextScope.root);
         workflowDraftStore = new WorkflowDraftStore(join(nextScope.root, "work.db"));
         workflowRunStore = new WorkflowRunStore(join(nextScope.root, "work.db"));
@@ -3282,6 +3620,7 @@ if (!hasSingleInstanceLock) {
       workerClient,
       toolBroker,
       getBrowser: () => requireBrowser(),
+      getAttachedBrowser: () => attachedBrowser,
       mcpClient: workerClient,
       skillClient: workerClient,
       pdfClient: {
@@ -3297,54 +3636,7 @@ if (!hasSingleInstanceLock) {
       agentCache: agentCatalogStore,
       modelProviderStore,
       recordUsage: (record) => desktopUsageStore?.record(record) ?? Promise.resolve(),
-      onEvent: (event) => {
-        const active = activeLocalChats.get(event.requestId);
-        if (active && event.type === "artifacts") {
-          const byPath = new Map(active.artifacts.map((artifact) => [artifact.relativePath, artifact]));
-          for (const artifact of event.artifacts) byPath.set(artifact.relativePath, artifact);
-          active.artifacts = [...byPath.values()];
-        }
-        if (active && event.type === "reasoning") {
-          active.reasoning = event.content;
-        }
-        if (active && (event.type === "tool_started" || event.type === "tool_completed" || event.type === "tool_error")) {
-          const status = event.type === "tool_started" ? "running" : event.type === "tool_completed" ? "completed" : "error";
-          const detail = event.type === "tool_started" ? undefined : event.type === "tool_completed" ? event.summary : event.message;
-          const next = {
-            toolCallId: event.toolCallId,
-            toolName: event.toolName,
-            title: event.title,
-            status,
-            ...(detail ? { detail } : {})
-          } as const;
-          const index = active.tools.findIndex((tool) => tool.toolCallId === event.toolCallId);
-          if (index >= 0) active.tools[index] = next;
-          else active.tools.push(next);
-        }
-        if (active && (event.type === "complete" || event.type === "stopped" || event.type === "error")) {
-          localChatStore?.append({
-            id: `assistant:${event.requestId}`,
-            sessionId: active.sessionId,
-            localProjectId: active.localProjectId,
-            role: "assistant",
-            content: event.type === "error" ? event.content || event.message : event.content,
-            ...(active.reasoning ? { reasoning: active.reasoning } : {}),
-            sentAt: active.sentAt,
-            ...(active.artifacts.length ? { artifacts: active.artifacts } : {}),
-            ...(active.tools.length ? { tools: active.tools } : {}),
-            ...(event.type === "stopped" ? { stopped: true } : {}),
-            ...(event.type === "error" ? { failed: true } : {}),
-            ...(active.agentId ? { agentId: active.agentId } : {}),
-            ...(active.agentRevision ? { agentRevision: active.agentRevision } : {}),
-            ...(active.agentName ? { agentName: active.agentName } : {}),
-            ...("agentAvatarUrl" in active
-              ? { agentAvatarUrl: active.agentAvatarUrl }
-              : {})
-          });
-          activeLocalChats.delete(event.requestId);
-        }
-        mainWindow?.webContents.send("work:project-chat-event", event);
-      },
+      onEvent: handleProjectChatEvent,
       toolRunner: projectChatToolRunner
     });
     localApiGateway = new LocalApiGateway({
@@ -3356,6 +3648,7 @@ if (!hasSingleInstanceLock) {
       listUsage: (limit) => desktopUsageStore?.list(limit) ?? Promise.resolve([])
     });
     await localApiGateway.initialize();
+    await desktopAuthManager.initialize();
     registerIpc();
     createWindow();
     void desktopAnalytics.track({ name: "desktop_app_opened" });
@@ -3363,12 +3656,12 @@ if (!hasSingleInstanceLock) {
       __ROUTEMARKET_WORK_BUILD_ENVIRONMENT__,
       __ROUTEMARKET_WORK_DEFAULT_UPDATE_URL__,
       () => mainWindow,
-      addActivity
+      addActivity,
+      (state) => mainWindow?.webContents.send("work:update-state", state)
     );
     desktopUpdateManager.start();
     await localTriggerManager.startAll();
 
-    await desktopAuthManager.initialize();
     void desktopAuthManager.syncAccount();
     accountSyncTimer = setInterval(() => {
       void desktopAuthManager?.syncAccount();
@@ -3393,7 +3686,30 @@ app.on("window-all-closed", () => {
   }
 });
 
-app.on("before-quit", () => {
+app.on("before-quit", (event) => {
+  if (
+    !quitAttachmentCleanupComplete &&
+    selectedChatAttachments.size > 0 &&
+    desktopAuthManager?.getAccessToken()
+  ) {
+    event.preventDefault();
+    if (!quitAttachmentCleanupStarted) {
+      quitAttachmentCleanupStarted = true;
+      let timeout: ReturnType<typeof setTimeout> | undefined;
+      const timeoutPromise = new Promise<void>((resolve) => {
+        timeout = setTimeout(resolve, 2_000);
+      });
+      void Promise.race([
+        releaseAllTrackedChatAttachments().catch(() => undefined),
+        timeoutPromise
+      ]).finally(() => {
+        if (timeout) clearTimeout(timeout);
+        quitAttachmentCleanupComplete = true;
+        app.quit();
+      });
+    }
+    return;
+  }
   desktopUpdateManager?.stop();
   desktopUpdateManager = null;
   if (accountSyncTimer) clearInterval(accountSyncTimer);
@@ -3427,4 +3743,13 @@ app.on("before-quit", () => {
   preparedMarketplacePluginInstalls.clear();
   marketplacePluginInstaller?.close();
   marketplacePluginInstaller = null;
+});
+
+app.on("will-quit", () => {
+  void desktopExtensionHost?.close();
+  desktopExtensionHost = null;
+  void localAssetService?.close();
+  localAssetService = null;
+  void pluginMediaCapabilityService?.close();
+  pluginMediaCapabilityService = null;
 });

@@ -19,7 +19,8 @@
       {
         "provider": "generic",
         "url": "${env.ROUTEMARKET_WORK_UPDATE_URL}",
-        "channel": "latest"
+        "channel": "latest",
+        "useMultipleRangeRequest": false
       }
     ],
     "files": [
@@ -84,8 +85,14 @@
     "dist:win:dir": "corepack pnpm run build:local && electron-builder --win dir --x64",
     "dist:mac": "corepack pnpm run build && electron-builder --mac dmg",
     "lint": "tsc -p tsconfig.json --noEmit",
+    "lint:styles": "node scripts/check-style-tokens.mjs && stylelint \"src/renderer/src/**/*.scss\"",
+    "lint:styles:fix": "stylelint \"src/renderer/src/**/*.scss\" --fix && node scripts/check-style-tokens.mjs",
+    "format:styles": "prettier --write \"src/renderer/src/**/*.scss\"",
+    "format:styles:check": "prettier --check \"src/renderer/src/**/*.scss\"",
     "test": "vitest run --passWithNoTests",
     "test:chat-smoke": "vitest run src/main/desktop-chat-smoke.integration.spec.ts",
+    "test:visual": "node scripts/visual-regression.mjs",
+    "test:visual:update": "node scripts/visual-regression.mjs --update",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
@@ -98,6 +105,8 @@
     "pngjs": "^7.0.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
     "ws": "^8.21.1"
   },
   "devDependencies": {
@@ -110,6 +119,10 @@
     "electron": "^37.2.3",
     "electron-builder": "26.15.3",
     "electron-vite": "^4.0.0",
+    "prettier": "3.9.6",
+    "sass": "^1.102.0",
+    "stylelint": "17.14.1",
+    "stylelint-config-standard-scss": "17.0.0",
     "typescript": "^5.8.3",
     "vite": "^7.0.5",
     "vitest": "^4.1.5"

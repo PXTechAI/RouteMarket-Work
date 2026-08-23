@@ -22,14 +22,20 @@ describe("LocalWorkflowRuntime", () => {
       }
     );
 
-    const queued = runtime.run("project_test", "workflow_test", { path: "README.md" });
+    const queued = runtime.run("project_test", "workflow_test", {
+      path: "README.md",
+      $workflowId: "untrusted_workflow",
+      $workflowRunId: "untrusted_run"
+    });
     const completed = await runtime.waitForRun(queued.runId);
 
     expect(calls.map((call) => call.key)).toEqual(["local.fs.read", "local.fs.search"]);
     expect(calls[1]!.input).toMatchObject({
       path: "README.md",
       text: "hello",
-      query: "hello"
+      query: "hello",
+      $workflowId: "workflow_test",
+      $workflowRunId: queued.runId
     });
     expect(completed).toMatchObject({
       status: "succeeded",
@@ -188,6 +194,23 @@ describe("LocalWorkflowRuntime", () => {
 
     expect(runtime.get(first.runId)?.status).toBe("canceled");
     expect(runtime.get(second.runId)?.status).toBe("canceled");
+  });
+
+  it("prevents overlapping runs from sharing one workflow browser instance", async () => {
+    const draft = createDraft();
+    const runtime = new LocalWorkflowRuntime(
+      draftReader([draft]),
+      memoryRuns(),
+      () => new Promise<void>(() => undefined)
+    );
+
+    const first = runtime.run("project_test", draft.workflowId);
+    await vi.waitFor(() => expect(runtime.get(first.runId)?.status).toBe("running"));
+
+    expect(() => runtime.run("project_test", draft.workflowId)).toThrow(
+      "Workflow already has an unfinished run"
+    );
+    runtime.cancel(first.runId);
   });
 
   it("runs a reusable local action inside the parent graph", async () => {

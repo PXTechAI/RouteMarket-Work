@@ -4,6 +4,7 @@ import { useEffect, useId, useRef, useState } from "react";
 export type RouteMarketSelectOption = {
   value: string;
   label: string;
+  group?: string;
   disabled?: boolean;
 };
 
@@ -26,6 +27,17 @@ export function RouteMarketSelect({
   const rootRef = useRef<HTMLDivElement>(null);
   const menuId = useId();
   const selected = options.find((option) => option.value === value) ?? options[0];
+  const optionGroups = [...options.reduce((groups, option) => {
+    const group = option.group?.trim() ?? "";
+    const current = groups.get(group) ?? [];
+    current.push(option);
+    groups.set(group, current);
+    return groups;
+  }, new Map<string, RouteMarketSelectOption[]>())];
+  const selectOption = (nextValue: string) => {
+    setOpen(false);
+    onChange(nextValue);
+  };
 
   useEffect(() => {
     if (!open) return;
@@ -56,28 +68,36 @@ export function RouteMarketSelect({
           }
         }}
       >
-        <span>{selected?.label ?? value}</span>
+        <span>{selected ? [selected.group, selected.label].filter(Boolean).join(" · ") : value}</span>
         <ChevronDown className="rm-styled-select-caret" size={14}/>
       </button>
       {open && (
         <div className="rm-styled-select-menu" id={menuId} role="listbox" aria-label={label}>
-          {options.map((option) => (
-            <button
-              className={`rm-styled-select-option ${option.value === value ? "active" : ""}`}
-              type="button"
-              role="option"
-              aria-selected={option.value === value}
-              disabled={option.disabled}
-              key={option.value}
-              onClick={() => {
-                onChange(option.value);
-                setOpen(false);
-              }}
-            >
-              <span>{option.label}</span>
-              {option.value === value ? <Check size={14}/> : null}
-            </button>
-          ))}
+          {optionGroups.map(([group, groupOptions]) => <div className="rm-styled-select-group" role={group ? "group" : undefined} aria-label={group || undefined} key={group || "__ungrouped__"}>
+            {group && <span className="rm-styled-select-group-label">{group}</span>}
+            {groupOptions.map((option) => (
+              <button
+                className={`rm-styled-select-option ${option.value === value ? "active" : ""}`}
+                type="button"
+                role="option"
+                aria-selected={option.value === value}
+                disabled={option.disabled}
+                key={option.value}
+                onPointerDown={(event) => {
+                  if (event.button !== 0) return;
+                  event.preventDefault();
+                  event.stopPropagation();
+                  selectOption(option.value);
+                }}
+                onClick={(event) => {
+                  if (event.detail === 0) selectOption(option.value);
+                }}
+              >
+                <span>{option.label}</span>
+                {option.value === value ? <Check size={14}/> : null}
+              </button>
+            ))}
+          </div>)}
         </div>
       )}
     </div>

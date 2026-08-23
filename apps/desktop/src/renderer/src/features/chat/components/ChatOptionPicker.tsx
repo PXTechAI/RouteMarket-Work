@@ -1,3 +1,4 @@
+import "./chat-option-picker.scss";
 import { Check, ChevronDown } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 

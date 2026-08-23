@@ -37,6 +37,7 @@ export class WorkflowRunStore {
       CREATE INDEX IF NOT EXISTS workflow_runs_workflow_idx
         ON workflow_runs(local_project_id, workflow_id, created_at DESC);
     `);
+    this.recoverInterruptedRuns();
   }
 
   save(run: DesktopWorkflowRun): DesktopWorkflowRun {
@@ -95,6 +96,37 @@ export class WorkflowRunStore {
 
   close(): void {
     this.db.close();
+  }
+
+  private recoverInterruptedRuns(): void {
+    const rows = this.db.prepare(`
+      SELECT * FROM workflow_runs
+      WHERE status IN (?, ?)
+      ORDER BY created_at ASC, rowid ASC
+    `).all("queued", "running") as RunRow[];
+    if (!rows.length) return;
+
+    const finishedAt = new Date().toISOString();
+    const runError = "Desktop app restarted before the Workflow run completed.";
+    const skippedError = "Skipped because the desktop app restarted before execution.";
+    for (const row of rows) {
+      const run = mapRow(row);
+      run.status = "failed";
+      run.error = runError;
+      run.finishedAt = finishedAt;
+      for (const nodeRun of run.nodeRuns) {
+        if (nodeRun.status === "running") {
+          nodeRun.status = "failed";
+          nodeRun.error = runError;
+          nodeRun.finishedAt = finishedAt;
+        } else if (nodeRun.status === "pending") {
+          nodeRun.status = "skipped";
+          nodeRun.error = skippedError;
+          nodeRun.finishedAt = finishedAt;
+        }
+      }
+      this.save(run);
+    }
   }
 }
 

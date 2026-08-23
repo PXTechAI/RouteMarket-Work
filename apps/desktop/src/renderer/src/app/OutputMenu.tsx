@@ -1,3 +1,4 @@
+import "./output-menu.scss";
 import {
   ChevronRight,
   FilePlus2,
@@ -15,9 +16,10 @@ import { buildOutputSources, sortOutputProcesses } from "./output-menu-data";
 import { calculateOutputMenuPlacement, type OutputMenuPlacement } from "./output-menu-position";
 
 type WorkbenchPanel = "files" | "terminal" | "browser";
+type ActiveWorkbenchPanel = WorkbenchPanel | "conversation-files";
 
 type OutputMenuProps = {
-  activePanel: WorkbenchPanel | null;
+  activePanel: ActiveWorkbenchPanel | null;
   contextKey: string;
   disabled?: boolean;
   localFilesDisabled?: boolean;
@@ -26,11 +28,12 @@ type OutputMenuProps = {
   browserState: ManagedBrowserState | null;
   selectedFilePath: string | null;
   selectedProcessId: string | null;
-  recentSourcePaths: string[];
+  conversationSourcePaths: string[];
   onOpen: () => void;
   onRefreshProcesses: () => void;
   onCreateFile: () => void;
   onOpenPanel: (panel: WorkbenchPanel) => void;
+  onViewAllSources: () => void;
   onOpenProcess: (processId: string) => void;
   onOpenFile: (relativePath: string) => void;
 };
@@ -49,11 +52,12 @@ export function OutputMenu({
   browserState,
   selectedFilePath,
   selectedProcessId,
-  recentSourcePaths,
+  conversationSourcePaths,
   onOpen,
   onRefreshProcesses,
   onCreateFile,
   onOpenPanel,
+  onViewAllSources,
   onOpenProcess,
   onOpenFile
 }: OutputMenuProps) {
@@ -64,7 +68,7 @@ export function OutputMenu({
   const menuRef = useRef<HTMLDivElement>(null);
   const refreshProcessesRef = useRef(onRefreshProcesses);
   refreshProcessesRef.current = onRefreshProcesses;
-  const sourceFiles = useMemo(() => buildOutputSources(files, selectedFilePath, recentSourcePaths), [files, recentSourcePaths, selectedFilePath]);
+  const sourceFiles = useMemo(() => buildOutputSources(files, conversationSourcePaths), [conversationSourcePaths, files]);
   const sortedProcesses = useMemo(() => sortOutputProcesses(processes), [processes]);
   const visibleProcesses = showAllProcesses ? sortedProcesses : sortedProcesses.slice(0, 5);
   const hiddenProcessCount = Math.max(0, sortedProcesses.length - 5);
@@ -241,7 +245,7 @@ export function OutputMenu({
           >
             <FileText size={15}/><span className="output-menu-row-label">{file.name}</span>
           </button>) : <div className="output-menu-empty">{tr("output.noSources")}</div>}
-          <button className={`output-menu-row output-menu-view-all ${activePanel === "files" && !selectedFilePath ? "active" : ""}`} type="button" role="menuitem" disabled={localFilesDisabled} onClick={() => openPanel("files")}>
+          <button className={`output-menu-row output-menu-view-all ${activePanel === "conversation-files" && !selectedFilePath ? "active" : ""}`} type="button" role="menuitem" disabled={localFilesDisabled} onClick={() => { setOpen(false); onViewAllSources(); }}>
             <ListTree size={15}/><span className="output-menu-row-label">{tr("output.viewAll")}</span>
           </button>
         </section>

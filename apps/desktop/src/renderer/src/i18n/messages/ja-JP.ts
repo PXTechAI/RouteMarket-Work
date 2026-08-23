@@ -93,6 +93,7 @@ export const jaJP = {
   "settings.appearance.title": "外観",
   "settings.appearance.description": "RouteMarket Work の表示方法を選択します。",
   "settings.appearance.theme": "テーマ",
+  "settings.appearance.scale": "インターフェースの拡大率",
   "settings.appearance.light": "ライト",
   "settings.appearance.dark": "ダーク",
   "settings.appearance.system": "システム",

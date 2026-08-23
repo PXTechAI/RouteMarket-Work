@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ManagedProcessSummary, ProjectFileTree } from "../../../shared/desktop-api";
-import { buildOutputSources, sortOutputProcesses } from "./output-menu-data";
+import { buildConversationFileTree, buildOutputSources, sortOutputProcesses } from "./output-menu-data";
 
 const tree: ProjectFileTree = {
   entries: [
@@ -33,13 +33,34 @@ function process(processId: string, status: ManagedProcessSummary["status"], sta
 
 describe("output menu data", () => {
   it("shows a newly generated chat artifact before the file tree refreshes", () => {
-    expect(buildOutputSources(tree, null, ["reports/new.xlsx"]).map((entry) => entry.relativePath))
-      .toEqual(["reports/new.xlsx", "README.md", "src/App.tsx"]);
+    expect(buildOutputSources(tree, ["reports/new.xlsx"]).map((entry) => entry.relativePath))
+      .toEqual(["reports/new.xlsx"]);
   });
 
-  it("keeps the selected file first and removes duplicate recent sources", () => {
-    expect(buildOutputSources(tree, "src/App.tsx", ["README.md", "src/App.tsx"]).map((entry) => entry.relativePath))
-      .toEqual(["src/App.tsx", "README.md"]);
+  it("shows only files belonging to the conversation and removes duplicates", () => {
+    expect(buildOutputSources(tree, ["README.md", "src/App.tsx", "README.md"]).map((entry) => entry.relativePath))
+      .toEqual(["README.md", "src/App.tsx"]);
+  });
+
+  it("does not fill an empty conversation with unrelated project files", () => {
+    expect(buildOutputSources(tree, [])).toEqual([]);
+  });
+
+  it("builds a complete file tree containing only current-conversation files", () => {
+    const conversationTree = buildConversationFileTree(tree, [
+      "README.md",
+      "src/App.tsx",
+      "reports/new.xlsx",
+      "notes/summary.md"
+    ]);
+
+    expect(conversationTree.entries.map((entry) => entry.relativePath)).toEqual([
+      "README.md",
+      "src/App.tsx",
+      "reports/new.xlsx",
+      "notes/summary.md"
+    ]);
+    expect(conversationTree.totalEntries).toBe(4);
   });
 
   it("puts running and newer processes first without mutating the input", () => {

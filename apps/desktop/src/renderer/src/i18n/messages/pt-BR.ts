@@ -93,6 +93,7 @@ export const ptBR = {
   "settings.appearance.title": "Aparência",
   "settings.appearance.description": "Escolha como o RouteMarket Work é exibido.",
   "settings.appearance.theme": "Tema",
+  "settings.appearance.scale": "Escala da interface",
   "settings.appearance.light": "Claro",
   "settings.appearance.dark": "Escuro",
   "settings.appearance.system": "Sistema",

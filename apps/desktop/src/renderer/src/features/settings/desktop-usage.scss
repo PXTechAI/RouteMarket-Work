@@ -1,0 +1,215 @@
+.rm-desktop-usage {
+  display: grid;
+  container-type: inline-size;
+  margin: 0;
+  padding: 0;
+  gap: 18px;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+.rm-desktop-usage > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 15px;
+}
+.rm-desktop-usage > header strong {
+  font-size: 15px;
+}
+.rm-desktop-usage > header p {
+  font-size: 13px;
+  line-height: 1.6;
+}
+.rm-desktop-usage > header button {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 10px;
+  gap: 6px;
+  color: var(--rm-accent);
+  background: var(--rm-accent-soft);
+  border: 1px solid color-mix(in srgb, var(--rm-accent) 38%, var(--rm-border));
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.rm-desktop-usage > header button:hover:not(:disabled) {
+  background: var(--rm-accent-soft-strong);
+}
+
+.rm-desktop-usage > header button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+.rm-token-overview {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(125px, 1fr));
+  min-width: 0;
+  gap: 9px;
+}
+.rm-token-overview > div {
+  min-width: 0;
+  min-height: 74px;
+  padding: 13px;
+  background: transparent;
+  border: 1px solid var(--rm-border);
+  border-radius: 9px;
+}
+.rm-token-total {
+  display: flex;
+  grid-column: span 2;
+  align-items: center;
+  gap: 11px;
+}
+.rm-token-total .icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 38px;
+  height: 38px;
+  color: var(--rm-accent);
+  background: var(--rm-accent-soft);
+  border-radius: 10px;
+}
+.rm-token-total > div {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+.rm-token-total span:not(.icon),
+.rm-token-total small,
+.rm-token-metric > span,
+.rm-cache-rate span {
+  color: var(--rm-text-muted);
+  font-size: 12px;
+}
+.rm-token-total strong {
+  overflow: hidden;
+  font-size: 25px;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rm-token-metric {
+  display: grid;
+  align-content: center;
+  gap: 7px;
+}
+.rm-token-metric > span {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.rm-token-metric strong {
+  overflow: hidden;
+  font-size: 18px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rm-cost-metric {
+  display: grid;
+  align-content: center;
+  gap: 3px;
+}
+.rm-cost-metric > span,
+.rm-cost-metric > small {
+  color: var(--rm-text-muted);
+  font-size: 12px;
+}
+.rm-cost-metric > strong {
+  overflow: hidden;
+  font-size: 18px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rm-cache-rate {
+  display: grid;
+  align-content: center;
+  gap: 10px;
+}
+.rm-cache-rate > div:first-child {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.rm-cache-rate strong {
+  color: var(--rm-success-strong);
+  font-size: 13px;
+}
+.rm-cache-rate > div:last-child {
+  overflow: hidden;
+  height: 6px;
+  background: transparent;
+  border: 1px solid var(--rm-border);
+  border-radius: 99px;
+}
+.rm-cache-rate > div:last-child span {
+  display: block;
+  height: 100%;
+  background: var(--rm-success);
+  border-radius: inherit;
+}
+.rm-usage-filters {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(118px, 1fr));
+  gap: 8px;
+}
+.rm-usage-filters > label {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+.rm-usage-filters > label > span {
+  color: var(--rm-text-muted);
+  font-size: 12px;
+}
+.rm-usage-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 9px;
+}
+.rm-usage-summary > div {
+  display: flex;
+  min-width: 0;
+  min-height: 88px;
+  padding: 13px;
+  gap: 10px;
+  background: transparent;
+  border: 1px solid var(--rm-border);
+  border-radius: 9px;
+}
+.rm-usage-summary .icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  color: var(--rm-accent);
+  background: var(--rm-accent-soft);
+  border-radius: 8px;
+}
+.rm-usage-summary > div > div {
+  display: grid;
+  align-content: start;
+  min-width: 0;
+  gap: 3px;
+}
+.rm-usage-summary > div > div > span,
+.rm-usage-summary small {
+  color: var(--rm-text-muted);
+  font-size: 12px;
+}
+.rm-usage-summary strong {
+  overflow: hidden;
+  font-size: 21px;
+  font-weight: 400;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

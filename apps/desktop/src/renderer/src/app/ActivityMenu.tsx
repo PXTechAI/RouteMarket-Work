@@ -2,6 +2,7 @@ import { getActiveLocale, tr } from "../i18n";
 import { Bell, CheckCircle2, CircleAlert, Cloud, FolderCheck, LoaderCircle, ShieldCheck, Trash2, Workflow, XCircle } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { ActivityItem } from "../../../shared/desktop-api";
+import "./activity-menu.scss";
 export function ActivityMenu({ activities, onClear }: {
     activities: ActivityItem[];
     onClear(): void;

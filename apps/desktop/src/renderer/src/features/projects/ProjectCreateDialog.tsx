@@ -1,4 +1,5 @@
 import { tr } from "../../i18n";
+import "./project-dialog.scss";
 import { FolderPlus, X } from "lucide-react";
 import { useEffect, useState } from "react";
 export function ProjectCreateDialog({ open, busy, onClose, onCreate }: {

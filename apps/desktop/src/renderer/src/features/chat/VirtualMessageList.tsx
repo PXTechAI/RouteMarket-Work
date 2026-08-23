@@ -1,3 +1,4 @@
+import "./virtual-message-list.scss";
 import {
   useCallback,
   useEffect,

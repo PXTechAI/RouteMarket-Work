@@ -1,0 +1,171 @@
+.rm-usage-charts {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(260px, 0.85fr);
+  gap: 10px;
+}
+.rm-token-activity {
+  overflow: visible;
+  min-width: 0;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+.rm-token-activity .rm-usage-chart-heading {
+  align-items: center;
+}
+.rm-token-activity .rm-usage-chart-heading > div:first-child {
+  display: grid;
+  gap: 2px;
+}
+.rm-token-activity .rm-usage-chart-heading > div:first-child > span {
+  font-size: 14px;
+  font-weight: 500;
+}
+.rm-token-activity .rm-usage-chart-heading > div:first-child > small {
+  color: var(--rm-text-muted);
+  font-size: 12px;
+}
+.rm-token-activity-switch {
+  display: inline-flex;
+  padding: 2px;
+  background: transparent;
+  border: 1px solid var(--rm-border);
+  border-radius: 7px;
+}
+.rm-token-activity-switch button {
+  min-width: 46px;
+  height: 28px;
+  padding: 0 9px;
+  color: var(--rm-text-muted);
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+  font-size: 12px;
+}
+.rm-token-activity-switch button.active {
+  color: var(--rm-accent);
+  background: var(--rm-accent-soft);
+}
+.rm-token-heatmap {
+  display: grid;
+  grid-template-columns: repeat(53, minmax(0, 1fr));
+  grid-auto-flow: column;
+  width: 100%;
+  overflow: visible;
+  column-gap: clamp(1px, 0.28cqw, 3px);
+  row-gap: clamp(1px, 0.28cqw, 3px);
+  padding: 6px 1px 3px;
+}
+.rm-token-heatmap.daily {
+  grid-template-rows: repeat(7, auto);
+}
+.rm-token-heatmap.weekly {
+  grid-template-rows: auto;
+}
+.rm-token-heatmap i {
+  position: relative;
+  display: block;
+  width: 100%;
+  min-width: 0;
+  aspect-ratio: 1;
+  cursor: crosshair;
+  background: color-mix(in srgb, var(--rm-text) 4%, transparent);
+  border: 0;
+  border-radius: clamp(2px, 0.25cqw, 4px);
+  transition:
+    transform 0.14s ease,
+    box-shadow 0.14s ease,
+    filter 0.14s ease;
+}
+.rm-token-heatmap i[data-level="1"] {
+  background: color-mix(in srgb, var(--rm-accent) 24%, transparent);
+}
+.rm-token-heatmap i[data-level="2"] {
+  background: color-mix(in srgb, var(--rm-accent) 44%, transparent);
+}
+.rm-token-heatmap i[data-level="3"] {
+  background: color-mix(in srgb, var(--rm-accent) 68%, transparent);
+}
+.rm-token-heatmap i[data-level="4"] {
+  background: var(--rm-accent);
+}
+.rm-token-months {
+  display: grid;
+  grid-template-columns: repeat(53, minmax(0, 1fr));
+  min-height: 18px;
+  padding: 5px 1px 0;
+  column-gap: clamp(1px, 0.28cqw, 3px);
+  color: var(--rm-text-muted);
+  font-size: 11px;
+  line-height: 1;
+}
+.rm-token-months span {
+  grid-row: 1;
+  overflow: visible;
+  white-space: nowrap;
+}
+.rm-token-heatmap i:hover {
+  z-index: 5;
+  filter: saturate(1.15);
+  transform: scale(1.15);
+  box-shadow:
+    0 0 0 2px var(--rm-bg),
+    0 4px 12px color-mix(in srgb, var(--rm-accent) 35%, transparent);
+}
+.rm-token-heatmap i::after,
+.rm-usage-bar-row::after {
+  position: absolute;
+  z-index: 20;
+  bottom: calc(100% + 9px);
+  left: 50%;
+  width: max-content;
+  max-width: 230px;
+  padding: 7px 10px;
+  color: var(--rm-tooltip-text);
+  background: var(--rm-tooltip-bg);
+  border: 1px solid var(--rm-tooltip-border);
+  border-radius: 8px;
+  box-shadow: var(--rm-shadow-card);
+  content: none;
+  font-size: 12px;
+  font-style: normal;
+  line-height: 1.35;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, 4px) scale(0.96);
+  transform-origin: bottom center;
+  transition:
+    opacity 0.12s ease,
+    transform 0.12s ease;
+}
+.rm-token-heatmap i:hover::after,
+.rm-usage-bar-row:hover::after,
+.rm-usage-bar-row:focus-visible::after {
+  content: attr(data-tooltip);
+  opacity: 1;
+  transform: translate(-50%, 0) scale(1);
+}
+.rm-token-heatmap.daily i:nth-child(-n + 7)::after,
+.rm-token-heatmap.weekly i:first-child::after {
+  left: 0;
+  transform: translate(0, 4px) scale(0.96);
+  transform-origin: bottom left;
+}
+.rm-token-heatmap.daily i:nth-child(-n + 7):hover::after,
+.rm-token-heatmap.weekly i:first-child:hover::after {
+  transform: translate(0, 0) scale(1);
+}
+.rm-token-heatmap.daily i:nth-child(n + 365)::after,
+.rm-token-heatmap.weekly i:last-child::after {
+  right: 0;
+  left: auto;
+  transform: translate(0, 4px) scale(0.96);
+  transform-origin: bottom right;
+}
+.rm-token-heatmap.daily i:nth-child(n + 365):hover::after,
+.rm-token-heatmap.weekly i:last-child:hover::after {
+  transform: translate(0, 0) scale(1);
+}

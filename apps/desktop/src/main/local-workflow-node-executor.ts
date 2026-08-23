@@ -1,20 +1,18 @@
 import { trMain } from "./i18n";
 import { createHash } from "node:crypto";
-import type {
-  DesktopWorkflowDraftNode,
-  NativeAppConnectorId
-} from "../shared/desktop-api";
+import type { DesktopWorkflowDraftNode, NativeAppConnectorId } from "../shared/desktop-api";
 import type { CloudWorkflowClient } from "./cloud-workflow-client";
 import type { LocalWorkflowNodeExecutor } from "./local-workflow-runtime";
 import type { ManagedBrowserManager } from "./managed-browser-manager";
 import type { NativeAppConnectorManager } from "./native-app-connector-manager";
 import type { LocalToolBroker, ToolRisk } from "./tool-broker";
 import type { WorkerClient } from "./worker-client";
+import { exportProductPriceCsv, extractProductPrice, type ProductPriceRecord } from "./workflow-product-data";
 import {
-  exportProductPriceCsv,
-  extractProductPrice,
-  type ProductPriceRecord
-} from "./workflow-product-data";
+  appendMonitorWorkbook,
+  saveMonitorScreenshot,
+  sendMonitorWorkbookWithQqMail,
+} from "./workflow-monitor-actions";
 
 type ExecutorOptions = {
   cloudWorkflowClient: Pick<CloudWorkflowClient, "executeNode">;
@@ -24,26 +22,17 @@ type ExecutorOptions = {
   nativeAppConnectors: NativeAppConnectorManager;
 };
 
-export function createLocalWorkflowNodeExecutor(
-  options: ExecutorOptions
-): LocalWorkflowNodeExecutor {
+export function createLocalWorkflowNodeExecutor(options: ExecutorOptions): LocalWorkflowNodeExecutor {
   return async (node, input, signal) => {
     throwIfAborted(signal);
     if (!node.definitionSnapshot.available) {
-      throw new Error(
-        `Workflow node is unavailable: ${node.definitionSnapshot.blockedReason ?? node.executorKey}`
-      );
+      throw new Error(`Workflow node is unavailable: ${node.definitionSnapshot.blockedReason ?? node.executorKey}`);
     }
     if (node.executionTarget === "cloud") {
       return options.cloudWorkflowClient.executeNode(node, input, signal);
     }
-    if (
-      node.executorKey.startsWith("desktop.trigger.") ||
-      node.executorKey === "control.approval"
-    ) {
-      throw new Error(
-        `${node.executorKey} cannot be executed as a normal node in a manual local run.`
-      );
+    if (node.executorKey.startsWith("desktop.trigger.") || node.executorKey === "control.approval") {
+      throw new Error(`${node.executorKey} cannot be executed as a normal node in a manual local run.`);
     }
 
     const localProjectId = requiredString(input, "$localProjectId", 128, true);
@@ -56,7 +45,7 @@ async function executeNode(
   node: DesktopWorkflowDraftNode,
   input: Record<string, unknown>,
   localProjectId: string,
-  signal: AbortSignal
+  signal: AbortSignal,
 ): Promise<unknown> {
   const key = node.executorKey;
   if (key === "local.fs.read") {
@@ -64,10 +53,7 @@ async function executeNode(
     return options.workerClient.readProjectFile(localProjectId, relativePath);
   }
   if (key === "local.fs.search") {
-    return options.workerClient.searchProject(
-      localProjectId,
-      requiredString(input, "query", 256)
-    );
+    return options.workerClient.searchProject(localProjectId, requiredString(input, "query", 256));
   }
   if (key === "local.fs.write") {
     const relativePath = pathInput(input);
@@ -81,12 +67,7 @@ async function executeNode(
       `Allow Workflow to modify ${relativePath}?`,
       relativePath,
       `${expectedSha256}:${hash(text)}`,
-      () => options.workerClient.writeProjectFile(
-        localProjectId,
-        relativePath,
-        text,
-        expectedSha256
-      )
+      () => options.workerClient.writeProjectFile(localProjectId, relativePath, text, expectedSha256),
     );
   }
   if (key === "local.fs.create") {
@@ -100,7 +81,7 @@ async function executeNode(
       `Allow Workflow to create ${relativePath}?`,
       relativePath,
       `${relativePath}:${hash(text)}`,
-      () => options.workerClient.createProjectFile(localProjectId, relativePath, text)
+      () => options.workerClient.createProjectFile(localProjectId, relativePath, text),
     );
   }
   if (key === "local.process.start") {
@@ -114,15 +95,13 @@ async function executeNode(
       `Allow Workflow to start ${executable}?`,
       [executable, ...args].join(" "),
       hash(JSON.stringify([executable, ...args])),
-      () => options.workerClient.startProcess(localProjectId, executable, args)
+      () => options.workerClient.startProcess(localProjectId, executable, args),
     );
   }
   if (key === "local.process.stop") {
     const processId = requiredString(input, "processId", 128);
     const process = (await options.workerClient.listProcesses()).find(
-      (candidate) =>
-        candidate.processId === processId &&
-        candidate.localProjectId === localProjectId
+      (candidate) => candidate.processId === processId && candidate.localProjectId === localProjectId,
     );
     if (!process) throw new Error("Managed process was not found in this project.");
     return authorize(
@@ -133,7 +112,7 @@ async function executeNode(
       `Allow Workflow to stop ${process.executable}?`,
       processId,
       processId,
-      () => options.workerClient.stopProcess(processId)
+      () => options.workerClient.stopProcess(processId),
     );
   }
   if (key.startsWith("skill.local.")) {
@@ -141,13 +120,9 @@ async function executeNode(
       options.workerClient,
       localProjectId,
       key,
-      optionalString(input, "skillId", 256)
+      optionalString(input, "skillId", 256),
     );
-    return options.workerClient.invokeProjectSkill(
-      localProjectId,
-      skillId,
-      requiredString(input, "task", 16_000)
-    );
+    return options.workerClient.invokeProjectSkill(localProjectId, skillId, requiredString(input, "task", 16_000));
   }
   if (key.startsWith("mcp__")) {
     return executeMcp(options, key, input, localProjectId);
@@ -156,19 +131,92 @@ async function executeNode(
     const browser = options.getBrowser();
     return extractProductPrice(browser, {
       localProjectId,
-      pageId:
-        optionalString(input, "pageId", 256) ??
-        optionalString(input, "activePageId", 256),
-      sourceUrl: requiredString(
-        input,
-        "sourceUrl",
-        8_192,
-        false,
-        optionalString(input, "url", 8_192)
-      ),
+      pageId: await resolveWorkflowBrowserPageId(browser, input, localProjectId),
+      sourceUrl: requiredString(input, "sourceUrl", 8_192, false, optionalString(input, "url", 8_192)),
       titleSelectors: optionalStringArray(input.titleSelectors, "titleSelectors", 16),
-      priceSelectors: optionalStringArray(input.priceSelectors, "priceSelectors", 16)
+      priceSelectors: optionalStringArray(input.priceSelectors, "priceSelectors", 16),
     });
+  }
+  if (key === "local.browser.screenshot_save") {
+    const record = productPriceRecord(input);
+    const screenshotsDirectory = requiredString(input, "screenshotsDirectory", 4_096);
+    const pageId = await resolveWorkflowBrowserPageId(options.getBrowser(), input, localProjectId);
+    return authorize(
+      options,
+      localProjectId,
+      key,
+      "R2",
+      "Allow Workflow to save a browser screenshot in this project?",
+      screenshotsDirectory,
+      hash(JSON.stringify({ screenshotsDirectory, capturedAt: record.capturedAt })),
+      () =>
+        saveMonitorScreenshot({
+          browser: options.getBrowser(),
+          workerClient: options.workerClient,
+          localProjectId,
+          pageId,
+          screenshotsDirectory,
+          record,
+        }),
+    );
+  }
+  if (key === "local.data.xlsx_append") {
+    const record = productPriceRecord(input);
+    const workbookPath = requiredString(input, "workbookPath", 4_096);
+    const screenshotPath = requiredString(input, "screenshotPath", 4_096);
+    const sheetName = optionalString(input, "sheetName", 31);
+    return authorize(
+      options,
+      localProjectId,
+      key,
+      "R2",
+      "Allow Workflow to append this price to the project workbook?",
+      workbookPath,
+      `${workbookPath}:${record.capturedAt}`,
+      () =>
+        appendMonitorWorkbook({
+          workerClient: options.workerClient,
+          localProjectId,
+          workbookPath,
+          sheetName,
+          record,
+          screenshotPath,
+        }),
+    );
+  }
+  if (key === "local.browser.qq_mail_send") {
+    const record = productPriceRecord(input);
+    const workbookPath = requiredString(input, "workbookPath", 4_096);
+    const recipient = requiredString(input, "recipient", 320);
+    const pageId = await resolveWorkflowBrowserPageId(options.getBrowser(), input, localProjectId);
+    const subject = optionalString(input, "subject", 998) ?? `Amazon price update: ${record.priceText}`;
+    const body =
+      optionalString(input, "body", 20_000) ??
+      [
+        `Product: ${record.productTitle}`,
+        `Price: ${record.priceText}`,
+        `Captured at: ${record.capturedAt}`,
+        `Source: ${record.sourceUrl}`,
+      ].join("\n");
+    return authorize(
+      options,
+      localProjectId,
+      key,
+      "R3",
+      "Allow Workflow to send the price workbook through QQ Mail?",
+      `${recipient} / ${workbookPath}`,
+      `qq-mail:${recipient.toLowerCase()}:${workbookPath}`,
+      () =>
+        sendMonitorWorkbookWithQqMail({
+          browser: options.getBrowser(),
+          localProjectId,
+          pageId,
+          recipient,
+          subject,
+          body,
+          workbookPath,
+        }),
+    );
   }
   if (key.startsWith("local.browser.")) {
     return executeBrowser(options, key, input, localProjectId, signal);
@@ -185,7 +233,7 @@ async function executeNode(
       trMain("ui.ec6d2050fe47"),
       `${outputDirectory} / ${fileName ?? trMain("ui.5a55273c56e8")}`,
       hash(JSON.stringify({ outputDirectory, fileName, record })),
-      () => exportProductPriceCsv({ outputDirectory, fileName, record })
+      () => exportProductPriceCsv({ outputDirectory, fileName, record }),
     );
   }
   if (key.startsWith("local.app.") && key.endsWith(".open")) {
@@ -200,11 +248,12 @@ async function executeNode(
       `Allow Workflow to open project content in ${connectorId}?`,
       relativePath ?? ".",
       `${connectorId}:${relativePath ?? "."}`,
-      async () => options.nativeAppConnectors.open(
-        connectorId,
-        await options.workerClient.projectRoot(localProjectId),
-        relativePath
-      )
+      async () =>
+        options.nativeAppConnectors.open(
+          connectorId,
+          await options.workerClient.projectRoot(localProjectId),
+          relativePath,
+        ),
     );
   }
   throw new Error(`Unsupported local Workflow executor: ${key}`);
@@ -214,7 +263,7 @@ async function resolveProjectSkillId(
   workerClient: WorkerClient,
   localProjectId: string,
   executorKey: string,
-  requestedSkillId?: string
+  requestedSkillId?: string,
 ): Promise<string> {
   const suffix = executorKey.slice("skill.local.".length);
   const context = await workerClient.projectContext(localProjectId);
@@ -228,9 +277,7 @@ async function resolveProjectSkillId(
   }
   if (matches.length === 1) return matches[0]!.id;
   if (matches.length > 1) {
-    throw new Error(
-      "Workflow Skill ID is ambiguous. Save the original skillId in the node configuration."
-    );
+    throw new Error("Workflow Skill ID is ambiguous. Save the original skillId in the node configuration.");
   }
   throw new Error("Project Skill is no longer available.");
 }
@@ -239,19 +286,13 @@ async function executeMcp(
   options: ExecutorOptions,
   executorKey: string,
   input: Record<string, unknown>,
-  localProjectId: string
+  localProjectId: string,
 ): Promise<unknown> {
   const servers = await options.workerClient.listMcpServers();
-  const match = servers.flatMap((server) =>
-    server.tools.map((tool) => ({ server, tool }))
-  ).find(({ server, tool }) =>
-    `mcp__${sanitizeKey(server.serverId)}__${sanitizeKey(tool.name)}` === executorKey
-  );
-  if (
-    !match ||
-    (match.server.localProjectId &&
-      match.server.localProjectId !== localProjectId)
-  ) {
+  const match = servers
+    .flatMap((server) => server.tools.map((tool) => ({ server, tool })))
+    .find(({ server, tool }) => `mcp__${sanitizeKey(server.serverId)}__${sanitizeKey(tool.name)}` === executorKey);
+  if (!match || (match.server.localProjectId && match.server.localProjectId !== localProjectId)) {
     throw new Error("MCP Tool is not authorized for this project.");
   }
   if (match.server.status !== "online") {
@@ -266,11 +307,7 @@ async function executeMcp(
     `Allow Workflow to call MCP Tool ${match.tool.name}?`,
     `${match.server.name} / ${match.tool.name}`,
     `${match.server.serverId}:${match.tool.name}:${hash(JSON.stringify(args))}`,
-    () => options.workerClient.callMcpTool(
-      match.server.serverId,
-      match.tool.name,
-      args
-    )
+    () => options.workerClient.callMcpTool(match.server.serverId, match.tool.name, args),
   );
 }
 
@@ -279,21 +316,17 @@ async function executeBrowser(
   executorKey: string,
   input: Record<string, unknown>,
   localProjectId: string,
-  signal: AbortSignal
+  signal: AbortSignal,
 ): Promise<unknown> {
   const browser = options.getBrowser();
-  const pageId = optionalString(input, "pageId", 256);
+  const pageId = await resolveWorkflowBrowserPageId(browser, input, localProjectId);
   const operation = executorKey.slice("local.browser.".length);
-  const risk: ToolRisk = operation === "upload"
-    ? "R3"
-    : operation === "click" || operation === "type"
-      ? "R2"
-      : "R1";
+  const risk: ToolRisk = operation === "upload" ? "R3" : operation === "click" || operation === "type" ? "R2" : "R1";
   const detail =
     operation === "navigate"
       ? requiredString(input, "url", 8_192)
       : operation === "screenshot"
-        ? pageId ?? "active page"
+        ? (pageId ?? "active page")
         : requiredString(input, "selector", 2_048);
   return authorize(
     options,
@@ -306,7 +339,14 @@ async function executeBrowser(
     async () => {
       throwIfAborted(signal);
       if (operation === "navigate") {
-        return browser.navigate(localProjectId, detail, pageId, { source: "workflow" });
+        const state = await browser.navigate(localProjectId, detail, pageId, { source: "workflow" });
+        if (state.userTakeover === false) return state;
+        return browser.setUserTakeover(
+          localProjectId,
+          false,
+          state.activePageId,
+          { source: "workflow" }
+        );
       }
       if (operation === "click") {
         await browser.click(localProjectId, detail, pageId, { source: "workflow" });
@@ -322,36 +362,34 @@ async function executeBrowser(
         if (!relativePaths.length || relativePaths.length > 20) {
           throw new Error("relativePaths must contain between 1 and 20 project files.");
         }
-        return browser.upload(
-          localProjectId,
-          detail,
-          relativePaths,
-          pageId,
-          { source: "workflow" }
-        );
+        return browser.upload(localProjectId, detail, relativePaths, pageId, { source: "workflow" });
       }
       if (operation === "extract") {
         return {
-          text: await browser.extract(
-            localProjectId,
-            detail,
-            pageId,
-            { source: "workflow" }
-          )
+          text: await browser.extract(localProjectId, detail, pageId, { source: "workflow" }),
         };
       }
       if (operation === "screenshot") {
         return {
-          dataUrl: await browser.screenshot(
-            localProjectId,
-            pageId,
-            { source: "workflow" }
-          )
+          dataUrl: await browser.screenshot(localProjectId, pageId, { source: "workflow" }),
         };
       }
       throw new Error(`Unsupported Managed Browser operation: ${operation}`);
-    }
+    },
   );
+}
+
+async function resolveWorkflowBrowserPageId(
+  browser: ManagedBrowserManager,
+  input: Record<string, unknown>,
+  localProjectId: string,
+): Promise<string | undefined> {
+  const explicitPageId =
+    optionalString(input, "pageId", 256) ?? optionalString(input, "activePageId", 256);
+  if (explicitPageId) return explicitPageId;
+  const workflowId = optionalString(input, "$workflowId", 256);
+  if (!workflowId) return undefined;
+  return (await browser.getWorkflowState(localProjectId, workflowId)).activePageId;
 }
 
 function authorize<TResult>(
@@ -362,7 +400,7 @@ function authorize<TResult>(
   title: string,
   detail: string,
   approvalKey: string,
-  operation: () => Promise<TResult>
+  operation: () => Promise<TResult>,
 ): Promise<TResult> {
   return options.toolBroker.run(
     {
@@ -372,20 +410,14 @@ function authorize<TResult>(
       detail,
       auditDetail: capability,
       approvalKey,
-      projectId: localProjectId
+      projectId: localProjectId,
     },
-    operation
+    operation,
   );
 }
 
 function pathInput(input: Record<string, unknown>): string {
-  return requiredString(
-    input,
-    "relativePath",
-    4_096,
-    false,
-    optionalString(input, "path", 4_096)
-  );
+  return requiredString(input, "relativePath", 4_096, false, optionalString(input, "path", 4_096));
 }
 
 function requiredString(
@@ -393,24 +425,16 @@ function requiredString(
   key: string,
   maxLength: number,
   allowEmpty = false,
-  fallback?: string
+  fallback?: string,
 ): string {
   const value = input[key] ?? fallback;
-  if (
-    typeof value !== "string" ||
-    (!allowEmpty && !value.trim()) ||
-    value.length > maxLength
-  ) {
+  if (typeof value !== "string" || (!allowEmpty && !value.trim()) || value.length > maxLength) {
     throw new Error(`${key} must be a string of at most ${maxLength} characters.`);
   }
   return value;
 }
 
-function optionalString(
-  input: Record<string, unknown>,
-  key: string,
-  maxLength: number
-): string | undefined {
+function optionalString(input: Record<string, unknown>, key: string, maxLength: number): string | undefined {
   const value = input[key];
   if (value === undefined || value === null || value === "") return undefined;
   if (typeof value !== "string" || value.length > maxLength) {
@@ -430,55 +454,34 @@ function stringArray(value: unknown, key: string): string[] {
   return value;
 }
 
-function optionalStringArray(
-  value: unknown,
-  key: string,
-  maxItems: number
-): string[] | undefined {
+function optionalStringArray(value: unknown, key: string, maxItems: number): string[] | undefined {
   if (value === undefined || value === null) return undefined;
   if (
     !Array.isArray(value) ||
     !value.length ||
     value.length > maxItems ||
-    value.some(
-      (item) =>
-        typeof item !== "string" ||
-        !item.trim() ||
-        item.length > 2_048
-    )
+    value.some((item) => typeof item !== "string" || !item.trim() || item.length > 2_048)
   ) {
     throw new Error(`${key} must be an array of 1 to ${maxItems} strings.`);
   }
   return value;
 }
 
-function productPriceRecord(
-  input: Record<string, unknown>
-): ProductPriceRecord {
+function productPriceRecord(input: Record<string, unknown>): ProductPriceRecord {
   const priceValue = input.priceValue;
   const currency = input.currency;
   return {
     productTitle: requiredString(input, "productTitle", 10_000),
     priceText: requiredString(input, "priceText", 1_000),
-    priceValue:
-      typeof priceValue === "number" && Number.isFinite(priceValue)
-        ? priceValue
-        : null,
-    currency:
-      typeof currency === "string" && currency.length <= 16
-        ? currency
-        : null,
+    priceValue: typeof priceValue === "number" && Number.isFinite(priceValue) ? priceValue : null,
+    currency: typeof currency === "string" && currency.length <= 16 ? currency : null,
     sourceUrl: requiredString(input, "sourceUrl", 8_192),
-    capturedAt: requiredString(input, "capturedAt", 64)
+    capturedAt: requiredString(input, "capturedAt", 64),
   };
 }
 
-function withoutRuntimeFields(
-  input: Record<string, unknown>
-): Record<string, unknown> {
-  return Object.fromEntries(
-    Object.entries(input).filter(([key]) => !key.startsWith("$"))
-  );
+function withoutRuntimeFields(input: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(input).filter(([key]) => !key.startsWith("$")));
 }
 
 function sanitizeKey(value: string): string {
@@ -497,6 +500,6 @@ function throwIfAborted(signal: AbortSignal): void {
   if (!signal.aborted) return;
   throw Object.assign(new Error("Workflow run was canceled."), {
     name: "AbortError",
-    code: "WORKFLOW_CANCELED"
+    code: "WORKFLOW_CANCELED",
   });
 }

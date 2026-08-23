@@ -83,6 +83,7 @@ type WorkerRequest =
         sourcePath: string;
         sourceLabel?: string;
         sourceKind?: "local_archive" | "web_library";
+        importKind?: "archive" | "directory" | "markdown";
       };
     }
   | {
@@ -410,12 +411,18 @@ parentPort.on("message", async ({ data: request }) => {
     } else if (request.type === "local.skill.receipts") {
       result = await localSkillInstaller.list(request.payload.localProjectId);
     } else if (request.type === "local.skill.install") {
-      result = await localSkillInstaller.installArchive(
-        request.payload.localProjectId,
-        request.payload.sourcePath,
-        request.payload.sourceLabel,
-        request.payload.sourceKind
-      );
+      result = request.payload.importKind
+        ? await localSkillInstaller.installSource(
+            request.payload.localProjectId,
+            request.payload.sourcePath,
+            request.payload.importKind
+          )
+        : await localSkillInstaller.installArchive(
+            request.payload.localProjectId,
+            request.payload.sourcePath,
+            request.payload.sourceLabel,
+            request.payload.sourceKind
+          );
     } else if (request.type === "local.skill.remove") {
       result = await localSkillInstaller.remove(
         request.payload.localProjectId,

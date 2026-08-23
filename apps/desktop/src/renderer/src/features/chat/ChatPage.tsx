@@ -1,19 +1,22 @@
 import { tr } from "../../i18n";
-import { Bot, ChevronDown, CircleAlert, FolderPlus, Globe2, Paperclip, Pencil, RefreshCw, Send, Square, WandSparkles, X } from "lucide-react";
-import { useEffect, useRef } from "react";
+import "./chat.scss";
+import { Bot, ChevronDown, CircleAlert, Cloud, Folder, FolderPlus, LoaderCircle, Paperclip, Pencil, RefreshCw, Send, Square, WandSparkles, X } from "lucide-react";
+import { useEffect, useRef, useState, type DragEvent } from "react";
 import type { DesktopAgentSkillAvailability } from "../../../../shared/agent-skill-availability";
 import type { ChatModel, DesktopChatAttachment, DesktopAgentProfile, ProjectContext, ProjectSummary, ReadResult, WebSearchMode, WorkState } from "../../../../shared/desktop-api";
 import { ChatMessageRow } from "./components/ChatMessageRow";
-import { AgentSkillStatusList } from "../agent/AgentSkillStatusList";
-import { ProjectSkillsPanel, type ProjectSkillManagerActions } from "../project-skills/ProjectSkillsPanel";
+import type { ProjectSkillManagerActions } from "../project-skills/ProjectSkillsPanel";
 import { AgentAvatar } from "./components/AgentAvatar";
 import { ChatAgentPicker } from "./components/ChatAgentPicker";
 import { ModelPicker } from "./components/ModelPicker";
 import { ChatOptionPicker } from "./components/ChatOptionPicker";
-import { VirtualMessageList } from "./VirtualMessageList";
+import { ChatSkillsControl } from "./components/ChatSkillsControl";
+import { ChatToolsMenu } from "./components/ChatToolsMenu";
+import { ChatComposerAttachments } from "./components/ChatComposerAttachments";
 import { supportsNativeWebSearch } from "./web-search-mode";
+import { VirtualMessageList } from "./VirtualMessageList";
 import type { ChatMessage } from "./types";
-import { projectFolderAvailable, projectFolderLabel, projectFolderMessage, projectFolderStatus } from "../projects/project-folder-status";
+import { projectFolderAvailable, projectFolderMessage, projectFolderStatus } from "../projects/project-folder-status";
 type ChatPageProps = {
     selectedProject: ProjectSummary | null;
     hasConversation: boolean;
@@ -24,11 +27,14 @@ type ChatPageProps = {
     readResult: ReadResult | null;
     draft: string;
     attachments: DesktopChatAttachment[];
+    uploadingAttachments: DesktopChatAttachment[];
+    recentAttachments: DesktopChatAttachment[];
     authStatus: WorkState["authStatus"];
     models: ChatModel[];
     selectedModelCode: string;
     executionEnvironment: "auto" | "local" | "cloud";
     webSearchMode: WebSearchMode;
+    deepThinkingEnabled: boolean;
     modelsLoading: boolean;
     agents: DesktopAgentProfile[];
     agentsLoading: boolean;
@@ -44,10 +50,14 @@ type ChatPageProps = {
     selectedProjectSkillId: string;
     projectSkillActions: ProjectSkillManagerActions | null;
     editingMessageId: string | null;
+    attachmentsBusy: boolean;
     error: string | null;
     onAttachProjectFolder(): void;
     onDraftChange(value: string): void;
     onChooseAttachments(): void;
+    onUploadAttachmentFiles(files: File[]): void;
+    onChooseRecentAttachment(attachment: DesktopChatAttachment): void;
+    onClearAttachments(): void;
     onRemoveAttachment(attachmentId: string): void;
     onSend(): void;
     onRetry(messageId: string): void;
@@ -58,21 +68,29 @@ type ChatPageProps = {
     onManageModelProviders(): void;
     onExecutionEnvironmentChange(value: "auto" | "local" | "cloud"): void;
     onWebSearchModeChange(value: WebSearchMode): void;
+    onDeepThinkingChange(value: boolean): void;
     onAgentChange(agentId: string): void;
+    onRefreshAgents(): void;
+    onManageAgents(): void;
     onUpdateAgent(): void;
     onProjectSkillChange(value: string): void;
     onIncludeFileContextChange(value: boolean): void;
     onDismissError(): void;
     onOpenArtifact?(relativePath: string): void;
 };
-export function ChatPage({ selectedProject, hasConversation, messages, activeRequestId, includeFileContext, selectedFilePath, readResult, draft, attachments, authStatus, models, selectedModelCode, executionEnvironment, webSearchMode, modelsLoading, agents, agentsLoading, selectedAgentId, selectedAgent, agentVersion, agentSkills, projectContext, selectedProjectSkillId, projectSkillActions, editingMessageId, error, onAttachProjectFolder, onDraftChange, onChooseAttachments, onRemoveAttachment, onSend, onRetry, onEditMessage, onCancelEdit, onStop, onModelChange, onManageModelProviders, onExecutionEnvironmentChange, onWebSearchModeChange, onAgentChange, onUpdateAgent, onProjectSkillChange, onIncludeFileContextChange, onDismissError, onOpenArtifact }: ChatPageProps) {
+export function ChatPage({ selectedProject, hasConversation, messages, activeRequestId, includeFileContext, selectedFilePath, readResult, draft, attachments, uploadingAttachments, recentAttachments, authStatus, models, selectedModelCode, executionEnvironment, webSearchMode, deepThinkingEnabled, modelsLoading, agents, agentsLoading, selectedAgentId, selectedAgent, agentVersion, agentSkills, projectContext, selectedProjectSkillId, projectSkillActions, editingMessageId, attachmentsBusy, error, onAttachProjectFolder, onDraftChange, onChooseAttachments, onUploadAttachmentFiles, onChooseRecentAttachment, onClearAttachments, onRemoveAttachment, onSend, onRetry, onEditMessage, onCancelEdit, onStop, onModelChange, onManageModelProviders, onExecutionEnvironmentChange, onWebSearchModeChange, onDeepThinkingChange, onAgentChange, onRefreshAgents, onManageAgents, onUpdateAgent, onProjectSkillChange, onIncludeFileContextChange, onDismissError, onOpenArtifact }: ChatPageProps) {
     const chatScrollRef = useRef<HTMLDivElement>(null);
     const composerInputRef = useRef<HTMLTextAreaElement>(null);
     const stickToBottomRef = useRef(true);
+    const dragDepthRef = useRef(0);
+    const [fileDragActive, setFileDragActive] = useState(false);
     const latestMessage = messages.at(-1);
+    const selectedModel = models.find((model) => model.code === selectedModelCode) ?? null;
     const folderAvailable = projectFolderAvailable(selectedProject);
     const folderStatus = projectFolderStatus(selectedProject);
-    const selectedModel = models.find((model) => model.code === selectedModelCode) ?? null;
+    const displayedExecutionEnvironment = executionEnvironment === "auto" && !folderAvailable
+        ? "cloud"
+        : executionEnvironment;
     useEffect(() => {
         const scroller = chatScrollRef.current;
         if (!scroller)
@@ -110,6 +128,8 @@ export function ChatPage({ selectedProject, hasConversation, messages, activeReq
         composerInputRef.current?.setSelectionRange(composerInputRef.current.value.length, composerInputRef.current.value.length);
     }, [editingMessageId]);
     function sendFromComposer() {
+        if (attachmentsBusy)
+            return;
         stickToBottomRef.current = true;
         onSend();
     }
@@ -120,15 +140,45 @@ export function ChatPage({ selectedProject, hasConversation, messages, activeReq
             composerInputRef.current?.setSelectionRange(question.length, question.length);
         });
     }
+    function hasDraggedFiles(event: DragEvent<HTMLElement>): boolean {
+        return Array.from(event.dataTransfer.types).includes("Files");
+    }
+    function handleDragEnter(event: DragEvent<HTMLDivElement>) {
+        if (!hasDraggedFiles(event) || activeRequestId || attachmentsBusy)
+            return;
+        event.preventDefault();
+        dragDepthRef.current += 1;
+        setFileDragActive(true);
+    }
+    function handleDragLeave(event: DragEvent<HTMLDivElement>) {
+        event.preventDefault();
+        dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+        if (dragDepthRef.current === 0)
+            setFileDragActive(false);
+    }
+    function handleDrop(event: DragEvent<HTMLDivElement>) {
+        if (!hasDraggedFiles(event))
+            return;
+        event.preventDefault();
+        dragDepthRef.current = 0;
+        setFileDragActive(false);
+        if (activeRequestId || attachmentsBusy)
+            return;
+        const files = Array.from(event.dataTransfer.files);
+        if (files.length)
+            onUploadAttachmentFiles(files);
+    }
     return (<section className={`chat-pane ${messages.length === 0 ? "chat-pane-welcome" : ""}`}>
       <div ref={chatScrollRef} className="chat-scroll">
         {messages.length === 0 && (<div className="chat-empty">
             <div className="chat-welcome-head">
               <AgentAvatar className="chat-empty-agent-avatar" name={selectedAgent?.name ?? "RouteMarket Agent"} avatarUrl={selectedAgent?.avatarUrl} size={56}/>
               <h2>
-              {selectedAgent
-                ? selectedProject ? `${selectedAgent.name} · ${selectedProject.displayName}` : selectedAgent.name
-                : selectedProject ? tr("ui.49a9a0e11212", [selectedProject.displayName]) : tr("chat.general")}
+                <span>{selectedAgent?.name ?? (selectedProject ? tr("chat.projectConversation") : tr("chat.general"))}</span>
+                {selectedProject && (<span className="chat-project-badge" title={tr("chat.projectBadge", [selectedProject.displayName])}>
+                    <Folder size={13} aria-hidden="true"/>
+                    <span>{tr("chat.projectBadge", [selectedProject.displayName])}</span>
+                  </span>)}
               </h2>
             </div>
             {selectedAgent?.greeting ? <p className="chat-welcome-greeting">{selectedAgent.greeting}</p>
@@ -153,7 +203,7 @@ export function ChatPage({ selectedProject, hasConversation, messages, activeReq
                 </div>
               </div>) : null}
           </div>)}
-        {hasConversation && messages.length > 0 && (<VirtualMessageList messages={messages} scrollerRef={chatScrollRef} renderMessage={(message) => (<ChatMessageRow key={message.id} message={message} streaming={message.id === `assistant:${activeRequestId}`} onRetry={message.role === "assistant" &&
+        {hasConversation && messages.length > 0 && (<VirtualMessageList messages={messages} scrollerRef={chatScrollRef} renderMessage={(message) => (<ChatMessageRow key={message.id} message={message} projectId={selectedProject?.localProjectId} streaming={message.id === `assistant:${activeRequestId}`} onRetry={message.role === "assistant" &&
                     !activeRequestId &&
                     !editingMessageId
                     ? () => {
@@ -165,10 +215,15 @@ export function ChatPage({ selectedProject, hasConversation, messages, activeReq
                     : undefined} onOpenArtifact={(relativePath) => onOpenArtifact?.(relativePath) ?? window.dispatchEvent(new CustomEvent("routemarket:open-chat-artifact", { detail: relativePath }))}/>)}/>)}
       </div>
 
-      {(hasConversation || messages.length === 0) && (<div className="composer-shell">
+      {(hasConversation || messages.length === 0) && (<div className="composer-shell" onDragEnter={handleDragEnter} onDragOver={(event) => {
+          if (hasDraggedFiles(event)) {
+              event.preventDefault();
+              event.dataTransfer.dropEffect = "copy";
+          }
+      }} onDragLeave={handleDragLeave} onDrop={handleDrop}>
           {editingMessageId && (<div className="message-edit-banner" role="status">
               <Pencil size={13}/>
-              <span>{tr("ui.452f5a43543c")}</span>
+              <span>{tr("chat.edit.appendNotice")}</span>
               <button type="button" onClick={onCancelEdit}>
                 <X size={12}/>{tr("ui.4d0b4688c787")}</button>
             </div>)}
@@ -188,36 +243,62 @@ export function ChatPage({ selectedProject, hasConversation, messages, activeReq
                 <X size={13}/>
               </button>
             </div>)}
-          {attachments.length ? (<div className="composer-attachments" aria-label={tr("ui.fd8f8ccc9b7f")}>
-              {attachments.map((attachment) => (<div className="context-chip" key={attachment.id}>
-                  <Paperclip size={13}/>
-                  <span>{attachment.name}</span>
-                  <small>{formatAttachmentSize(attachment.size)}</small>
-                  <button type="button" title={tr("ui.6f67cadb4d3a", [attachment.name])} onClick={() => onRemoveAttachment(attachment.id)}>
-                    <X size={13}/>
-                  </button>
-                </div>))}
-            </div>) : null}
           <div className="composer">
+            {fileDragActive ? (<div className="composer-drop-overlay" role="status">
+                <Paperclip size={20}/>
+                <span>{tr("chat.attachments.dropHint")}</span>
+              </div>) : attachmentsBusy && !uploadingAttachments.length ? (<div className="composer-drop-overlay" role="status">
+                <LoaderCircle className="spin" size={20}/>
+                <span>{tr("chat.attachments.uploading")}</span>
+              </div>) : null}
             <div className="composer-topbar">
-                <ChatAgentPicker agents={agents} selectedAgentId={selectedAgentId} loading={agentsLoading} disabled={Boolean(activeRequestId)} onSelect={onAgentChange}/>
+                <ChatAgentPicker agents={agents} selectedAgentId={selectedAgentId} loading={agentsLoading} disabled={Boolean(activeRequestId)} onSelect={onAgentChange} onRefresh={onRefreshAgents} onManage={onManageAgents}/>
               <div className="composer-top-actions">
                 <button type="button" onClick={() => onDraftChange(tr("ui.3519361a188a"))}>{tr("ui.da8f4f606abf")}</button>
                 <button type="button" title={tr("ui.3aa78733475b")} disabled><WandSparkles size={13}/>{tr("ui.71b89a55a980")}</button>
               </div>
             </div>
             <textarea ref={composerInputRef} value={draft} placeholder={authStatus === "signed_in"
-                ? tr("ui.80ffae84d83f") : tr("ui.435b61fdf760")} disabled={authStatus !== "signed_in"} rows={4} onChange={(event) => onDraftChange(event.target.value)} onKeyDown={(event) => {
+                ? tr("ui.80ffae84d83f") : tr("ui.435b61fdf760")} disabled={authStatus !== "signed_in"} rows={4} onChange={(event) => onDraftChange(event.target.value)} onPaste={(event) => {
+                const itemFiles = Array.from(event.clipboardData.items)
+                    .filter((item) => item.kind === "file")
+                    .map((item) => item.getAsFile())
+                    .filter((file): file is File => Boolean(file));
+                const files = event.clipboardData.files.length
+                    ? Array.from(event.clipboardData.files)
+                    : itemFiles;
+                if (!files.length)
+                    return;
+                event.preventDefault();
+                if (!activeRequestId && !attachmentsBusy)
+                    onUploadAttachmentFiles(files);
+            }} onKeyDown={(event) => {
                 if (event.key === "Enter" && !event.shiftKey) {
                     event.preventDefault();
                     sendFromComposer();
                 }
             }}/>
+            <ChatComposerAttachments attachments={[...attachments, ...uploadingAttachments]} disabled={Boolean(activeRequestId) || attachmentsBusy} onRemove={onRemoveAttachment}/>
             <div className="composer-footer">
               <div className="composer-status">
                 <ModelPicker models={models} value={selectedModelCode} authStatus={authStatus} loading={modelsLoading} disabled={Boolean(activeRequestId)} onChange={onModelChange} onManageProviders={onManageModelProviders}/>
-                <ChatOptionPicker value={executionEnvironment} label={tr("ui.059d73c84364")} disabled={Boolean(activeRequestId)} options={[{ value: "auto", label: tr("ui.9741bc8c5f40") }, { value: "local", label: tr("ui.84588afc849d") }, { value: "cloud", label: tr("ui.7d0728e4127c") }]} onChange={onExecutionEnvironmentChange}/>
-                <ChatOptionPicker value={webSearchMode} label={tr("ui.45e62e474f4a")} icon={<Globe2 size={13}/>} disabled={Boolean(activeRequestId)} options={[{ value: "agentic", label: tr("ui.76a7ece8c119"), disabled: selectedModel?.supportsTools === false }, { value: "native", label: tr("ui.2dae8bcce889"), disabled: !supportsNativeWebSearch(selectedModel) }, { value: "off", label: tr("ui.e26b52ae3c9d") }]} onChange={onWebSearchModeChange}/>
+                <ChatToolsMenu
+                  attachments={attachments}
+                  recentAttachments={recentAttachments}
+                  deepThinkingEnabled={deepThinkingEnabled}
+                  canUseDeepThinking={selectedModel?.supportsReasoningSummary === true}
+                  webSearchMode={webSearchMode}
+                  canUseWebSearch={Boolean(selectedModel?.supportsTools || supportsNativeWebSearch(selectedModel))}
+                  canUseNativeWebSearch={supportsNativeWebSearch(selectedModel)}
+                  disabled={Boolean(activeRequestId) || attachmentsBusy}
+                  onChooseAttachments={onChooseAttachments}
+                  onChooseRecentAttachment={onChooseRecentAttachment}
+                  onClearAttachments={onClearAttachments}
+                  onDeepThinkingChange={onDeepThinkingChange}
+                  onWebSearchModeChange={onWebSearchModeChange}
+                />
+                <ChatSkillsControl agentSkills={agentSkills} projectSkillCount={projectContext?.skills.length ?? 0} projectSkillActions={projectSkillActions} disabled={Boolean(activeRequestId)}/>
+                <ChatOptionPicker value={displayedExecutionEnvironment} label={tr("ui.059d73c84364")} icon={<Cloud size={13}/>} disabled={Boolean(activeRequestId)} options={[{ value: "auto", label: tr("ui.9741bc8c5f40") }, { value: "local", label: tr("ui.84588afc849d") }, { value: "cloud", label: tr("ui.7d0728e4127c") }]} onChange={onExecutionEnvironmentChange}/>
                 {projectContext?.skills.length ? (<label className="project-skill-picker">
                     <Bot size={13}/>
                     <select aria-label={tr("ui.25715427b083")} value={selectedProjectSkillId} disabled={Boolean(activeRequestId)} onChange={(event) => onProjectSkillChange(event.target.value)}>
@@ -226,24 +307,12 @@ export function ChatPage({ selectedProject, hasConversation, messages, activeReq
                     </select>
                     <ChevronDown size={12}/>
                   </label>) : null}
-                <ProjectSkillsPanel actions={projectSkillActions}/>
-                <AgentSkillStatusList items={agentSkills} compact/>
-                {selectedAgent?.toolPermissions.length ? (<span className="composer-location">{tr("ui.407b3b23a2fb")}{selectedAgent.toolPermissions.length}
-                  </span>) : null}
                 {readResult && !includeFileContext && (<button className="attach-button" type="button" onClick={() => onIncludeFileContextChange(true)}>
                     <Paperclip size={14}/>{tr("ui.ee8ddb2ec052")}</button>)}
-                <button className="attach-button" type="button" title={tr("ui.4adbab6ffd83")} disabled={Boolean(activeRequestId) || attachments.length >= 5} onClick={onChooseAttachments}>
-                  <Paperclip size={14}/>{tr("ui.dba9e8228bf3")}{attachments.length ? ` · ${attachments.length}/5` : ""}
-                </button>
-                <span className="composer-location">
-                  {selectedProject
-                    ? folderAvailable ? tr("ui.6954e2e3586c") : tr("ui.89f45fc4ecad", [projectFolderLabel(selectedProject)])
-                    : tr("chat.generalLocation")}
-                </span>
               </div>
               {activeRequestId ? (<button className="send-button stop" type="button" title={tr("ui.76349aa64a24")} onClick={onStop}>
                   <Square size={14} fill="currentColor"/>
-                </button>) : (<button className="send-button" type="button" title={tr("ui.1214d633a448")} disabled={(!draft.trim() && !attachments.length) ||
+                </button>) : (<button className="send-button" type="button" title={tr("ui.1214d633a448")} disabled={attachmentsBusy || (!draft.trim() && !attachments.length) ||
                     !selectedModelCode ||
                     authStatus !== "signed_in"} onClick={sendFromComposer}>
                   <Send size={14}/>
@@ -261,11 +330,4 @@ export function ChatPage({ selectedProject, hasConversation, messages, activeReq
           </button>
         </div>)}
     </section>);
-}
-function formatAttachmentSize(bytes: number): string {
-    if (bytes < 1024)
-        return `${bytes} B`;
-    if (bytes < 1024 * 1024)
-        return `${Math.ceil(bytes / 1024)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }

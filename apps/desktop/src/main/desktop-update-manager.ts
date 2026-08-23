@@ -1,8 +1,8 @@
 import { trMain } from "./i18n";
 import type { BrowserWindow } from "electron";
-import { dialog } from "electron";
 import { autoUpdater } from "electron-updater";
 import type { DesktopBuildEnvironment } from "../../build-endpoints";
+import type { DesktopUpdateState } from "../shared/desktop-api";
 import { resolveDesktopUpdatePolicy } from "./desktop-update-policy";
 
 const INITIAL_CHECK_DELAY_MS = 15_000;
@@ -10,8 +10,8 @@ const INITIAL_CHECK_DELAY_MS = 15_000;
 export class DesktopUpdateManager {
   private timer: NodeJS.Timeout | null = null;
   private initialTimer: NodeJS.Timeout | null = null;
-  private prompting = false;
   private readonly policy;
+  private state: DesktopUpdateState = idleUpdateState();
 
   constructor(
     buildEnvironment: DesktopBuildEnvironment,
@@ -21,7 +21,8 @@ export class DesktopUpdateManager {
       kind: "job.started" | "job.succeeded" | "job.failed",
       title: string,
       detail: string
-    ) => void
+    ) => void,
+    private readonly onState: (state: DesktopUpdateState) => void = () => undefined
   ) {
     this.policy = resolveDesktopUpdatePolicy(
       buildEnvironment,
@@ -40,25 +41,48 @@ export class DesktopUpdateManager {
       autoUpdater.setFeedURL({
         provider: "generic",
         url: this.policy.feedUrl,
-        channel: this.policy.channel === "beta" ? "beta" : "latest"
+        channel: this.policy.channel === "beta" ? "beta" : "latest",
+        useMultipleRangeRequest: false
       });
     }
+    autoUpdater.on("checking-for-update", () => {
+      this.publishState({ ...idleUpdateState(), status: "checking" });
+    });
+    autoUpdater.on("update-not-available", () => {
+      this.publishState(idleUpdateState());
+    });
     autoUpdater.on("error", (error) => {
-      this.onActivity(
-        "job.failed",
-        trMain("ui.25b06be4ccfa"),
-        error.message
-      );
+      this.reportError(trMain("ui.25b06be4ccfa"), error);
     });
     autoUpdater.on("update-available", (info) => {
-      void this.promptForDownload(info.version).catch((error) =>
-        this.reportError(trMain("ui.f23403014a2e"), error)
-      );
+      this.publishState({
+        ...idleUpdateState(),
+        status: "available",
+        version: info.version
+      });
+    });
+    autoUpdater.on("download-progress", (progress) => {
+      this.publishState({
+        status: "downloading",
+        version: this.state.version,
+        percent: finiteNumber(progress.percent, 0, 100),
+        transferredBytes: finiteNumber(progress.transferred),
+        totalBytes: finiteNumber(progress.total),
+        bytesPerSecond: finiteNumber(progress.bytesPerSecond),
+        error: null
+      });
     });
     autoUpdater.on("update-downloaded", (info) => {
-      void this.promptForRestart(info.version).catch((error) =>
-        this.reportError(trMain("ui.382b8734b9dc"), error)
-      );
+      this.onActivity("job.succeeded", trMain("ui.346224f66468"), info.version);
+      this.publishState({
+        ...idleUpdateState(),
+        status: "downloaded",
+        version: info.version,
+        percent: 100
+      });
+    });
+    autoUpdater.on("update-cancelled", () => {
+      this.publishState(idleUpdateState());
     });
     this.initialTimer = setTimeout(
       () => void this.check(),
@@ -76,15 +100,46 @@ export class DesktopUpdateManager {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
     autoUpdater.removeAllListeners();
+    this.setTaskbarProgress(-1);
   }
 
   getInfo(): { enabled: boolean; channel: "stable" | "beta" } {
     return { enabled: this.policy.enabled, channel: this.policy.channel };
   }
 
+  getState(): DesktopUpdateState {
+    return { ...this.state };
+  }
+
   async checkNow(): Promise<boolean> {
     if (!this.policy.enabled) return false;
+    this.publishState({ ...idleUpdateState(), status: "checking" });
     await autoUpdater.checkForUpdates();
+    return true;
+  }
+
+  async downloadUpdate(): Promise<boolean> {
+    if (!this.policy.enabled || this.state.status !== "available") return false;
+    const version = this.state.version;
+    this.publishState({
+      ...idleUpdateState(),
+      status: "downloading",
+      version,
+      percent: 0
+    });
+    this.onActivity("job.started", trMain("ui.58cc34112c7e"), version ?? "");
+    try {
+      await autoUpdater.downloadUpdate();
+      return true;
+    } catch (error) {
+      this.reportError(trMain("ui.f23403014a2e"), error);
+      throw error;
+    }
+  }
+
+  installUpdate(): boolean {
+    if (!this.policy.enabled || this.state.status !== "downloaded") return false;
+    autoUpdater.quitAndInstall(false, true);
     return true;
   }
 
@@ -101,60 +156,56 @@ export class DesktopUpdateManager {
   }
 
   private reportError(title: string, error: unknown): void {
+    const message = error instanceof Error ? error.message : "Unknown update error";
     this.onActivity(
       "job.failed",
       title,
-      error instanceof Error ? error.message : "Unknown update error"
+      message
     );
+    this.publishState({
+      ...idleUpdateState(),
+      status: "error",
+      version: this.state.version,
+      error: message
+    });
   }
 
-  private async promptForDownload(version: string): Promise<void> {
-    if (this.prompting) return;
-    const window = this.getWindow();
-    if (!window) return;
-    this.prompting = true;
-    try {
-      const result = await dialog.showMessageBox(window, {
-        type: "info",
-        title: trMain("ui.e835fb998e3a"),
-        message: trMain("ui.0db03464c288", [version]),
-        detail:
-          trMain("ui.37c8fa15a15a"),
-        buttons: [trMain("ui.479fcc1cc066"), trMain("ui.c1f18f4e0a0d")],
-        defaultId: 1,
-        cancelId: 0,
-        noLink: true
-      });
-      if (result.response !== 1) return;
-      this.onActivity("job.started", trMain("ui.58cc34112c7e"), version);
-      await autoUpdater.downloadUpdate();
-    } finally {
-      this.prompting = false;
-    }
+  private publishState(state: DesktopUpdateState): void {
+    this.state = state;
+    this.setTaskbarProgress(
+      state.status === "downloading" && state.percent !== null
+        ? state.percent / 100
+        : state.status === "downloaded"
+          ? 1
+          : -1
+    );
+    this.onState({ ...state });
   }
 
-  private async promptForRestart(version: string): Promise<void> {
-    if (this.prompting) return;
+  private setTaskbarProgress(progress: number): void {
     const window = this.getWindow();
     if (!window) return;
-    this.prompting = true;
     try {
-      this.onActivity("job.succeeded", trMain("ui.346224f66468"), version);
-      const result = await dialog.showMessageBox(window, {
-        type: "info",
-        title: trMain("ui.be493d7e0b78"),
-        message: trMain("ui.6c37ba61f5f5", [version]),
-        detail: trMain("ui.c843aed0d102"),
-        buttons: [trMain("ui.479fcc1cc066"), trMain("ui.33292ab3427c")],
-        defaultId: 1,
-        cancelId: 0,
-        noLink: true
-      });
-      if (result.response === 1) {
-        autoUpdater.quitAndInstall(false, true);
-      }
-    } finally {
-      this.prompting = false;
+      window.setProgressBar(progress);
+    } catch {
+      // The window may have closed while an updater event was in flight.
     }
   }
+}
+
+function idleUpdateState(): DesktopUpdateState {
+  return {
+    status: "idle",
+    version: null,
+    percent: null,
+    transferredBytes: 0,
+    totalBytes: 0,
+    bytesPerSecond: 0,
+    error: null
+  };
+}
+
+function finiteNumber(value: unknown, minimum = 0, maximum = Number.MAX_SAFE_INTEGER): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) return minimum;
+  return Math.min(maximum, Math.max(minimum, value));
 }

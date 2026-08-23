@@ -100,4 +100,29 @@ describe("LocalTriggerManager", () => {
     expect(fired.lastFiredAt).not.toBeNull();
     expect(events[0]).toMatchObject({ reason: "manual", relativePath: null });
   });
+
+  it("persists a linked Workflow and exposes the next schedule time", async () => {
+    const trigger = await manager.save({
+      localProjectId: "project_test",
+      workflowId: "workflow_amazon_price",
+      name: "Amazon every 10 minutes",
+      kind: "schedule",
+      enabled: true,
+      intervalMinutes: 10
+    });
+
+    expect(trigger.workflowId).toBe("workflow_amazon_price");
+    expect(trigger.nextRunAt).not.toBeNull();
+    expect(new Date(trigger.nextRunAt!).getTime()).toBeGreaterThan(Date.now());
+
+    const disabled = await manager.save({
+      localProjectId: trigger.localProjectId,
+      workflowId: trigger.workflowId ?? undefined,
+      name: trigger.name,
+      kind: trigger.kind,
+      enabled: false,
+      intervalMinutes: trigger.intervalMinutes ?? undefined
+    }, trigger.triggerId);
+    expect(disabled.nextRunAt).toBeNull();
+  });
 });

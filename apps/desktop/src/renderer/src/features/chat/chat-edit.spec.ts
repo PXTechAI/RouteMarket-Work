@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { messagesBeforeEditedUser } from "./chat-edit";
+import { messagesForEditedUserResend } from "./chat-edit";
 import type { ChatMessage } from "./types";
 
 const messages: ChatMessage[] = [
@@ -29,23 +29,21 @@ const messages: ChatMessage[] = [
   }
 ];
 
-describe("messagesBeforeEditedUser", () => {
-  it("keeps only messages before the edited turn", () => {
-    expect(messagesBeforeEditedUser(messages, "user:two")).toEqual(
-      messages.slice(0, 2)
-    );
+describe("messagesForEditedUserResend", () => {
+  it("keeps the entire conversation when resending an edited message", () => {
+    expect(messagesForEditedUserResend(messages, "user:two")).toBe(messages);
   });
 
-  it("can rewind the entire conversation", () => {
-    expect(messagesBeforeEditedUser(messages, "user:one")).toEqual([]);
+  it("keeps history when resending the first message", () => {
+    expect(messagesForEditedUserResend(messages, "user:one")).toBe(messages);
   });
 
   it("rejects assistant and unknown message ids", () => {
     expect(() =>
-      messagesBeforeEditedUser(messages, "assistant:one")
+      messagesForEditedUserResend(messages, "assistant:one")
     ).toThrow("editable user message");
     expect(() =>
-      messagesBeforeEditedUser(messages, "user:missing")
+      messagesForEditedUserResend(messages, "user:missing")
     ).toThrow("editable user message");
   });
 });

@@ -52,7 +52,15 @@ describe("built-in plugin catalog", () => {
     }));
     expect(browser?.contributes.tools).toEqual(expect.arrayContaining([
       expect.objectContaining({ name: "browser_extract", risk: "R0" }),
+      expect.objectContaining({ name: "browser_request_user_login", capability: "local.browser.takeover", risk: "R0" }),
       expect.objectContaining({ name: "browser_click", risk: "R2" }),
+      expect.objectContaining({ name: "browser_click_ref", risk: "R2" }),
+      expect.objectContaining({ name: "browser_type_ref", risk: "R2" }),
+      expect.objectContaining({ name: "browser_get_diagnostics", risk: "R1" }),
+      expect.objectContaining({ name: "browser_export_har", capability: "local.fs.create", risk: "R2" }),
+      expect.objectContaining({ name: "browser_screenshot", risk: "R1" }),
+      expect.objectContaining({ name: "browser_attached_inspect", risk: "R2" }),
+      expect.objectContaining({ name: "browser_attached_get_network_body", risk: "R3" }),
       expect.objectContaining({ name: "browser_upload", risk: "R3" })
     ]));
   });

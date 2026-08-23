@@ -93,6 +93,7 @@ export const esES = {
   "settings.appearance.title": "Apariencia",
   "settings.appearance.description": "Elige cómo se muestra RouteMarket Work.",
   "settings.appearance.theme": "Tema",
+  "settings.appearance.scale": "Escala de la interfaz",
   "settings.appearance.light": "Claro",
   "settings.appearance.dark": "Oscuro",
   "settings.appearance.system": "Sistema",

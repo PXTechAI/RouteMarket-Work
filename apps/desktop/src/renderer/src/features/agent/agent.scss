@@ -1,0 +1,385 @@
+.agent-avatar {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  color: var(--rm-on-accent);
+  background: var(--rm-accent);
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.agent-avatar.large {
+  width: 40px;
+  height: 40px;
+  font-size: 15px;
+}
+
+.agent-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+}
+
+.agent-market-page {
+  position: relative;
+  display: grid;
+  gap: 16px;
+  width: 100%;
+  min-width: 0;
+  color: var(--rm-text);
+}
+
+.capability-page-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.capability-page-header h2 {
+  margin: 0;
+  font-size: 20px;
+  line-height: 1.3;
+}
+
+.capability-page-header p {
+  max-width: 680px;
+  margin: 5px 0 0;
+  color: var(--rm-text-muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.capability-view-switch {
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 4px;
+  padding: 4px;
+  background: var(--rm-surface-muted);
+  border: 1px solid var(--rm-border);
+  border-radius: 10px;
+}
+
+.capability-view-switch button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 34px;
+  padding: 0 13px;
+  color: var(--rm-text-muted);
+  background: transparent;
+  border: 0;
+  border-radius: 7px;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.capability-view-switch button:hover {
+  color: var(--rm-text);
+  background: color-mix(in srgb, var(--rm-surface) 72%, transparent);
+}
+
+.capability-view-switch button.active {
+  color: var(--rm-accent);
+  background: var(--rm-surface);
+  box-shadow: 0 1px 3px color-mix(in srgb, var(--rm-text) 10%, transparent);
+}
+
+.capability-view-switch button span {
+  min-width: 20px;
+  padding: 1px 6px;
+  color: inherit;
+  background: var(--rm-accent-soft);
+  border-radius: 999px;
+  font-size: 11px;
+  text-align: center;
+}
+
+.agent-market-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.agent-market-card {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  align-items: start;
+  gap: 14px;
+  min-height: 188px;
+  padding: 20px;
+  background: var(--rm-surface);
+  border: 1px solid var(--rm-border);
+  border-radius: 13px;
+  box-shadow: var(--rm-shadow-card);
+}
+
+.agent-market-card.primary {
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--rm-accent) 8%, var(--rm-surface)),
+    var(--rm-surface) 60%
+  );
+  border-color: color-mix(in srgb, var(--rm-accent) 22%, var(--rm-border));
+}
+
+.agent-market-card-icon {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  color: var(--rm-accent);
+  background: var(--rm-accent-soft);
+  border-radius: 12px;
+}
+
+.agent-market-card h3 {
+  margin: 4px 0 0;
+  font-size: 16px;
+  line-height: 1.35;
+}
+
+.agent-market-card p {
+  margin: 7px 0 0;
+  color: var(--rm-text-muted);
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.agent-market-card > button {
+  grid-column: 2;
+  justify-self: start;
+}
+
+.capability-eyebrow {
+  color: var(--rm-accent);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.agent-library {
+  display: grid;
+  gap: 14px;
+}
+
+.capability-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 12px;
+  background: var(--rm-surface);
+  border: 1px solid var(--rm-border);
+  border-radius: 12px;
+}
+
+.capability-search {
+  display: flex;
+  flex: 1 1 320px;
+  align-items: center;
+  gap: 9px;
+  height: 36px;
+  padding: 0 11px;
+  color: var(--rm-text-weak);
+  background: var(--rm-surface-muted);
+  border: 1px solid var(--rm-border);
+  border-radius: 8px;
+}
+
+.capability-search:focus-within {
+  color: var(--rm-accent);
+  border-color: color-mix(in srgb, var(--rm-accent) 45%, var(--rm-border));
+  box-shadow: 0 0 0 3px var(--rm-accent-soft);
+}
+
+.capability-search input {
+  width: 100%;
+  min-width: 0;
+  color: var(--rm-text);
+  background: transparent;
+  border: 0;
+  outline: 0;
+  font-size: 13px;
+}
+
+.agent-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+.agent-card {
+  display: grid;
+  gap: 13px;
+  min-width: 0;
+  min-height: 158px;
+  padding: 16px;
+  color: var(--rm-text);
+  text-align: left;
+  background: var(--rm-surface);
+  border: 1px solid var(--rm-border);
+  border-radius: 11px;
+  cursor: pointer;
+  box-shadow: var(--rm-shadow-card);
+  transition:
+    border-color 150ms ease,
+    box-shadow 150ms ease,
+    transform 150ms ease;
+}
+
+.agent-card:hover {
+  border-color: color-mix(in srgb, var(--rm-accent) 35%, var(--rm-border));
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--rm-text) 9%, transparent);
+  transform: translateY(-1px);
+}
+
+.agent-card.active {
+  border-color: color-mix(in srgb, var(--rm-accent) 48%, var(--rm-border));
+  box-shadow: 0 0 0 3px var(--rm-accent-soft);
+}
+
+.agent-card-heading {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.agent-market-page .agent-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  font-size: 15px;
+}
+
+.agent-card-heading > span:nth-child(2) {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.agent-card-heading strong {
+  overflow: hidden;
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-card-heading small {
+  color: var(--rm-text-weak);
+  font-size: 12px;
+}
+
+.agent-card-heading em {
+  padding: 3px 7px;
+  color: var(--rm-accent);
+  background: var(--rm-accent-soft);
+  border-radius: 999px;
+  font-size: 11px;
+  font-style: normal;
+  white-space: nowrap;
+}
+
+.agent-card > p {
+  display: -webkit-box;
+  min-height: 40px;
+  margin: 0;
+  overflow: hidden;
+  color: var(--rm-text-muted);
+  font-size: 13px;
+  line-height: 1.55;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.agent-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px 12px;
+  color: var(--rm-text-weak);
+  font-size: 12px;
+}
+
+.agent-card-meta span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.capability-empty {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  min-height: 230px;
+  padding: 28px;
+  color: var(--rm-text-muted);
+  background: var(--rm-surface);
+  border: 1px dashed color-mix(in srgb, var(--rm-accent) 28%, var(--rm-border));
+  border-radius: 12px;
+  text-align: center;
+}
+
+.capability-empty > span {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  margin-bottom: 12px;
+  color: var(--rm-accent);
+  background: var(--rm-accent-soft);
+  border-radius: 12px;
+}
+
+.capability-empty strong {
+  color: var(--rm-text);
+  font-size: 15px;
+}
+
+.capability-empty p {
+  max-width: 520px;
+  margin: 7px 0 0;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+@media (max-width: 860px) {
+  .capability-page-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .capability-view-switch {
+    align-self: flex-start;
+  }
+
+  .agent-market-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 620px) {
+  .capability-view-switch {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  .capability-toolbar {
+    align-items: stretch;
+    flex-wrap: wrap;
+  }
+
+  .capability-search {
+    flex-basis: 100%;
+  }
+
+  .agent-card-grid {
+    grid-template-columns: 1fr;
+  }
+}

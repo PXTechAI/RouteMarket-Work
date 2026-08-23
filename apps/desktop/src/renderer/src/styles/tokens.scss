@@ -1,0 +1,16 @@
+@use "./theme";
+
+:root {
+  @include theme.emit-custom-properties(theme.$static-tokens);
+  @include theme.emit-custom-properties(theme.$light-theme);
+}
+
+:root[data-theme="dark"] {
+  @include theme.emit-custom-properties(theme.$dark-theme);
+}
+
+html,
+body {
+  color: var(--rm-text);
+  background: var(--rm-bg);
+}

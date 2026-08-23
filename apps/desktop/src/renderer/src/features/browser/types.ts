@@ -43,6 +43,7 @@ export type BrowserPageActions = {
   onSelectedAttachedTargetChange(value: string): void;
   onToggleAttachedConnection(): void;
   onDismissError(): void;
+  onViewportLayoutChange(): void;
 };
 
 export type BrowserPageProps = {

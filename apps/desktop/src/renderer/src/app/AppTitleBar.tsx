@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import brandIcon from "../assets/routemarket-2a-naked";
 import type { DesktopMenuCommand, RouteMarketWorkApi } from "../../../shared/desktop-api";
 import { tr } from "../i18n";
-import "./app-titlebar.css";
+import "./app-titlebar.scss";
 
 type MenuName = "file" | "edit" | "view" | "help";
 
@@ -123,7 +123,7 @@ export function AppTitleBar({ model, actions, api }: AppTitleBarProps) {
         <MenuSeparator />
         <MenuItem label={tr("menu.help.about")} onClick={() => command("showAbout")} />
       </TitleMenu>
-      <strong className="rm-app-titlebar-title">{model.title}</strong>
+      {model.title ? <strong className="rm-app-titlebar-title">{model.title}</strong> : null}
     </header>
   );
 }

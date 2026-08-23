@@ -1,4 +1,5 @@
 import { tr } from "../../i18n";
+import "./project-sidebar.scss";
 import { FolderOpen, FolderPlus, RefreshCw, Search } from "lucide-react";
 import type { WorkState } from "../../../../shared/desktop-api";
 import { cloudStatusLabel, workerStatusLabel } from "../../app/connection-status";

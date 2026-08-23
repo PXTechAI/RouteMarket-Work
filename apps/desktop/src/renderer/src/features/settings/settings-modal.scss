@@ -1,0 +1,62 @@
+.rm-settings-modal-backdrop {
+  position: fixed;
+  z-index: 130;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: var(--rm-overlay-strong);
+}
+.rm-settings-modal {
+  width: min(430px, 100%);
+  padding: 22px;
+  background: var(--rm-surface);
+  border: 1px solid var(--rm-border);
+  border-radius: 14px;
+  box-shadow: var(--rm-shadow-dialog);
+}
+.rm-settings-modal-icon {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  color: var(--rm-danger);
+  background: var(--rm-danger-soft);
+  border-radius: 10px;
+}
+.rm-settings-modal h2 {
+  margin: 14px 0 0;
+  font-size: 16px;
+}
+.rm-settings-modal > p {
+  margin: 7px 0 0;
+  color: var(--rm-text-muted);
+  font-size: 10px;
+  line-height: 1.6;
+}
+.rm-settings-modal ul {
+  margin: 14px 0;
+  padding-left: 20px;
+  color: var(--rm-text);
+  font-size: 10px;
+  line-height: 1.8;
+}
+.rm-settings-modal-note {
+  padding: 9px 10px;
+  color: var(--rm-text-muted);
+  background: var(--rm-bg);
+  border-radius: 7px;
+  font-size: 9px;
+  line-height: 1.5;
+}
+.rm-settings-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 18px;
+  gap: 8px;
+}
+.rm-settings-modal-actions button.danger {
+  color: var(--rm-on-accent);
+  background: var(--rm-danger);
+  border-color: var(--rm-danger);
+}

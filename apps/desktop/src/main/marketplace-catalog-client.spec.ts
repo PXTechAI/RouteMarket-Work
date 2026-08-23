@@ -26,6 +26,19 @@ describe("MarketplaceCatalogClient", () => {
     );
   });
 
+  it("accepts Agent and MCP capability entries from the shared Marketplace catalog", () => {
+    const catalog = parseMarketplaceCatalog({
+      schemaVersion: 1,
+      revision,
+      items: [
+        { ...bundledItem, id: "ai.example.agent", slug: "agent", kind: "agent", acquisitionMode: "copy" },
+        { ...bundledItem, id: "ai.example.mcp", slug: "mcp", kind: "mcp", acquisitionMode: "install" }
+      ]
+    });
+
+    expect(catalog.items.map((item) => item.kind)).toEqual(["agent", "mcp"]);
+  });
+
   it("rejects unsigned or insecure marketplace releases", () => {
     expect(() => parseMarketplaceCatalog({
       schemaVersion: 1,

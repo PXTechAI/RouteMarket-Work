@@ -4,6 +4,8 @@ import { dirname } from "node:path";
 import { safeStorage } from "electron";
 import type {
   ChatModel,
+  MediaModel,
+  MediaModelCategory,
   ModelProviderCompatibility,
   ModelProviderHeader,
   ModelProviderInput,
@@ -11,10 +13,12 @@ import type {
   ModelProviderProtocol,
   ModelProviderSummary
 } from "../shared/desktop-api";
+import { normalizeModelTokenPricing } from "./model-usage-cost";
 
 type StoredProvider = {
   id: string;
   name: string;
+  instanceName: string;
   protocol: ModelProviderProtocol;
   compatibility: ModelProviderCompatibility;
   baseUrl: string;
@@ -32,10 +36,14 @@ export type ResolvedModelProvider = {
     headers?: ModelProviderHeader[];
   };
   modelId: string;
+  pricing?: ModelProviderModel["pricing"];
 };
 
 type ProviderPayload = { version: 1; providers: StoredProvider[] };
 type EncryptedProviderFile = { version: 1; encrypted: string };
+
+const OPENCODE_ZEN_BASE_URL = "https://opencode.ai/zen/v1";
+const OPENCODE_CONSOLE_BASE_URL = "https://console.opencode.ai/inference/openai/v1";
 
 export class ModelProviderStore {
   private mutationTail: Promise<void> = Promise.resolve();
@@ -48,20 +56,43 @@ export class ModelProviderStore {
 
   async listModels(): Promise<ChatModel[]> {
     return (await this.read()).providers.flatMap((provider) => provider.enabled
-      ? provider.models.map((model) => ({
+      ? provider.models.filter(isChatProviderModel).map((model) => ({
           code: externalModelCode(provider.id, model.id),
           displayName: model.displayName,
           source: "external" as const,
           providerId: provider.id,
-          providerName: provider.name,
+          providerName: provider.instanceName,
           category: model.category,
           supportsTools: model.supportsTools,
           supportsNativeWebSearch: false,
           supportsVision: model.supportsVision,
           supportsStream: model.supportsStream,
           supportsReasoningSummary: model.supportsReasoningSummary,
-          preferredChatProtocol: null
+          ...(model.pricing ? { pricing: { ...model.pricing } } : {}),
+          preferredChatProtocol: modelProviderUsesResponses(provider, model.id)
+            ? "openai_responses" as const
+            : null
         }))
+      : []);
+  }
+
+  async listMediaModels(kind: MediaModelCategory): Promise<MediaModel[]> {
+    return (await this.read()).providers.flatMap((provider) => provider.enabled
+      ? provider.models
+          .filter((model) => model.category === kind)
+          .map((model) => ({
+            code: externalModelCode(provider.id, model.id),
+            displayName: model.displayName,
+            iconUrl: null,
+            iconStorageProvider: null,
+            iconStorageKey: null,
+            category: kind,
+            source: "local" as const,
+            providerId: provider.id,
+            providerName: provider.instanceName,
+            audioModes: kind === "audio" ? ["tts" as const] : [],
+            price: null
+          }))
       : []);
   }
 
@@ -70,13 +101,15 @@ export class ModelProviderStore {
       const current = input.id
         ? payload.providers.find((provider) => provider.id === input.id)
         : undefined;
+      const baseUrl = normalizeBaseUrl(input.baseUrl);
       const provider: StoredProvider = {
         id: current?.id ?? `provider_${randomUUID().replaceAll("-", "")}`,
         name: normalizeName(input.name),
+        instanceName: normalizeName(input.instanceName?.trim() || input.name),
         protocol: normalizeProtocol(input.protocol),
         compatibility: normalizeCompatibility(input.compatibility ?? current?.compatibility ?? "standard"),
-        baseUrl: normalizeBaseUrl(input.baseUrl),
-        apiKey: normalizeApiKey(input.apiKey?.trim() || current?.apiKey || ""),
+        baseUrl,
+        apiKey: normalizeApiKey(input.apiKey?.trim() || current?.apiKey || "", isLoopbackBaseUrl(baseUrl)),
         headers: input.headers ? normalizeProviderHeaders(input.headers) : current?.headers ?? [],
         enabled: input.enabled,
         models: input.models ? normalizeProviderModels(input.models) : current?.models ?? [],
@@ -122,24 +155,45 @@ export class ModelProviderStore {
     const parsed = parseExternalModelCode(code);
     if (!parsed) return null;
     const provider = (await this.read()).providers.find((item) => item.id === parsed.providerId);
-    if (!provider?.enabled || !provider.models.some((model) => model.id === parsed.modelId)) return null;
+    const model = provider?.models.find((candidate) => candidate.id === parsed.modelId);
+    if (!provider?.enabled || !model) return null;
     return {
       provider: {
         id: provider.id,
-        name: provider.name,
+        name: provider.instanceName,
         protocol: provider.protocol,
         compatibility: provider.compatibility,
         baseUrl: provider.baseUrl,
         apiKey: provider.apiKey,
         headers: provider.headers.map((header) => ({ ...header }))
       },
-      modelId: parsed.modelId
+      modelId: parsed.modelId,
+      pricing: model.pricing ? { ...model.pricing } : null
     };
   }
 
   async clear(): Promise<void> {
     await unlink(this.filePath).catch((error: NodeJS.ErrnoException) => {
       if (error.code !== "ENOENT") throw error;
+    });
+  }
+
+  async migrateFrom(filePaths: string[]): Promise<number> {
+    const legacyPayloads = await Promise.all(filePaths
+      .filter((filePath) => filePath !== this.filePath)
+      .map((filePath) => new ModelProviderStore(filePath).read()));
+    const legacyProviders = legacyPayloads.flatMap((payload) => payload.providers);
+    if (!legacyProviders.length) return 0;
+    return this.mutate(async (payload) => {
+      const existingIds = new Set(payload.providers.map((provider) => provider.id));
+      let migrated = 0;
+      for (const provider of legacyProviders) {
+        if (existingIds.has(provider.id)) continue;
+        payload.providers.push(cloneStoredProvider(provider));
+        existingIds.add(provider.id);
+        migrated += 1;
+      }
+      return migrated;
     });
   }
 
@@ -265,7 +319,7 @@ function normalizeCompatibility(value: string): ModelProviderCompatibility {
 
 function normalizeBaseUrl(value: string): string {
   const url = new URL(value.trim());
-  const loopback = ["localhost", "127.0.0.1", "::1"].includes(url.hostname);
+  const loopback = ["localhost", "127.0.0.1", "::1", "[::1]"].includes(url.hostname);
   if (url.protocol !== "https:" && !(url.protocol === "http:" && loopback)) {
     throw new Error("Provider URL must use HTTPS, except for a loopback development server.");
   }
@@ -275,12 +329,17 @@ function normalizeBaseUrl(value: string): string {
   return url.toString().replace(/\/$/, "");
 }
 
-function normalizeApiKey(value: string): string {
+function normalizeApiKey(value: string, optional = false): string {
   const apiKey = value.trim();
-  if (!apiKey || apiKey.length > 500 || /[\r\n]/.test(apiKey)) {
+  if ((!apiKey && !optional) || apiKey.length > 500 || /[\r\n]/.test(apiKey)) {
     throw new Error("A valid API key is required.");
   }
   return apiKey;
+}
+
+function isLoopbackBaseUrl(value: string): boolean {
+  const hostname = new URL(value).hostname;
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
 }
 
 const BLOCKED_PROVIDER_HEADERS = new Set([
@@ -327,8 +386,8 @@ export function modelProviderRequestHeaders(provider: {
   headers?: ModelProviderHeader[];
 }): Record<string, string> {
   const headers: Record<string, string> = provider.protocol === "anthropic"
-    ? { "x-api-key": provider.apiKey, "anthropic-version": "2023-06-01" }
-    : { Authorization: `Bearer ${provider.apiKey}` };
+    ? { ...(provider.apiKey ? { "x-api-key": provider.apiKey } : {}), "anthropic-version": "2023-06-01" }
+    : provider.apiKey ? { Authorization: `Bearer ${provider.apiKey}` } : {};
   headers["User-Agent"] = provider.compatibility === "opencode"
     ? "RouteMarket-Desktop (OpenCode-compatible)"
     : provider.compatibility === "nine-router"
@@ -342,6 +401,14 @@ export function modelProviderRequestHeaders(provider: {
   return headers;
 }
 
+export function modelProviderUsesResponses(
+  provider: { protocol: ModelProviderProtocol; compatibility?: ModelProviderCompatibility },
+  modelId: string
+): boolean {
+  if (provider.protocol !== "openai-compatible" || provider.compatibility !== "opencode") return false;
+  return /^(?:gpt-|codex(?:-|$)|o[1-9](?:-|$))/i.test(modelId.trim());
+}
+
 function requireProvider(providers: StoredProvider[], providerId: string): StoredProvider {
   if (!/^provider_[a-f0-9]{32}$/.test(providerId)) throw new Error("Invalid provider identifier.");
   const provider = providers.find((item) => item.id === providerId);
@@ -353,6 +420,7 @@ function toSummary(provider: StoredProvider): ModelProviderSummary {
   return {
     id: provider.id,
     name: provider.name,
+    instanceName: provider.instanceName,
     protocol: provider.protocol,
     compatibility: provider.compatibility,
     baseUrl: provider.baseUrl,
@@ -360,9 +428,17 @@ function toSummary(provider: StoredProvider): ModelProviderSummary {
     hasApiKey: Boolean(provider.apiKey),
     enabled: provider.enabled,
     modelCount: provider.models.length,
-    models: provider.models.map((model) => ({ ...model })),
+    models: provider.models.map(cloneProviderModel),
     lastSyncedAt: provider.lastSyncedAt,
     lastError: provider.lastError
+  };
+}
+
+function cloneStoredProvider(provider: StoredProvider): StoredProvider {
+  return {
+    ...provider,
+    headers: provider.headers.map((header) => ({ ...header })),
+    models: provider.models.map(cloneProviderModel)
   };
 }
 
@@ -380,13 +456,21 @@ function normalizeStoredProvider(value: unknown): StoredProvider[] {
   ) {
     return [];
   }
+  const compatibility = normalizeStoredCompatibility(provider.compatibility);
+  const apiKey = provider.apiKey;
+  const baseUrl = compatibility === "opencode" && provider.baseUrl === OPENCODE_CONSOLE_BASE_URL && !apiKey.startsWith("oc_sk_")
+    ? OPENCODE_ZEN_BASE_URL
+    : provider.baseUrl;
   return [{
     id: provider.id!,
     name: provider.name,
+    instanceName: typeof provider.instanceName === "string" && provider.instanceName.trim()
+      ? normalizeName(provider.instanceName)
+      : normalizeName(provider.name),
     protocol: provider.protocol,
-    compatibility: normalizeStoredCompatibility(provider.compatibility),
-    baseUrl: provider.baseUrl,
-    apiKey: provider.apiKey,
+    compatibility,
+    baseUrl,
+    apiKey,
     headers: Array.isArray(provider.headers) ? normalizeProviderHeaders(provider.headers) : [],
     enabled: provider.enabled,
     models: normalizeProviderModels(provider.models, true),
@@ -411,18 +495,32 @@ function normalizeProviderModels(values: unknown[], legacyDefaults = false): Mod
     const displayName = typeof model.displayName === "string" && model.displayName.trim()
       ? model.displayName.trim().slice(0, 200)
       : id;
+    const pricing = normalizeModelTokenPricing(model.pricing);
     byId.set(id, {
       id,
       displayName,
       source: model.source === "manual" ? "manual" : "synced",
-      category: model.category === "reasoning" ? "reasoning" : "chat",
+      category: normalizeProviderModelCategory(model.category),
       supportsTools: typeof model.supportsTools === "boolean" ? model.supportsTools : legacyDefaults,
       supportsVision: typeof model.supportsVision === "boolean" ? model.supportsVision : legacyDefaults,
       supportsStream: typeof model.supportsStream === "boolean" ? model.supportsStream : true,
-      supportsReasoningSummary: model.supportsReasoningSummary === true
+      supportsReasoningSummary: model.supportsReasoningSummary === true,
+      ...(pricing ? { pricing } : {})
     });
   }
   return [...byId.values()];
+}
+
+function normalizeProviderModelCategory(value: unknown): ModelProviderModel["category"] {
+  return value === "reasoning" || value === "image" || value === "video" || value === "audio"
+    ? value
+    : "chat";
+}
+
+function isChatProviderModel(
+  model: ModelProviderModel
+): model is ModelProviderModel & { category: "chat" | "reasoning" } {
+  return model.category === "chat" || model.category === "reasoning";
 }
 
 function mergeSynchronizedModels(
@@ -444,10 +542,18 @@ function mergeSynchronizedModels(
           supportsTools: existing.supportsTools,
           supportsVision: existing.supportsVision,
           supportsStream: existing.supportsStream,
-          supportsReasoningSummary: existing.supportsReasoningSummary
+          supportsReasoningSummary: existing.supportsReasoningSummary,
+          ...(existing.pricing ? { pricing: { ...existing.pricing } } : {})
         } : model;
       })
   ].slice(0, 1000);
+}
+
+function cloneProviderModel(model: ModelProviderModel): ModelProviderModel {
+  return {
+    ...model,
+    ...(model.pricing ? { pricing: { ...model.pricing } } : {})
+  };
 }
 
 function normalizeModelId(value: unknown): string | null {

@@ -12,7 +12,73 @@ export type PluginPermission =
   | "browser.read"
   | "browser.interact"
   | "artifact.read"
-  | "artifact.write";
+  | "artifact.write"
+  | "device.gpu"
+  | "data.read"
+  | "media.read"
+  | "media.write"
+  | "media.upload.cloud"
+  | "models.manage"
+  | "models.invoke.local"
+  | "models.invoke.cloud"
+  | "biometric.face"
+  | "biometric.voice";
+
+export type PluginNavigationContribution = {
+  id: string;
+  title: string;
+  pageId: string;
+  group: "creation" | "workspace" | "tools";
+  icon?: "audio-lines" | "video" | "image" | "wand-sparkles" | "puzzle" | "box" | "cpu";
+  order?: number;
+};
+
+export type PluginPageContribution = {
+  id: string;
+  title: string;
+  source: "runtime";
+  path: string;
+};
+
+export type PluginModelResource = {
+  id: string;
+  title: string;
+  kind:
+    | "language"
+    | "tts"
+    | "speech_to_text"
+    | "speech_to_speech"
+    | "music"
+    | "lip_sync"
+    | "portrait_animation"
+    | "avatar_generation"
+    | "realtime_avatar"
+    | "upscaler";
+  required: boolean;
+  recommendedVramMb?: number;
+  license?: string;
+  sourceUrl?: string;
+  capabilities?: string[];
+  supportsStreaming?: boolean;
+  commercialUse?: "allowed" | "restricted" | "review_required";
+};
+
+export type PluginCapabilityRequirement = {
+  id: string;
+  version: string;
+  execution: Array<"local" | "cloud">;
+  optional?: boolean;
+};
+
+export type PluginLocalProcessRuntime = {
+  type: "local_process";
+  command: string;
+  args: string[];
+  transport: {
+    type: "http";
+    healthPath: string;
+  };
+};
 
 export type PluginViewerContribution = {
   id: string;
@@ -49,31 +115,42 @@ export type PluginConnectorContribution = {
 export type PluginDistribution =
   | {
       source: "bundled";
-      packageFormat: "declarative";
+      packageFormat: "declarative" | "desktop-extension";
     }
   | {
       source: "marketplace";
-      packageFormat: "declarative";
+      packageFormat: "declarative" | "desktop-extension";
+    }
+  | {
+      source: "local";
+      packageFormat: "declarative" | "desktop-extension";
     };
 
 export type PluginManifest = {
-  schemaVersion: 1;
+  schemaVersion: 1 | 2;
   id: string;
   name: string;
   description: string;
   version: string;
   publisher: string;
-  kind: "host_runtime" | "declarative_plugin";
+  kind: "host_runtime" | "declarative_plugin" | "desktop_extension";
   status: "available" | "planned" | "disabled";
   distribution: PluginDistribution;
   engines: { routemarketWork: string };
   permissions: PluginPermission[];
   activationEvents: string[];
+  runtime?: PluginLocalProcessRuntime;
+  requiresCapabilities?: PluginCapabilityRequirement[];
+  resources?: {
+    models: PluginModelResource[];
+  };
   contributes: {
     viewers: PluginViewerContribution[];
     tools: PluginToolContribution[];
     workflowNodes: PluginWorkflowNodeContribution[];
     connectors: PluginConnectorContribution[];
+    navigation?: PluginNavigationContribution[];
+    pages?: PluginPageContribution[];
   };
 };
 

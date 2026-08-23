@@ -1,3 +1,4 @@
+import "./agent-avatar.scss";
 import { useEffect, useState, type CSSProperties } from "react";
 
 type AvatarScheme =

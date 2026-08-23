@@ -1,11 +1,13 @@
+import "./chat-message-row.scss";
 import { getActiveLocale, tr } from "../../../i18n";
-import { CheckCircle2, ChevronDown, CircleAlert, Copy, ExternalLink, File, FileImage, FileSpreadsheet, FileText, LoaderCircle, Paperclip, Pencil, RotateCcw } from "lucide-react";
+import { CheckCircle2, ChevronDown, CircleAlert, Copy, ExternalLink, File, FileImage, FileMusic, FileSpreadsheet, FileText, FileVideo, Info, LoaderCircle, Paperclip, Pencil, RotateCcw } from "lucide-react";
 import { useState } from "react";
 import type { ChatMessage } from "../types";
 import { AgentAvatar } from "./AgentAvatar";
 import { MessageMarkdown } from "./MessageMarkdown";
-export function ChatMessageRow({ message, streaming, onRetry, onEdit, onOpenArtifact }: {
+export function ChatMessageRow({ message, projectId, streaming, onRetry, onEdit, onOpenArtifact }: {
     message: ChatMessage;
+    projectId?: string | null;
     streaming: boolean;
     onRetry?: () => void;
     onEdit?: () => void;
@@ -19,7 +21,7 @@ export function ChatMessageRow({ message, streaming, onRetry, onEdit, onOpenArti
         : message.content;
     const runningTools = message.tools?.filter((tool) => tool.status === "running").length ?? 0;
     const failedTools = message.tools?.filter((tool) => tool.status === "error").length ?? 0;
-    const showToolDetails = streaming || runningTools > 0 || failedTools > 0 || toolsExpanded;
+    const showToolDetails = toolsExpanded;
     async function copyMessage() {
         if (!message.content)
             return;
@@ -34,6 +36,7 @@ export function ChatMessageRow({ message, streaming, onRetry, onEdit, onOpenArti
       <div className="message-content">
         <div className="message-meta">
           <strong>{message.role === "assistant" ? message.agentName ?? "RouteMarket Agent" : tr("ui.5630b886f9cd")}</strong>
+          {message.role === "assistant" && message.agentRevision ? (<span className="message-agent-revision">{tr("chat.agent.revision", [message.agentRevision])}</span>) : null}
           <time>
             {new Date(message.sentAt).toLocaleTimeString(getActiveLocale(), {
             hour: "2-digit",
@@ -46,26 +49,7 @@ export function ChatMessageRow({ message, streaming, onRetry, onEdit, onOpenArti
             {message.contextFile}
           </div>)}
         {message.attachments?.length ? (<div className="message-attachments" aria-label={tr("ui.f0e5c64959a4")}>
-            {message.attachments.map((attachment) => (<span className="message-context" key={attachment.id}>
-                <Paperclip size={12}/>
-                {attachment.name}
-              </span>))}
-          </div>) : null}
-        {message.tools?.length ? (<div className={`message-tools${showToolDetails ? " expanded" : ""}`} aria-label={tr("ui.2fa20bda48ac")}>
-            <button className="message-tools-summary" type="button" aria-expanded={showToolDetails} onClick={() => setToolsExpanded((current) => !current)}>
-              {runningTools ? <LoaderCircle className="message-tool-spinner" size={14}/> : failedTools ? <CircleAlert size={14}/> : <CheckCircle2 size={14}/>}
-              <span>{tr(runningTools ? "chat.tools.running" : failedTools ? "chat.tools.failed" : "chat.tools.completed", [message.tools.length])}</span>
-              <ChevronDown size={14}/>
-            </button>
-            {showToolDetails ? (<div className="message-tool-list">
-            {message.tools.map((tool) => (<div className={`message-tool ${tool.status}`} key={tool.toolCallId}>
-                {tool.status === "running" ? (<LoaderCircle className="message-tool-spinner" size={14}/>) : tool.status === "completed" ? (<CheckCircle2 size={14}/>) : (<CircleAlert size={14}/>)}
-                <span>
-                  <strong>{tool.title}</strong>
-                  {tool.detail ? <small>{tool.detail}</small> : null}
-                </span>
-              </div>))}
-            </div>) : null}
+            {message.attachments.map((attachment) => (<MessageAttachmentCard attachment={attachment} key={attachment.id}/>))}
           </div>) : null}
         {message.reasoning ? (<details className="message-reasoning" open={streaming}>
             <summary>
@@ -74,43 +58,112 @@ export function ChatMessageRow({ message, streaming, onRetry, onEdit, onOpenArti
               <ChevronDown size={14}/>
             </summary>
             <div className="message-reasoning-content">
-              <MessageMarkdown content={message.reasoning}/>
+              <MessageMarkdown content={message.reasoning} projectId={projectId} onOpenProjectFile={onOpenArtifact}/>
             </div>
           </details>) : null}
-        {message.artifacts?.length ? (<div className="message-artifacts" aria-label={tr("chat.artifact.generatedFiles")}>
-            {message.artifacts.map((artifact) => (<button className="message-artifact" type="button" key={artifact.id} onClick={() => onOpenArtifact?.(artifact.relativePath)}>
-                <span className={`message-artifact-icon ${artifactKind(artifact.mimeType, artifact.filename)}`}><ArtifactIcon mimeType={artifact.mimeType} filename={artifact.filename}/></span>
-                <span className="message-artifact-copy">
-                  <strong>{artifact.filename}</strong>
-                  <small>{artifactLabel(artifact.mimeType, artifact.filename)} · {formatFileSize(artifact.size)}</small>
-                </span>
-                <ExternalLink size={15}/>
-              </button>))}
-          </div>) : null}
         {isError ? (<div className="message-error-card" role="alert">
             <strong><CircleAlert size={14}/>{tr("ui.8fdc4112a445")}</strong>
             <p>{tr("ui.3ab152ac7010")}</p>
             <small>{visibleContent}</small>
           </div>) : (<div className="message-text">
-            {visibleContent ? (<MessageMarkdown content={visibleContent}/>) : streaming && !message.reasoning ? (<span className="message-thinking"><LoaderCircle size={14}/>{tr("ui.15b51f2fd5ed")}</span>) : null}
+            {visibleContent ? (<MessageMarkdown content={visibleContent} projectId={projectId} onOpenProjectFile={onOpenArtifact}/>) : streaming && !message.reasoning ? (<span className="message-thinking"><LoaderCircle size={14}/>{tr("ui.15b51f2fd5ed")}</span>) : null}
           </div>)}
-        {(message.content || message.attachments?.length || isError) &&
-            (message.role === "assistant" || onEdit) ? (<div className="message-actions">
-            {onEdit ? (<button type="button" onClick={onEdit} title={tr("ui.8a8de18c8f5e")} aria-label={tr("ui.8a8de18c8f5e")}>
-                <Pencil size={14}/>
-              </button>) : null}
-            {onRetry ? (<button type="button" onClick={onRetry} title={tr("ui.2e19057052a3")} aria-label={tr("ui.2e19057052a3")}>
-                <RotateCcw size={14}/>
-              </button>) : null}
-            <button type="button" onClick={() => void copyMessage()} title={tr("ui.4edd1d00875d")} aria-label={tr("ui.4edd1d00875d")}>
-              <Copy size={14}/>
-              {copied ? <span>{tr("ui.e381a5763d5f")}</span> : null}
+        {message.tools?.length ? (<div className={`message-tools${showToolDetails ? " expanded" : ""}`} aria-label={tr("ui.2fa20bda48ac")}>
+            <button className="message-tools-summary" type="button" aria-expanded={showToolDetails} onClick={() => setToolsExpanded((current) => !current)}>
+              {runningTools ? <LoaderCircle className="message-tool-spinner" size={14}/> : failedTools ? <CircleAlert size={14}/> : <CheckCircle2 size={14}/>}
+              <span>{tr(runningTools ? "chat.tools.running" : failedTools ? "chat.tools.failed" : "chat.tools.completed", [message.tools.length])}</span>
+              <ChevronDown size={14}/>
             </button>
+            <div className="message-tool-list" hidden={!showToolDetails}>
+            {message.tools.map((tool) => (<div className={`message-tool ${tool.status}`} key={tool.toolCallId}>
+                {tool.status === "running" ? (<LoaderCircle className="message-tool-spinner" size={14}/>) : tool.status === "completed" ? (<CheckCircle2 size={14}/>) : (<CircleAlert size={14}/>)}
+                <span className="message-tool-content">
+                  <span className="message-tool-heading">
+                    <strong>{tool.title}</strong>
+                    {tool.startedAt && tool.endedAt ? <small>{formatDuration(tool.endedAt - tool.startedAt)}</small> : null}
+                  </span>
+                  {tool.detail ? <small>{tool.detail}</small> : null}
+                  {tool.inputPreview ? (<details className="message-tool-payload">
+                      <summary>{tr("chat.tools.input")}</summary>
+                      <pre>{tool.inputPreview}</pre>
+                    </details>) : null}
+                  {tool.outputPreview ? (<details className="message-tool-payload">
+                      <summary>{tr("chat.tools.output")}</summary>
+                      <pre>{tool.outputPreview}</pre>
+                    </details>) : null}
+                </span>
+              </div>))}
+            </div>
+          </div>) : null}
+        {message.artifacts?.length ? (<div className="message-artifacts" aria-label={tr("chat.artifact.generatedFiles")}>
+            {message.artifacts.map((artifact) => (<button className="message-artifact" type="button" key={artifact.id} onClick={() => onOpenArtifact?.(artifact.relativePath)}>
+                <span className="message-artifact-main">
+                  <span className={`message-artifact-icon ${artifactKind(artifact.mimeType, artifact.filename)}`}><ArtifactIcon mimeType={artifact.mimeType} filename={artifact.filename}/></span>
+                  <strong>{artifact.filename}</strong>
+                </span>
+                <small>{artifactLabel(artifact.mimeType, artifact.filename)} · {formatFileSize(artifact.size)}</small>
+                <ExternalLink size={15}/>
+              </button>))}
           </div>) : null}
         {message.stopped && <span className="stopped-label">{tr("ui.75dddf524e4c")}</span>}
         {message.failed && <span className="stopped-label failed"><CircleAlert size={12}/>{tr("chat.response.failed")}</span>}
       </div>
+      {(message.content || message.attachments?.length || isError || message.responseMeta) &&
+          (message.role === "assistant" || onEdit) ? (<div className="message-actions">
+          {onEdit ? (<button type="button" onClick={onEdit} title={tr("ui.8a8de18c8f5e")} aria-label={tr("ui.8a8de18c8f5e")}>
+              <Pencil size={14}/>
+            </button>) : null}
+          {onRetry ? (<button type="button" onClick={onRetry} title={tr("ui.2e19057052a3")} aria-label={tr("ui.2e19057052a3")}>
+              <RotateCcw size={14}/>
+            </button>) : null}
+          <button type="button" onClick={() => void copyMessage()} title={tr("ui.4edd1d00875d")} aria-label={tr("ui.4edd1d00875d")}>
+            <Copy size={14}/>
+            {copied ? <span>{tr("ui.e381a5763d5f")}</span> : null}
+          </button>
+          {message.role === "assistant" && message.responseMeta ? <MessageResponseMeta meta={message.responseMeta}/> : null}
+        </div>) : null}
     </article>);
+}
+
+function MessageResponseMeta({ meta }: { meta: NonNullable<ChatMessage["responseMeta"]> }) {
+    return (<div className="message-response-meta" tabIndex={0}>
+      <button type="button" aria-label={tr("chat.response.details")} title={tr("chat.response.details")}>
+        <Info size={14}/>
+      </button>
+      <dl>
+        <div><dt>{tr("chat.response.model")}</dt><dd>{meta.modelCode}</dd></div>
+        <div><dt>{tr("chat.response.totalTokens")}</dt><dd>{formatTokenCount(meta.totalTokens)}</dd></div>
+        <div><dt>{tr("chat.response.inputTokens")}</dt><dd>{formatTokenCount(meta.inputTokens)}</dd></div>
+        <div><dt>{tr("chat.response.outputTokens")}</dt><dd>{formatTokenCount(meta.outputTokens)}</dd></div>
+      </dl>
+    </div>);
+}
+
+function MessageAttachmentCard({ attachment }: { attachment: NonNullable<ChatMessage["attachments"]>[number] }) {
+    const source = attachment.previewUrl ?? attachment.downloadUrl;
+    if (attachment.kind === "image" && source) {
+        return (<a className="message-attachment image" href={source} target="_blank" rel="noreferrer" title={attachment.name}>
+          <img className="message-attachment-preview" src={source} alt={attachment.name} loading="lazy"/>
+        </a>);
+    }
+    const Icon = attachment.kind === "audio" ? FileMusic : attachment.kind === "video" ? FileVideo : attachment.kind === "image" ? FileImage : File;
+    return (<div className={`message-attachment ${attachment.kind}`}>
+      <span className="message-attachment-main">
+        <span className="message-attachment-icon"><Icon size={20}/></span>
+        <strong title={attachment.name}>{attachment.name}</strong>
+      </span>
+      <small>{attachmentKindLabel(attachment.kind)} · {formatFileSize(attachment.size)}</small>
+      {source ? (<a className="message-attachment-link" href={source} target="_blank" rel="noreferrer">
+          {tr("chat.attachments.open")}<ExternalLink size={12}/>
+        </a>) : null}
+    </div>);
+}
+
+function attachmentKindLabel(kind: NonNullable<ChatMessage["attachments"]>[number]["kind"]): string {
+    if (kind === "image") return tr("chat.attachments.image");
+    if (kind === "audio") return tr("chat.attachments.audio");
+    if (kind === "video") return tr("chat.attachments.video");
+    return tr("chat.attachments.file");
 }
 
 function ArtifactIcon({ mimeType, filename }: { mimeType: string; filename: string }) {
@@ -142,4 +195,13 @@ function formatFileSize(bytes: number): string {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${Math.ceil(bytes / 1024)} KB`;
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function formatDuration(milliseconds: number): string {
+    const bounded = Math.max(0, milliseconds);
+    return bounded < 1000 ? `${Math.round(bounded)} ms` : `${(bounded / 1000).toFixed(bounded < 10_000 ? 1 : 0)} s`;
+}
+
+function formatTokenCount(value: number | null): string {
+    return value === null ? "—" : new Intl.NumberFormat(getActiveLocale()).format(value);
 }

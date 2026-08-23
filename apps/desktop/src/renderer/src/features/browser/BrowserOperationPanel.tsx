@@ -1,3 +1,4 @@
+import "./browser-operation-panel.scss";
 import { getActiveLocale, tr } from "../../i18n";
 import { Bot, CheckCircle2, CircleAlert, Clock3, Cloud, MessageSquare, RotateCcw, UserRound, Workflow, X } from "lucide-react";
 import type { ManagedBrowserOperation, ManagedBrowserOperationSource } from "../../../../shared/desktop-api";

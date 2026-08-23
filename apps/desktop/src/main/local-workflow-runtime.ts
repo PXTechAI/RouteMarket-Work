@@ -38,6 +38,15 @@ export class LocalWorkflowRuntime {
     workflowId: string,
     input: Record<string, unknown> = {}
   ): DesktopWorkflowRun {
+    const unfinished = this.runs
+      .list(localProjectId, workflowId)
+      .find((candidate) => !isTerminal(candidate.status));
+    if (unfinished) {
+      throw Object.assign(
+        new Error(`Workflow already has an unfinished run: ${unfinished.runId}`),
+        { code: "WORKFLOW_RUN_ALREADY_ACTIVE", runId: unfinished.runId }
+      );
+    }
     const draft = this.requireDraft(localProjectId, workflowId, "workflow");
     const order = topologicalOrder(draft);
     const run = createRun(draft, input);
@@ -169,7 +178,11 @@ export class LocalWorkflowRuntime {
     try {
       const output = await this.executeDraft(
         draft,
-        run.input,
+        {
+          ...run.input,
+          $workflowId: run.workflowId,
+          $workflowRunId: run.runId
+        },
         controller.signal,
         new Set([draft.workflowId]),
         order,
@@ -416,6 +429,8 @@ function buildNodeInput(
     ...portInputs,
     ...node.config,
     $localProjectId: draft.localProjectId,
+    $workflowId: workflowInput.$workflowId,
+    $workflowRunId: workflowInput.$workflowRunId,
     $workflow: workflowInput,
     $upstream: upstream
   };

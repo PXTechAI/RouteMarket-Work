@@ -30,7 +30,15 @@ describe("Amazon price Workflow", () => {
   it("navigates, recognizes one product, and exports a local CSV", async () => {
     temporaryDirectory = await mkdtemp(join(tmpdir(), "routemarket-amazon-flow-"));
     runStore = new WorkflowRunStore(join(temporaryDirectory, "work.db"));
-    const navigate = vi.fn(async () => ({ activePageId: "page_amazon" }));
+    const navigate = vi.fn(async () => ({ activePageId: "page_amazon", userTakeover: true }));
+    const setUserTakeover = vi.fn(async () => ({
+      activePageId: "page_amazon",
+      userTakeover: false
+    }));
+    const getWorkflowState = vi.fn(async () => ({
+      activePageId: "page_amazon",
+      userTakeover: true
+    }));
     const extract = vi.fn(async (
       _localProjectId: string,
       selector: string
@@ -39,7 +47,12 @@ describe("Amazon price Workflow", () => {
       if (selector === ".priceToPay .a-offscreen") return "$88.50";
       throw new Error("Browser element not found");
     });
-    const browser = { navigate, extract } as unknown as ManagedBrowserManager;
+    const browser = {
+      navigate,
+      setUserTakeover,
+      getWorkflowState,
+      extract
+    } as unknown as ManagedBrowserManager;
     const draft = amazonDraft(temporaryDirectory);
     const executor = createLocalWorkflowNodeExecutor({
       cloudWorkflowClient: {
@@ -70,7 +83,13 @@ describe("Amazon price Workflow", () => {
     expect(navigate).toHaveBeenCalledWith(
       "project_1",
       "https://www.amazon.com/dp/test",
-      undefined,
+      "page_amazon",
+      { source: "workflow" }
+    );
+    expect(setUserTakeover).toHaveBeenCalledWith(
+      "project_1",
+      false,
+      "page_amazon",
       { source: "workflow" }
     );
     const output = finished?.output as { savedPath: string; rowCount: number };

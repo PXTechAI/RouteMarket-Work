@@ -1,3 +1,4 @@
+import "./project-dialog.scss";
 import { FolderPlus, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { ProjectSummary } from "../../../../shared/desktop-api";

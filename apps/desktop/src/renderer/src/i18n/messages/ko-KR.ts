@@ -93,6 +93,7 @@ export const koKR = {
   "settings.appearance.title": "화면",
   "settings.appearance.description": "RouteMarket Work의 표시 방식을 선택합니다.",
   "settings.appearance.theme": "테마",
+  "settings.appearance.scale": "인터페이스 배율",
   "settings.appearance.light": "라이트",
   "settings.appearance.dark": "다크",
   "settings.appearance.system": "시스템",

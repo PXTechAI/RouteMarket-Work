@@ -1,0 +1,277 @@
+.rm-provider-manual-models {
+  display: grid;
+  padding-top: 12px;
+  gap: 10px;
+  border-top: 1px solid var(--rm-border);
+}
+.rm-provider-synced-models {
+  display: grid;
+  padding-top: 12px;
+  gap: 7px;
+  border-top: 1px solid var(--rm-border);
+}
+.rm-provider-synced-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.rm-provider-synced-heading > span {
+  color: var(--rm-text);
+  font-size: 14px;
+}
+.rm-provider-synced-heading > small {
+  color: var(--rm-text-muted);
+  font-size: 12px;
+}
+.rm-provider-synced-models > p {
+  margin: 0;
+  color: var(--rm-text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.rm-provider-synced-list {
+  display: grid;
+  max-height: 340px;
+  overflow-y: auto;
+  gap: 8px;
+}
+.rm-provider-synced-model {
+  display: grid;
+  padding: 0 10px;
+  background: var(--rm-bg);
+  border: 1px solid var(--rm-border);
+  border-radius: 10px;
+}
+.rm-provider-synced-model > summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  align-items: center;
+  min-height: 40px;
+  gap: 12px;
+  cursor: pointer;
+  list-style: none;
+}
+.rm-provider-synced-model > summary::-webkit-details-marker {
+  display: none;
+}
+.rm-provider-synced-model > summary span,
+.rm-provider-synced-model > summary code {
+  overflow: hidden;
+  color: var(--rm-text);
+  font-family: inherit;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rm-provider-synced-model > summary code {
+  color: var(--rm-text-muted);
+  text-align: right;
+}
+.rm-provider-synced-model > summary em {
+  color: var(--rm-text-muted);
+  font-size: 11px;
+  font-style: normal;
+  white-space: nowrap;
+}
+.rm-provider-synced-model[open] {
+  padding-bottom: 10px;
+}
+.rm-provider-manual-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+.rm-provider-manual-heading > div {
+  display: grid;
+  gap: 3px;
+}
+.rm-provider-manual-heading span {
+  color: var(--rm-text);
+  font-size: 12px;
+}
+.rm-provider-manual-heading small {
+  color: var(--rm-text-muted);
+  font-size: 10px;
+  font-weight: 400;
+  line-height: 1.45;
+}
+.rm-provider-manual-heading button {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  min-height: 30px;
+  padding: 0 9px;
+  gap: 5px;
+  color: var(--rm-accent);
+  background: var(--rm-accent-soft);
+  border: 1px solid color-mix(in srgb, var(--rm-accent) 24%, var(--rm-border));
+  border-radius: 8px;
+  font-size: 10px;
+}
+.rm-provider-manual-list {
+  display: grid;
+  gap: 8px;
+}
+.rm-provider-manual-model {
+  display: grid;
+  padding: 10px;
+  gap: 9px;
+  background: var(--rm-bg);
+  border: 1px solid var(--rm-border);
+  border-radius: 10px;
+}
+.rm-provider-manual-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(112px, 0.55fr) 30px;
+  align-items: end;
+  gap: 8px;
+}
+.rm-provider-form .rm-provider-manual-fields input:not([type="checkbox"]) {
+  height: 34px;
+  background: var(--rm-surface);
+  border-radius: 8px;
+}
+.rm-provider-form .rm-provider-manual-fields select {
+  height: 38px;
+  min-width: 0;
+  background: var(--rm-surface);
+  border-radius: 8px;
+}
+.rm-provider-manual-remove {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 34px;
+  padding: 0;
+  color: var(--rm-text-muted);
+  background: var(--rm-surface);
+  border: 1px solid var(--rm-border);
+  border-radius: 8px;
+}
+.rm-provider-manual-remove:hover {
+  color: var(--rm-danger);
+  border-color: color-mix(in srgb, var(--rm-danger) 35%, var(--rm-border));
+}
+.rm-provider-manual-empty {
+  padding: 12px;
+  color: var(--rm-text-muted);
+  background: var(--rm-bg);
+  border: 1px dashed var(--rm-border);
+  border-radius: 9px;
+  font-size: 10px;
+  text-align: center;
+}
+.rm-provider-pricing {
+  display: grid;
+  padding-top: 9px;
+  gap: 8px;
+  border-top: 1px solid var(--rm-border);
+}
+.rm-provider-pricing > div:first-child {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.rm-provider-pricing > div:first-child > span {
+  color: var(--rm-text);
+  font-size: 12px;
+}
+.rm-provider-pricing > div:first-child > small {
+  color: var(--rm-text-muted);
+  font-size: 11px;
+  font-weight: 400;
+}
+.rm-provider-pricing-fields {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+.rm-provider-form .rm-provider-pricing-fields label {
+  min-width: 0;
+  color: var(--rm-text-muted);
+  font-size: 11px;
+  font-weight: 400;
+}
+.rm-provider-form .rm-provider-pricing-fields input:not([type="checkbox"]) {
+  height: 34px;
+  background: var(--rm-surface);
+  border-radius: 8px;
+}
+
+/* Provider setup is a primary task, so keep its labels and supporting copy readable. */
+.rm-provider-modal > h2 {
+  font-size: 18px;
+  font-weight: 500;
+}
+.rm-provider-modal > p {
+  font-size: 13px;
+  line-height: 1.6;
+}
+.rm-provider-modal .rm-provider-form {
+  gap: 15px;
+}
+.rm-provider-modal .rm-provider-form > label,
+.rm-provider-modal .rm-provider-manual-fields label {
+  font-size: 12px;
+  font-weight: 400;
+}
+.rm-provider-modal .rm-provider-form input:not([type="checkbox"]),
+.rm-provider-modal .rm-provider-form select {
+  font-size: 13px;
+}
+.rm-provider-modal .rm-provider-form > label > small {
+  color: var(--rm-text-muted);
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.45;
+}
+.rm-provider-modal .rm-provider-template-summary span {
+  font-size: 11px;
+}
+.rm-provider-modal .rm-provider-template-summary strong,
+.rm-provider-modal .rm-provider-template-summary code {
+  font-size: 12px;
+  font-weight: 400;
+}
+.rm-provider-modal .rm-provider-enabled {
+  font-size: 12px;
+}
+.rm-provider-manual-heading span {
+  font-size: 14px;
+  font-weight: 400;
+}
+.rm-provider-manual-heading small {
+  font-size: 12px;
+}
+.rm-provider-manual-heading button {
+  min-height: 34px;
+  padding: 0 11px;
+  font-size: 12px;
+}
+.rm-provider-form .rm-provider-manual-fields input:not([type="checkbox"]) {
+  height: 38px;
+}
+.rm-provider-manual-empty {
+  font-size: 12px;
+}
+.rm-provider-modal .rm-settings-modal-actions button {
+  min-height: 36px;
+  padding: 0 14px;
+  font-size: 13px;
+  font-weight: 400;
+}
+
+@media (max-width: 720px) {
+  .rm-provider-manual-fields {
+    grid-template-columns: minmax(0, 1fr) minmax(110px, 0.65fr) 30px;
+  }
+  .rm-provider-manual-fields > label:first-child {
+    grid-column: 1 / -2;
+  }
+  .rm-provider-pricing-fields {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

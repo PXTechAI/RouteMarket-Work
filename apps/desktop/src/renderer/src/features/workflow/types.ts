@@ -52,7 +52,10 @@ export type WorkflowPageActions = {
     onUndoDraft(): void;
     onRedoDraft(): void;
     onAddExecutorChange(value: string): void;
-    onAddNode(): void;
+    onAddNode(options?: {
+      executorKey?: string;
+      position?: { x: number; y: number };
+    }): string | null;
     onMoveNodes(
       positions: Array<{ nodeId: string; x: number; y: number }>
     ): void;

@@ -1,0 +1,127 @@
+.rm-app-titlebar {
+  -webkit-app-region: drag;
+  grid-column: 1 / -1;
+  grid-row: 1;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  height: 36px;
+  padding: 0 148px 0 7px;
+  color: var(--rm-text-muted);
+  background: var(--rm-titlebar);
+  border-bottom: 1px solid var(--rm-border);
+  user-select: none;
+  position: relative;
+  z-index: 100;
+}
+
+.rm-app-titlebar-brand {
+  -webkit-app-region: no-drag;
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 7px;
+  height: 100%;
+  margin-right: 8px;
+  color: var(--rm-text);
+  font-size: 12px;
+  font-weight: 400;
+  white-space: nowrap;
+}
+
+.rm-app-titlebar-logo {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+}
+
+.rm-app-titlebar-title {
+  position: absolute;
+  left: 50%;
+  max-width: min(36vw, 520px);
+  overflow: hidden;
+  color: var(--rm-text-muted);
+  font-size: 11px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.rm-title-menu {
+  -webkit-app-region: no-drag;
+  position: relative;
+  height: 100%;
+}
+
+.rm-title-menu > button {
+  height: 100%;
+  padding: 0 9px;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 400;
+  cursor: default;
+}
+
+.rm-title-menu > button:hover,
+.rm-title-menu > button[aria-expanded="true"] {
+  color: var(--rm-text);
+  background: var(--rm-surface-strong);
+}
+
+.rm-title-menu-popup {
+  position: absolute;
+  top: 33px;
+  left: 0;
+  display: grid;
+  width: 250px;
+  padding: 6px;
+  color: var(--rm-text);
+  background: var(--rm-surface);
+  border: 1px solid var(--rm-border);
+  border-radius: 10px;
+  box-shadow: var(--rm-shadow-menu);
+}
+
+.rm-title-menu-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 18px;
+  min-height: 30px;
+  padding: 0 10px;
+  color: inherit;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 400;
+  cursor: default;
+}
+
+.rm-title-menu-item:hover:not(:disabled),
+.rm-title-menu-item:focus-visible {
+  background: var(--rm-surface-strong);
+  outline: none;
+}
+
+.rm-title-menu-item:disabled {
+  opacity: 0.42;
+}
+.rm-title-menu-item kbd {
+  color: var(--rm-text-muted);
+  font: inherit;
+  font-size: 11px;
+}
+.rm-title-menu-separator {
+  height: 1px;
+  margin: 5px -6px;
+  background: var(--rm-border);
+}

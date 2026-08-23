@@ -1,4 +1,10 @@
 import type { ProjectChatToolCall } from "./project-chat-tools";
+import {
+  emptyModelTokenUsage,
+  extractModelTokenUsage,
+  mergeModelTokenUsage,
+  type ModelTokenUsage
+} from "./model-token-usage";
 
 type MutableToolCall = {
   id: string;
@@ -10,6 +16,7 @@ export type ProjectChatStreamResult = {
   text: string;
   reasoning: string;
   toolCalls: ProjectChatToolCall[];
+  usage: ModelTokenUsage;
 };
 
 export async function readProjectChatStream(
@@ -23,6 +30,7 @@ export async function readProjectChatStream(
   const toolCalls = new Map<string, MutableToolCall>();
   let text = "";
   let reasoning = "";
+  let usage = emptyModelTokenUsage();
   let buffer = "";
 
   try {
@@ -35,6 +43,7 @@ export async function readProjectChatStream(
       buffer = lines.pop() ?? "";
       for (const line of lines) {
         const next = consumeSseLine(line, text, reasoning, toolCalls);
+        usage = mergeModelTokenUsage(usage, next.usage);
         if (next.text !== text) {
           text = next.text;
           onText(text);
@@ -48,6 +57,7 @@ export async function readProjectChatStream(
     buffer += decoder.decode();
     if (buffer.trim()) {
       const next = consumeSseLine(buffer, text, reasoning, toolCalls);
+      usage = mergeModelTokenUsage(usage, next.usage);
       if (next.text !== text) {
         text = next.text;
         onText(text);
@@ -64,7 +74,8 @@ export async function readProjectChatStream(
   return {
     text,
     reasoning,
-    toolCalls: [...toolCalls.values()].filter((call) => call.name)
+    toolCalls: [...toolCalls.values()].filter((call) => call.name),
+    usage
   };
 }
 
@@ -73,25 +84,25 @@ function consumeSseLine(
   currentText: string,
   currentReasoning: string,
   toolCalls: Map<string, MutableToolCall>
-): { text: string; reasoning: string } {
+): { text: string; reasoning: string; usage: ModelTokenUsage | null } {
   const line = rawLine.trim();
   if (!line.startsWith("data:")) {
-    return { text: currentText, reasoning: currentReasoning };
+    return { text: currentText, reasoning: currentReasoning, usage: null };
   }
   const data = line.slice("data:".length).trim();
   if (!data || data === "[DONE]" || data.startsWith("[DONE_WITH_META]")) {
-    return { text: currentText, reasoning: currentReasoning };
+    return { text: currentText, reasoning: currentReasoning, usage: null };
   }
 
   let payload: Record<string, unknown>;
   try {
     const value = JSON.parse(data) as unknown;
     if (!value || typeof value !== "object" || Array.isArray(value)) {
-      return { text: currentText, reasoning: currentReasoning };
+      return { text: currentText, reasoning: currentReasoning, usage: null };
     }
     payload = value as Record<string, unknown>;
   } catch {
-    return { text: currentText, reasoning: currentReasoning };
+    return { text: currentText, reasoning: currentReasoning, usage: null };
   }
 
   consumeChatCompletionToolCalls(payload, toolCalls);
@@ -116,7 +127,7 @@ function consumeSseLine(
   const reasoningFallback = extractReasoningFallback(payload);
   if (reasoningFallback) reasoning = mergeFallback(reasoning, reasoningFallback);
 
-  return { text, reasoning };
+  return { text, reasoning, usage: extractModelTokenUsage(payload) };
 }
 
 function consumeChatCompletionToolCalls(

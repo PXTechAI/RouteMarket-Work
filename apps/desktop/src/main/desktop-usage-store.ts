@@ -1,6 +1,7 @@
 import { appendFile, mkdir, readFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { LocalApiGatewayUsage } from "../shared/desktop-api";
+import { normalizeModelTokenPricing } from "./model-usage-cost";
 
 export class DesktopUsageStore {
   private mutationTail: Promise<void> = Promise.resolve();
@@ -55,7 +56,7 @@ function normalizeUsageRecord(value: unknown): LocalApiGatewayUsage | null {
   ) return null;
   return {
     id: record.id,
-    source: record.source === "desktop_chat" ? "desktop_chat" : "local_gateway",
+    source: normalizeSource(record.source),
     kind: normalizeKind(record.kind),
     providerId: typeof record.providerId === "string" ? record.providerId : null,
     providerName: typeof record.providerName === "string" && record.providerName.trim()
@@ -67,8 +68,21 @@ function normalizeUsageRecord(value: unknown): LocalApiGatewayUsage | null {
     status: typeof record.status === "number" ? record.status : null,
     durationMs: Math.max(0, record.durationMs),
     success: record.success,
+    inputTokens: normalizeTokenCount(record.inputTokens),
+    outputTokens: normalizeTokenCount(record.outputTokens),
+    totalTokens: normalizeTokenCount(record.totalTokens),
+    cachedInputTokens: normalizeTokenCount(record.cachedInputTokens),
+    cacheCreationInputTokens: normalizeTokenCount(record.cacheCreationInputTokens),
+    pricingSnapshot: normalizeModelTokenPricing(record.pricingSnapshot),
+    estimatedCostUsdMicros: normalizeCostMicros(record.estimatedCostUsdMicros),
     createdAt: record.createdAt
   };
+}
+
+function normalizeSource(value: unknown): LocalApiGatewayUsage["source"] {
+  return value === "desktop_chat" || value === "desktop_media"
+    ? value
+    : "local_gateway";
 }
 
 function normalizeKind(value: unknown): LocalApiGatewayUsage["kind"] {
@@ -76,4 +90,16 @@ function normalizeKind(value: unknown): LocalApiGatewayUsage["kind"] {
     value === "audio" || value === "video"
     ? value
     : "chat";
+}
+
+function normalizeTokenCount(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0
+    ? Math.round(value)
+    : null;
+}
+
+function normalizeCostMicros(value: unknown): number | null {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0
+    ? value
+    : null;
 }

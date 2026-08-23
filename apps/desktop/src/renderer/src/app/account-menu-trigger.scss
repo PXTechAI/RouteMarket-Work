@@ -1,0 +1,104 @@
+.rm-account-menu-root {
+  position: relative;
+  width: 100%;
+}
+
+.rm-rail-account-row {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  gap: 5px;
+}
+
+.rm-rail-account {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 1;
+  width: auto;
+  min-width: 34px;
+  height: 40px;
+  gap: 10px;
+  padding: 0;
+  color: var(--rm-text);
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+.rm-rail-account:hover,
+.rm-rail-account.active {
+  background: var(--rm-surface-strong);
+}
+
+.rm-rail-account-avatar {
+  position: relative;
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 17px;
+  height: 17px;
+  color: var(--rm-on-accent);
+  background: var(--rm-brand-gradient);
+  border: 1px solid color-mix(in srgb, var(--rm-on-accent) 18%, transparent);
+  border-radius: 4px;
+  box-shadow: var(--rm-shadow-sm);
+  font-size: 7px;
+  font-weight: 750;
+}
+
+.rm-rail-account-avatar > img,
+.rm-account-menu-avatar > img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+}
+
+.rm-rail:not(.expanded) .rm-rail-account {
+  justify-content: center;
+}
+
+.rm-rail.expanded .rm-rail-account {
+  padding: 0 10px;
+}
+
+.rm-rail-account-copy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.rm-rail-account-copy strong,
+.rm-rail-account-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rm-rail-account-copy strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.rm-rail-account-copy small {
+  color: var(--rm-text-muted);
+  font-size: 11px;
+}
+
+.rm-account-presence {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 6px;
+  height: 6px;
+  background: var(--rm-text-weak);
+  border: 1px solid var(--rm-surface-muted);
+  border-radius: 50%;
+}
+
+.rm-account-presence.online {
+  background: var(--rm-success);
+}

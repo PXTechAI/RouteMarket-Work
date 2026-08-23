@@ -1,3 +1,4 @@
+import "./runtime-error.scss";
 import { Component, type ErrorInfo, type ReactNode } from "react";
 import { AlertTriangle, RotateCcw, X } from "lucide-react";
 import { tr } from "../i18n";
@@ -35,9 +36,14 @@ export class RuntimeErrorBoundary extends Component<RuntimeErrorBoundaryProps, R
   }
 
   private readonly handleWindowError = (event: ErrorEvent): void => {
-    console.error("RouteMarket Work captured a window error.", event.error ?? event.message);
+    const error = event.error ?? event.message;
+    if (isIgnorableBrowserRuntimeError(error)) {
+      event.preventDefault();
+      return;
+    }
+    console.error("RouteMarket Work captured a window error.", error);
     event.preventDefault();
-    this.setState({ runtimeError: errorMessage(event.error ?? event.message) });
+    this.setState({ runtimeError: errorMessage(error) });
   };
 
   private readonly handleUnhandledRejection = (event: PromiseRejectionEvent): void => {
@@ -77,6 +83,15 @@ export class RuntimeErrorBoundary extends Component<RuntimeErrorBoundaryProps, R
       </>
     );
   }
+}
+
+export function isIgnorableBrowserRuntimeError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : typeof error === "string" ? error : "";
+  const normalized = message.trim();
+  return (
+    normalized === "ResizeObserver loop limit exceeded" ||
+    normalized === "ResizeObserver loop completed with undelivered notifications."
+  );
 }
 
 function errorMessage(error: unknown): string {

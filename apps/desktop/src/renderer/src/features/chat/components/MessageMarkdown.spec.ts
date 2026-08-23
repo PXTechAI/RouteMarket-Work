@@ -1,24 +1,22 @@
 import { describe, expect, it } from "vitest";
-import { parseMessageMarkdownBlocks } from "./MessageMarkdown";
+import { normalizeMessageMarkdown, parseProjectFileUri } from "./MessageMarkdown";
 
-describe("parseMessageMarkdownBlocks", () => {
-  it("parses common assistant response blocks without accepting raw HTML", () => {
-    expect(parseMessageMarkdownBlocks([
-      "## Result",
-      "",
-      "- first",
-      "- second",
-      "",
-      "```ts",
-      "const answer = 42;",
-      "```",
-      "",
-      "<script>alert('unsafe')</script>"
-    ].join("\n"))).toEqual([
-      { type: "heading", level: 2, text: "Result" },
-      { type: "list", ordered: false, items: ["first", "second"] },
-      { type: "code", language: "ts", text: "const answer = 42;" },
-      { type: "paragraph", text: "<script>alert('unsafe')</script>" }
-    ]);
+describe("project file markdown", () => {
+  it("repairs a wrapped project link emitted by a model", () => {
+    expect(normalizeMessageMarkdown("[下载 PDF]\n(project://project_123/%E6%B5%8B%E8%AF%95.pdf)")).toBe(
+      "[下载 PDF](project://project_123/%E6%B5%8B%E8%AF%95.pdf)",
+    );
+  });
+
+  it("parses a safe project URI into the current-project relative path", () => {
+    expect(parseProjectFileUri("project://project_123/%E6%B5%8B%E8%AF%95.pdf")).toEqual({
+      projectId: "project_123",
+      relativePath: "测试.pdf",
+    });
+  });
+
+  it("rejects traversal and encoded path separators", () => {
+    expect(parseProjectFileUri("project://project_123/../secret.txt")).toBeNull();
+    expect(parseProjectFileUri("project://project_123/folder%2Fsecret.txt")).toBeNull();
   });
 });

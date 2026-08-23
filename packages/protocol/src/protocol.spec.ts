@@ -186,6 +186,72 @@ describe("RouteMarket Work protocol fixtures", () => {
     })).toEqual({ ok: true });
   });
 
+  it("accepts schema v2 desktop extensions with navigation, pages and local GPU runtimes", () => {
+    expect(checkPluginManifest({
+      schemaVersion: 2,
+      id: "ai.routemarket.talking-head",
+      name: "Local Talking Head",
+      description: "Local GPU avatar video studio.",
+      version: "0.1.0",
+      publisher: "PXTechAI",
+      kind: "desktop_extension",
+      status: "available",
+      distribution: { source: "local", packageFormat: "desktop-extension" },
+      engines: { routemarketWork: ">=0.2.0" },
+      permissions: [
+        "process", "device.gpu", "data.read", "media.read", "media.write", "models.manage",
+        "models.invoke.local", "models.invoke.cloud", "media.upload.cloud", "biometric.face", "biometric.voice"
+      ],
+      activationEvents: ["onPage:talking-head.studio"],
+      requiresCapabilities: [{
+        id: "audio.speech.synthesize",
+        version: "^1.0.0",
+        execution: ["local", "cloud"]
+      }, {
+        id: "video.lip_sync",
+        version: "^1.0.0",
+        execution: ["local", "cloud"],
+        optional: true
+      }],
+      runtime: {
+        type: "local_process",
+        command: "python",
+        args: ["runtime/server.py"],
+        transport: { type: "http", healthPath: "/health" }
+      },
+      resources: {
+        models: [{
+          id: "musetalk-1.5",
+          title: "MuseTalk 1.5",
+          kind: "lip_sync",
+          required: true,
+          recommendedVramMb: 8192,
+          license: "MIT",
+          capabilities: ["video.lip_sync"],
+          supportsStreaming: false,
+          commercialUse: "allowed"
+        }]
+      },
+      contributes: {
+        viewers: [], tools: [], workflowNodes: [], connectors: [],
+        navigation: [{
+          id: "talking-head.nav",
+          title: "口播工作室",
+          pageId: "talking-head.studio",
+          group: "creation",
+          icon: "audio-lines",
+          order: 40
+        }],
+        pages: [{
+          id: "talking-head.studio",
+          title: "口播工作室",
+          source: "runtime",
+          path: "/studio"
+        }]
+      }
+    })).toEqual({ ok: true });
+  });
+
   it("rejects plugin executable entry points and undeclared permissions", () => {
     const base = {
       schemaVersion: 1,

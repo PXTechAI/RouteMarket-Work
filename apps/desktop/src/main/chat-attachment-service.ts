@@ -2,12 +2,15 @@ import { trMain } from "./i18n";
 import { randomUUID } from "node:crypto";
 import { basename, extname } from "node:path";
 import { readFile, stat } from "node:fs/promises";
-import type { DesktopChatAttachment } from "../shared/desktop-api";
+import type {
+  DesktopChatAttachment,
+  DesktopChatAttachmentUpload
+} from "../shared/desktop-api";
 import type { RouteMarketApiClient } from "./routemarket-api-client";
 
-export const MAX_CHAT_ATTACHMENTS = 5;
-export const MAX_CHAT_ATTACHMENT_BYTES = 25 * 1024 * 1024;
-export const MAX_CHAT_ATTACHMENTS_TOTAL_BYTES = 50 * 1024 * 1024;
+export const MAX_CHAT_ATTACHMENTS = 6;
+export const MAX_CHAT_ATTACHMENT_BYTES = 20 * 1024 * 1024;
+export const MAX_CHAT_ATTACHMENTS_TOTAL_BYTES = 60 * 1024 * 1024;
 const MAX_TEXT_EXCERPT = 4_000;
 
 type SelectedFile = {
@@ -17,6 +20,10 @@ type SelectedFile = {
   mimeType: string;
 };
 
+type UploadFile = Omit<SelectedFile, "path"> & {
+  bytes: Buffer;
+};
+
 export async function uploadSelectedChatAttachments(
   apiClient: RouteMarketApiClient,
   filePaths: string[]
@@ -24,9 +31,49 @@ export async function uploadSelectedChatAttachments(
   const selected = await inspectSelectedFiles(filePaths);
   const attachments: DesktopChatAttachment[] = [];
   for (const file of selected) {
+    attachments.push(await uploadAttachment(apiClient, {
+      name: file.name,
+      size: file.size,
+      mimeType: file.mimeType,
+      bytes: await readFile(file.path)
+    }));
+  }
+  return attachments;
+}
+
+export async function uploadTransferredChatAttachments(
+  apiClient: RouteMarketApiClient,
+  value: unknown
+): Promise<DesktopChatAttachment[]> {
+  const files = inspectTransferredFiles(value);
+  const attachments: DesktopChatAttachment[] = [];
+  for (const file of files) {
     attachments.push(await uploadAttachment(apiClient, file));
   }
   return attachments;
+}
+
+export async function releaseChatAttachment(
+  apiClient: RouteMarketApiClient,
+  attachment: DesktopChatAttachment
+): Promise<void> {
+  const response = await apiClient.request(
+    "/api/app/v1/assets/references/release",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        asset_id: attachment.assetId,
+        reference_type: "chat_upload",
+        reference_id: attachment.id
+      })
+    },
+    "required"
+  );
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    throw new Error(readApiError(payload, response.status));
+  }
 }
 
 export async function inspectSelectedFiles(
@@ -60,18 +107,21 @@ export async function inspectSelectedFiles(
 
 async function uploadAttachment(
   apiClient: RouteMarketApiClient,
-  file: SelectedFile
+  file: UploadFile
 ): Promise<DesktopChatAttachment> {
-  const bytes = await readFile(file.path);
   const id = `attachment_${randomUUID().replaceAll("-", "")}`;
+  const blobBytes = new Uint8Array(file.bytes.byteLength);
+  blobBytes.set(file.bytes);
   const form = new FormData();
   form.append(
     "file",
-    new Blob([bytes], { type: file.mimeType }),
+    new Blob([blobBytes], { type: file.mimeType }),
     file.name
   );
   form.append("reference_type", "chat_upload");
   form.append("reference_id", id);
+  form.append("source", "desktop_chat");
+  form.append("client", "routemarket_work");
   const response = await apiClient.request(
     "/api/app/v1/assets/upload",
     { method: "POST", body: form },
@@ -88,16 +138,59 @@ async function uploadAttachment(
   return {
     ...normalized,
     textExcerpt: isTextLike(file.name, file.mimeType)
-      ? bytes.toString("utf8").slice(0, MAX_TEXT_EXCERPT).trim() || null
+      ? file.bytes.toString("utf8").slice(0, MAX_TEXT_EXCERPT).trim() || null
       : null
   };
+}
+
+function inspectTransferredFiles(value: unknown): UploadFile[] {
+  if (!Array.isArray(value) || value.length > MAX_CHAT_ATTACHMENTS) {
+    throw new Error(trMain("ui.93ff81d98459", [MAX_CHAT_ATTACHMENTS]));
+  }
+  const files = value.map((candidate): UploadFile => {
+    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
+      throw new Error(trMain("ui.831f9764ccb0"));
+    }
+    const input = candidate as Partial<DesktopChatAttachmentUpload>;
+    const name = typeof input.name === "string" ? input.name.trim() : "";
+    if (!name || name.includes("/") || name.includes("\\") || basename(name) !== name) {
+      throw new Error(trMain("ui.831f9764ccb0"));
+    }
+    const bytes = toBuffer(input.bytes);
+    if (!bytes || bytes.byteLength <= 0 || input.size !== bytes.byteLength) {
+      throw new Error(trMain("ui.bd75983531bb", [name]));
+    }
+    if (bytes.byteLength > MAX_CHAT_ATTACHMENT_BYTES) {
+      throw new Error(trMain("ui.6df660e8cbfa", [name]));
+    }
+    return {
+      name,
+      size: bytes.byteLength,
+      mimeType:
+        typeof input.mimeType === "string" && input.mimeType.trim()
+          ? input.mimeType.trim().slice(0, 255)
+          : guessMimeType(name),
+      bytes
+    };
+  });
+  const total = files.reduce((sum, file) => sum + file.size, 0);
+  if (total > MAX_CHAT_ATTACHMENTS_TOTAL_BYTES) {
+    throw new Error(trMain("ui.477505da461e"));
+  }
+  return files;
+}
+
+function toBuffer(value: unknown): Buffer | null {
+  if (value instanceof ArrayBuffer) return Buffer.from(value);
+  if (!ArrayBuffer.isView(value)) return null;
+  return Buffer.from(value.buffer, value.byteOffset, value.byteLength);
 }
 
 function normalizeUpload(
   value: unknown,
   apiClient: RouteMarketApiClient,
   id: string,
-  file: SelectedFile
+  file: Pick<UploadFile, "name" | "size" | "mimeType">
 ): Omit<DesktopChatAttachment, "textExcerpt"> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const payload = value as Record<string, unknown>;
@@ -162,6 +255,14 @@ function readUploadError(value: unknown, status: number): string {
     if (typeof message === "string" && message.trim()) return message.trim();
   }
   return trMain("ui.d0d0606f28d6", [status]);
+}
+
+function readApiError(value: unknown, status: number): string {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const message = (value as Record<string, unknown>).message;
+    if (typeof message === "string" && message.trim()) return message.trim();
+  }
+  return trMain("ui.3f3d984dcffb", [status]);
 }
 
 function isTextLike(name: string, mimeType: string): boolean {

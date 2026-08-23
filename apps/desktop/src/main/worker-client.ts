@@ -61,6 +61,7 @@ type WorkerRequestInput =
         sourcePath: string;
         sourceLabel?: string;
         sourceKind?: "local_archive" | "web_library";
+        importKind?: "archive" | "directory" | "markdown";
       };
     }
   | {
@@ -383,6 +384,17 @@ export class WorkerClient {
         ...(sourceLabel ? { sourceLabel } : {}),
         ...(sourceKind ? { sourceKind } : {})
       }
+    });
+  }
+
+  installProjectSkillSource(
+    localProjectId: string,
+    sourcePath: string,
+    importKind: "archive" | "directory" | "markdown"
+  ): Promise<LocalSkillInstallReceipt> {
+    return this.request<LocalSkillInstallReceipt>({
+      type: "local.skill.install",
+      payload: { localProjectId, sourcePath, importKind }
     });
   }
 

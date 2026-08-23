@@ -1,4 +1,5 @@
 import { getActiveLocale, tr } from "../../i18n";
+import "./approval.scss";
 import { Ban, Check, CheckCircle2, LoaderCircle, Search, ShieldCheck, Trash2, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { ApprovalPolicy, ApprovalRecord } from "../../../../shared/desktop-api";

@@ -1,0 +1,224 @@
+.rm-files-page {
+  display: grid;
+  grid-template-columns: 252px minmax(0, 1fr);
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  background: var(--rm-surface);
+}
+
+.rm-file-navigator {
+  display: grid;
+  grid-template-rows: 52px 40px minmax(0, 1fr) 28px;
+  min-width: 0;
+  min-height: 0;
+  background: var(--rm-surface-muted);
+  border-right: 1px solid var(--rm-border);
+}
+
+.rm-file-navigator-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 9px 7px 14px;
+  border-bottom: 1px solid var(--rm-border);
+}
+
+.rm-file-navigator-header > div:first-child {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.rm-file-navigator-header strong,
+.rm-file-navigator-header span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rm-file-navigator-header strong {
+  color: var(--rm-text);
+  font-size: 11px;
+}
+
+.rm-file-navigator-header span {
+  color: var(--rm-text-muted);
+  font-size: 9px;
+}
+
+.rm-file-navigator-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 2px;
+}
+
+.rm-file-navigator-search {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) 18px;
+  align-items: center;
+  gap: 5px;
+  margin: 6px 9px;
+  padding: 0 8px;
+  color: var(--rm-text-weak);
+  background: var(--rm-surface);
+  border: 1px solid var(--rm-border);
+  border-radius: 6px;
+}
+
+.rm-file-navigator-search:focus-within {
+  color: var(--rm-accent);
+  border-color: var(--rm-accent);
+  box-shadow: var(--rm-focus-ring);
+}
+
+.rm-file-navigator-search input {
+  min-width: 0;
+  height: 27px;
+  padding: 0;
+  color: var(--rm-text);
+  background: transparent;
+  border: 0;
+  outline: 0;
+  font: inherit;
+  font-size: 10px;
+}
+
+.rm-file-navigator-search button {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.rm-file-navigator-tree {
+  min-height: 0;
+  padding: 5px 0;
+  overflow: auto;
+}
+
+.rm-file-navigator-row {
+  display: grid;
+  grid-template-columns: 14px 17px minmax(0, 1fr);
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  height: 29px;
+  padding-top: 0;
+  padding-right: 9px;
+  padding-bottom: 0;
+  color: var(--rm-text-muted);
+  text-align: left;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  font-size: 10px;
+}
+
+.rm-file-navigator-row:hover {
+  color: var(--rm-text);
+  background: var(--rm-surface-strong);
+}
+
+.rm-file-navigator-row.active {
+  color: var(--rm-accent);
+  background: var(--rm-accent-soft);
+}
+
+.rm-file-navigator-row > span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rm-file-navigator-disclosure {
+  display: grid;
+  place-items: center;
+  width: 14px;
+}
+
+.rm-file-navigator-disclosure svg {
+  transition: transform 120ms ease;
+}
+
+.rm-file-navigator-disclosure svg.expanded {
+  transform: rotate(90deg);
+}
+
+.rm-file-search-results {
+  display: grid;
+}
+
+.rm-file-search-results > button {
+  display: grid;
+  gap: 3px;
+  padding: 8px 11px;
+  color: var(--rm-text-muted);
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--rm-border);
+  cursor: pointer;
+}
+
+.rm-file-search-results > button:hover {
+  background: var(--rm-surface-strong);
+}
+
+.rm-file-search-results strong,
+.rm-file-search-results span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rm-file-search-results strong {
+  color: var(--rm-text);
+  font-size: 10px;
+}
+
+.rm-file-search-results span {
+  color: var(--rm-text-weak);
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 9px;
+}
+
+.rm-file-navigator-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  min-height: 110px;
+  gap: 7px;
+  color: var(--rm-text-weak);
+  font-size: 10px;
+}
+
+.rm-file-navigator-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 11px;
+  color: var(--rm-text-weak);
+  border-top: 1px solid var(--rm-border);
+  font-size: 9px;
+}
+
+.rm-files-page > .document-pane {
+  width: auto;
+  height: 100%;
+}
+
+@media (max-width: 900px) {
+  .rm-files-page {
+    grid-template-columns: 210px minmax(0, 1fr);
+  }
+}

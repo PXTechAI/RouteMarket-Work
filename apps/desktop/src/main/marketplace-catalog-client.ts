@@ -8,6 +8,8 @@ import type { RouteMarketApiClient } from "./routemarket-api-client";
 const RESOURCE_KINDS = new Set<MarketplaceResourceKind>([
   "plugin",
   "skill",
+  "agent",
+  "mcp",
   "workflow",
   "app"
 ]);

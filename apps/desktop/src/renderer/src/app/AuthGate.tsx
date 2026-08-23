@@ -1,4 +1,5 @@
 import { tr, useLocale } from "../i18n";
+import "./auth-gate.scss";
 import { ArrowRight, Globe2, LoaderCircle } from "lucide-react";
 import { useEffect } from "react";
 import type { RouteMarketWorkApi, WorkState } from "../../../shared/desktop-api";

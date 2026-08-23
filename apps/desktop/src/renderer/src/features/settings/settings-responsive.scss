@@ -1,0 +1,142 @@
+.spin {
+  animation: rm-settings-spin 0.8s linear infinite;
+}
+@keyframes rm-settings-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Desktop settings use a readable 12–14px body scale, aligned with RouteMarket Core. */
+.rm-settings-nav p {
+  font-size: 13px;
+}
+.rm-settings-nav nav button {
+  font-size: 14px;
+}
+.rm-settings-page-heading p {
+  font-size: 14px;
+}
+.rm-settings-group h2 {
+  font-size: 17px;
+}
+.rm-settings-group header p {
+  font-size: 14px;
+  line-height: 1.5;
+}
+.rm-setting-copy strong {
+  font-size: 15px;
+}
+.rm-setting-copy span {
+  font-size: 12px;
+}
+.rm-setting-copy p {
+  font-size: 13px;
+}
+.rm-setting-control select,
+.rm-settings-modal-actions button {
+  font-size: 14px;
+}
+.rm-theme-picker button,
+.rm-scale-picker button {
+  font-size: 14px;
+}
+.rm-data-metric span,
+.rm-data-location strong {
+  font-size: 13px;
+}
+.rm-data-metric strong {
+  font-size: 15px;
+}
+.rm-data-location code,
+.rm-database-health,
+.rm-data-scope-row span,
+.rm-data-scopes-empty,
+.rm-settings-error,
+.rm-settings-feedback,
+.rm-settings-callout p,
+.rm-danger-zone p,
+.rm-settings-modal-note {
+  font-size: 13px;
+}
+.rm-data-scope-row strong,
+.rm-settings-callout strong,
+.rm-danger-zone button,
+.rm-settings-modal > p,
+.rm-settings-modal ul {
+  font-size: 14px;
+}
+.rm-data-scope-row button {
+  font-size: 13px;
+}
+.rm-settings-callout > span {
+  font-size: 12px;
+}
+.rm-danger-zone h2 {
+  font-size: 14px;
+}
+
+@media (max-width: 720px) {
+  .rm-settings-page {
+    grid-template-columns: 1fr;
+    overflow: auto;
+  }
+  .rm-settings-nav {
+    position: sticky;
+    z-index: 2;
+    top: 0;
+    padding: 18px;
+    border-right: 0;
+    border-bottom: 1px solid var(--rm-border);
+  }
+  .rm-settings-nav header {
+    padding: 0 0 14px;
+  }
+  .rm-settings-nav nav {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  .rm-settings-nav nav button {
+    justify-content: center;
+  }
+  .rm-settings-content {
+    overflow: visible;
+    padding: 26px 18px 48px;
+  }
+  .rm-setting-row {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+  .rm-setting-control {
+    justify-content: flex-start;
+  }
+  .rm-setting-control select,
+  .rm-theme-picker,
+  .rm-scale-picker {
+    width: 100%;
+  }
+  .rm-tools-category-tabs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .rm-tools-overview {
+    grid-template-columns: 1fr;
+  }
+  .rm-tools-embedded-agent:has(.agent-pane:not(.agent-blank)) {
+    height: 720px;
+  }
+  .rm-tools-embedded-agent .agent-pane {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+  .rm-tools-embedded-agent .agent-list {
+    max-height: 170px;
+    border-right: 0;
+    border-bottom: 1px solid var(--rm-border);
+  }
+  .rm-tools-embedded-agent .agent-list-items {
+    display: flex;
+    overflow-x: auto;
+  }
+  .rm-tools-embedded-agent .agent-list-items > button {
+    min-width: 190px;
+  }
+}

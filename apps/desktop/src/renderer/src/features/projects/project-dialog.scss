@@ -1,0 +1,195 @@
+.project-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: var(--rm-overlay);
+  backdrop-filter: blur(4px);
+}
+
+.project-dialog {
+  display: grid;
+  width: min(100%, 460px);
+  gap: 22px;
+  padding: 24px;
+  color: var(--rm-text);
+  background: var(--rm-surface);
+  border: 1px solid var(--rm-border);
+  border-radius: 16px;
+  box-shadow: var(--rm-shadow-dialog);
+}
+
+.project-dialog header,
+.project-dialog footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.project-dialog h2,
+.project-dialog p {
+  margin: 0;
+}
+.project-dialog h2 {
+  font-size: 18px;
+}
+.project-dialog p {
+  margin-top: 6px;
+  color: var(--rm-text-muted);
+  font-size: 13px;
+}
+.project-dialog header > button {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  color: var(--rm-text-muted);
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.project-dialog label {
+  display: grid;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 650;
+}
+.project-dialog input {
+  width: 100%;
+  height: 42px;
+  padding: 0 12px;
+  color: var(--rm-text);
+  background: var(--rm-surface-muted);
+  border: 1px solid var(--rm-border);
+  border-radius: 10px;
+  outline: none;
+  font: inherit;
+  font-size: 14px;
+}
+.project-dialog input:focus {
+  border-color: var(--rm-accent);
+  box-shadow: var(--rm-focus-ring);
+}
+.project-dialog footer {
+  justify-content: flex-end;
+}
+.project-dialog footer button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.project-edit-dialog .app-dialog-footer {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+}
+.project-edit-footer-spacer {
+  min-width: 12px;
+}
+.project-remove-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 36px;
+  padding: 0 12px;
+  color: var(--rm-danger);
+  background: var(--rm-danger-soft);
+  border: 1px solid transparent;
+  border-radius: 9px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+}
+.project-remove-button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--rm-danger) 16%, transparent);
+}
+
+.project-local-folders {
+  display: grid;
+  gap: 12px;
+}
+.project-local-folders-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.project-local-folders-heading > div {
+  min-width: 0;
+}
+.project-local-folders-heading strong {
+  font-size: 13px;
+}
+.project-local-folders-heading p {
+  margin: 4px 0 0;
+  color: var(--rm-text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.project-local-folders-heading button {
+  flex: 0 0 auto;
+}
+.project-local-folder-list {
+  display: grid;
+  gap: 8px;
+}
+.project-local-folder {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 58px;
+  padding: 9px 10px 9px 12px;
+  background: var(--rm-surface-muted);
+  border: 1px solid var(--rm-border);
+  border-radius: 10px;
+}
+.project-local-folder > div {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+.project-local-folder strong {
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.project-local-folder span {
+  overflow: hidden;
+  color: var(--rm-text-muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.project-local-folder > button {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  color: var(--rm-text-muted);
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.project-local-folder > button:hover:not(:disabled) {
+  color: var(--rm-danger);
+  background: var(--rm-danger-soft);
+}
+.project-local-folders-empty {
+  padding: 18px;
+  color: var(--rm-text-muted);
+  background: var(--rm-surface-muted);
+  border: 1px dashed var(--rm-border);
+  border-radius: 10px;
+  text-align: center;
+  font-size: 13px;
+}

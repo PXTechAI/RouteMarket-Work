@@ -14,7 +14,7 @@ vi.mock("electron", () => ({
   }
 }));
 
-import { ModelProviderStore } from "./model-provider-store";
+import { ModelProviderStore, modelProviderUsesResponses } from "./model-provider-store";
 
 const directories: string[] = [];
 
@@ -31,6 +31,100 @@ async function createStore() {
 }
 
 describe("ModelProviderStore", () => {
+  it("selects Responses only for OpenCode GPT and Codex models", () => {
+    const provider = { protocol: "openai-compatible" as const, compatibility: "opencode" as const };
+    expect(modelProviderUsesResponses(provider, "gpt-5.6-luna")).toBe(true);
+    expect(modelProviderUsesResponses(provider, "codex-mini-latest")).toBe(true);
+    expect(modelProviderUsesResponses(provider, "deepseek-v4-flash")).toBe(false);
+    expect(modelProviderUsesResponses({ ...provider, compatibility: "standard" }, "gpt-5.6-luna")).toBe(false);
+  });
+
+  it("migrates the former OpenCode template URL for Zen keys", async () => {
+    const { store } = await createStore();
+    await store.save({
+      name: "OpenCode Zen",
+      protocol: "openai-compatible",
+      compatibility: "opencode",
+      baseUrl: "https://console.opencode.ai/inference/openai/v1",
+      apiKey: "zen-key",
+      enabled: true,
+      models: [{
+        id: "gpt-5.6-luna",
+        displayName: "GPT 5.6 Luna",
+        source: "manual",
+        category: "chat",
+        supportsTools: true,
+        supportsVision: false,
+        supportsStream: true,
+        supportsReasoningSummary: true,
+        pricing: {
+          currency: "USD",
+          inputUsdPerMillion: 1.25,
+          outputUsdPerMillion: 10,
+          cacheReadUsdPerMillion: 0.125,
+          cacheWriteUsdPerMillion: 1.5
+        }
+      }]
+    });
+
+    const [model] = await store.listModels();
+    expect(model).toMatchObject({
+      preferredChatProtocol: "openai_responses",
+      pricing: { inputUsdPerMillion: 1.25, outputUsdPerMillion: 10 }
+    });
+    await expect(store.resolveModel(model!.code)).resolves.toMatchObject({
+      provider: { baseUrl: "https://opencode.ai/zen/v1" },
+      modelId: "gpt-5.6-luna",
+      pricing: { cacheReadUsdPerMillion: 0.125, cacheWriteUsdPerMillion: 1.5 }
+    });
+  });
+
+  it("merges legacy space-scoped providers into one account-scoped store", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "routemarket-account-providers-"));
+    directories.push(directory);
+    const firstPath = join(directory, "spaces", "space_one", "model-providers.json");
+    const secondPath = join(directory, "spaces", "space_two", "model-providers.json");
+    const firstSpace = new ModelProviderStore(firstPath);
+    const secondSpace = new ModelProviderStore(secondPath);
+    const accountStore = new ModelProviderStore(join(directory, "model-providers.json"));
+    await firstSpace.save({
+      name: "First space provider",
+      protocol: "openai-compatible",
+      baseUrl: "https://first.example.test/v1",
+      apiKey: "first-secret",
+      enabled: true,
+      models: [{
+        id: "first-chat",
+        displayName: "First Chat",
+        source: "manual",
+        category: "chat",
+        supportsTools: false,
+        supportsVision: false,
+        supportsStream: true,
+        supportsReasoningSummary: false
+      }]
+    });
+    await secondSpace.save({
+      name: "Second space provider",
+      protocol: "openai-compatible",
+      baseUrl: "https://second.example.test/v1",
+      apiKey: "second-secret",
+      enabled: true
+    });
+
+    await expect(accountStore.migrateFrom([firstPath, secondPath])).resolves.toBe(2);
+    await expect(accountStore.migrateFrom([firstPath])).resolves.toBe(0);
+    await expect(accountStore.list()).resolves.toEqual([
+      expect.objectContaining({ name: "First space provider", modelCount: 1 }),
+      expect.objectContaining({ name: "Second space provider" })
+    ]);
+    const [externalModel] = await accountStore.listModels();
+    await expect(accountStore.resolveModel(externalModel!.code)).resolves.toMatchObject({
+      provider: { apiKey: "first-secret" },
+      modelId: "first-chat"
+    });
+  });
+
   it("encrypts keys and synchronizes OpenAI-compatible models", async () => {
     const { store, filePath } = await createStore();
     const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
@@ -47,6 +141,7 @@ describe("ModelProviderStore", () => {
 
     const saved = await store.save({
       name: "OpenAI",
+      instanceName: "OpenAI · Primary",
       protocol: "openai-compatible",
       baseUrl: "https://api.openai.com/v1/",
       apiKey: "sk-secret-value",
@@ -56,7 +151,7 @@ describe("ModelProviderStore", () => {
     });
     const synced = await store.sync(saved.id);
 
-    expect(synced).toMatchObject({ modelCount: 1, baseUrl: "https://api.openai.com/v1", lastError: null });
+    expect(synced).toMatchObject({ instanceName: "OpenAI · Primary", modelCount: 1, baseUrl: "https://api.openai.com/v1", lastError: null });
     expect(fetchMock).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
       headers: expect.objectContaining({
         "HTTP-Referer": "https://routemarket.ai",
@@ -65,7 +160,7 @@ describe("ModelProviderStore", () => {
       })
     }));
     expect(await store.listModels()).toEqual([
-      expect.objectContaining({ displayName: "GPT-5", source: "external", providerName: "OpenAI" })
+      expect.objectContaining({ displayName: "GPT-5", source: "external", providerName: "OpenAI · Primary" })
     ]);
     expect(await readFile(filePath, "utf8")).not.toContain("sk-secret-value");
   });
@@ -159,6 +254,42 @@ describe("ModelProviderStore", () => {
         models: [expect.objectContaining({ id: "company-reasoner", source: "manual" })]
       })
     ]);
+  });
+
+  it("exposes localhost media models without requiring an API key", async () => {
+    const { store } = await createStore();
+    const saved = await store.save({
+      name: "Local Diffusion",
+      instanceName: "Studio GPU",
+      protocol: "openai-compatible",
+      baseUrl: "http://127.0.0.1:8188/v1",
+      apiKey: "",
+      enabled: true,
+      models: [{
+        id: "local-sdxl",
+        displayName: "Local SDXL",
+        source: "manual",
+        category: "image",
+        supportsTools: false,
+        supportsVision: false,
+        supportsStream: false,
+        supportsReasoningSummary: false
+      }]
+    });
+
+    await expect(store.listModels()).resolves.toEqual([]);
+    const [model] = await store.listMediaModels("image");
+    expect(model).toMatchObject({
+      displayName: "Local SDXL",
+      category: "image",
+      source: "local",
+      providerId: saved.id,
+      providerName: "Studio GPU"
+    });
+    await expect(store.resolveModel(model!.code)).resolves.toMatchObject({
+      provider: { baseUrl: "http://127.0.0.1:8188/v1", apiKey: "" },
+      modelId: "local-sdxl"
+    });
   });
 
   it("merges synchronized models without removing manual entries", async () => {

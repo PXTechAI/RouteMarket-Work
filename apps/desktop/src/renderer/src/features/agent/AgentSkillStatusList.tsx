@@ -1,3 +1,4 @@
+import "./agent-skill-status-list.scss";
 import { tr } from "../../i18n";
 import { CheckCircle2, CircleAlert, ChevronDown, MinusCircle } from "lucide-react";
 import type { DesktopAgentSkillAvailability } from "../../../../shared/agent-skill-availability";

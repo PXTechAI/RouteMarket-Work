@@ -1,13 +1,14 @@
 import { tr } from "../../i18n";
+import "./project-skills.scss";
 import { Archive, CircleAlert, FileCode2, LoaderCircle, PackagePlus, ShieldCheck, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import type { DownloadableCloudSkill, LocalSkillInstallReceipt } from "../../../../shared/desktop-api";
+import type { DownloadableCloudSkill, LocalSkillImportKind, LocalSkillInstallReceipt } from "../../../../shared/desktop-api";
 export type ProjectSkillManagerActions = {
     localProjectId: string;
     list(): Promise<LocalSkillInstallReceipt[]>;
     listCloud(): Promise<DownloadableCloudSkill[]>;
-    install(): Promise<LocalSkillInstallReceipt | null>;
+    install(importKind: LocalSkillImportKind): Promise<LocalSkillInstallReceipt | null>;
     installCloud(skillId: string, versionId: string): Promise<LocalSkillInstallReceipt>;
     remove(skillId: string): Promise<boolean>;
     onChanged(): Promise<void>;
@@ -76,7 +77,7 @@ export function ProjectSkillsPanel({ actions }: {
         setBusySkillId("install");
         setError(null);
         try {
-            const installed = await actions.install();
+            const installed = await actions.install("archive");
             if (!installed)
                 return;
             await Promise.all([refresh(), actions.onChanged()]);

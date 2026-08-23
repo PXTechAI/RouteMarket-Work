@@ -1,0 +1,93 @@
+.rm-runtime-error-notice {
+  position: fixed;
+  top: 48px;
+  left: 50%;
+  z-index: 1000;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) 28px;
+  align-items: center;
+  width: min(460px, calc(100vw - 32px));
+  gap: 9px;
+  padding: 9px 9px 9px 12px;
+  color: var(--rm-text);
+  background: color-mix(in srgb, var(--rm-danger-soft) 94%, var(--rm-surface));
+  border: 1px solid color-mix(in srgb, var(--rm-danger) 24%, var(--rm-border));
+  border-radius: 10px;
+  box-shadow: var(--rm-shadow-menu);
+}
+
+.rm-runtime-error-notice > svg {
+  color: var(--rm-danger);
+}
+.rm-runtime-error-notice > div {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+.rm-runtime-error-notice strong {
+  font-size: 12px;
+  font-weight: 600;
+}
+.rm-runtime-error-notice span {
+  overflow: hidden;
+  color: var(--rm-text-muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rm-runtime-error-notice button {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  color: var(--rm-text-muted);
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.rm-runtime-error-notice button:hover {
+  color: var(--rm-text);
+  background: var(--rm-surface-strong);
+}
+
+.rm-runtime-error-fallback {
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  width: 100vw;
+  height: 100vh;
+  padding: 32px;
+  color: var(--rm-text);
+  text-align: center;
+  background: var(--rm-bg);
+}
+
+.rm-runtime-error-fallback > svg {
+  color: var(--rm-danger);
+}
+.rm-runtime-error-fallback h1 {
+  margin: 12px 0 6px;
+  font-size: 18px;
+}
+.rm-runtime-error-fallback p {
+  max-width: 420px;
+  margin: 0;
+  color: var(--rm-text-muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.rm-runtime-error-fallback button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 34px;
+  margin-top: 18px;
+  padding: 0 13px;
+  color: var(--rm-on-accent);
+  background: var(--rm-accent);
+  border: 0;
+  border-radius: 8px;
+  cursor: pointer;
+}

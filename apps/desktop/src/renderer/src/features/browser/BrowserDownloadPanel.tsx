@@ -1,3 +1,4 @@
+import "./browser-download-panel.scss";
 import { tr } from "../../i18n";
 import { CheckCircle2, CirclePause, Download, LoaderCircle, X } from "lucide-react";
 import type { ManagedBrowserDownload } from "../../../../shared/desktop-api";

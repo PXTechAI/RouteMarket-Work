@@ -1,3 +1,4 @@
+import "./local-triggers-panel.scss";
 import { tr } from "../../../i18n";
 import { Activity, Check, LoaderCircle, Play, Square, Trash2 } from "lucide-react";
 import type { LocalTriggerKind, LocalTriggerSummary } from "../../../../../shared/desktop-api";
@@ -61,6 +62,8 @@ export function LocalTriggersPanel({ model, actions }: {
               {trigger.lastFiredAt
                 ? tr("ui.e85ea5b13d13", [new Date(trigger.lastFiredAt).toLocaleString()]) : tr("ui.baf7f1149c9f")}
             </time>
+            {trigger.nextRunAt && <time>下次运行：{new Date(trigger.nextRunAt).toLocaleString()}</time>}
+            {trigger.workflowId && <small>关联工作流：{trigger.workflowId}</small>}
           </article>))}
         {model.triggers.length === 0 && (<div className="workflow-registry-empty">
             <Activity size={26}/>

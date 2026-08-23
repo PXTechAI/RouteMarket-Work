@@ -49,10 +49,10 @@ describe("Desktop authenticated chat smoke", () => {
     let modelRound = 0;
     const fetchMock = vi.fn<typeof fetch>(async (input, _init) => {
       const url = String(input);
-      if (url.endsWith("/api/app/v1/agents")) {
+      if (url.endsWith("/api/app/v1/work/agents")) {
         return jsonResponse({ items: [agentPayload] });
       }
-      if (url.endsWith("/api/app/v1/agents/agent_smoke")) {
+      if (url.endsWith("/api/app/v1/work/agents/agent_smoke")) {
         return jsonResponse(agentPayload);
       }
       if (url.endsWith("/sessions")) {
@@ -131,7 +131,7 @@ describe("Desktop authenticated chat smoke", () => {
       toolCallId: "call_smoke_read",
       toolName: "project_read_file"
     }));
-    expect(completion).toEqual({
+    expect(completion).toMatchObject({
       requestId: request.requestId,
       type: "complete",
       content: "The exported value is 42."

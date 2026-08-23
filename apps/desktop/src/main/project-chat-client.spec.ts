@@ -12,7 +12,7 @@ import {
 } from "./project-chat-client";
 import type { ProjectChatToolRunner } from "./project-chat-tool-runner";
 import type { ModelProviderStore } from "./model-provider-store";
-import { PROJECT_CHAT_TOOLS } from "./project-chat-tools";
+import { ATTACHED_BROWSER_CHAT_TOOLS, PROJECT_CHAT_TOOLS } from "./project-chat-tools";
 import { RouteMarketApiClient } from "./routemarket-api-client";
 
 const request: ProjectChatRequest = {
@@ -175,7 +175,8 @@ function createClient(
     list(): DesktopAgentProfile[];
     replace(profiles: DesktopAgentProfile[]): void;
   },
-  modelProviderStore?: Pick<ModelProviderStore, "listModels" | "resolveModel">,
+  modelProviderStore?: Pick<ModelProviderStore, "listModels" | "resolveModel"> &
+    Partial<Pick<ModelProviderStore, "listMediaModels">>,
   recordUsage?: (record: LocalApiGatewayUsage) => Promise<void>
 ) {
   const apiClient = new RouteMarketApiClient({
@@ -224,7 +225,14 @@ describe("ProjectChatClient", () => {
           baseUrl: "https://api.openai.com/v1",
           apiKey: "sk-provider-secret"
         },
-        modelId: "gpt-5"
+        modelId: "gpt-5",
+        pricing: {
+          currency: "USD" as const,
+          inputUsdPerMillion: 3,
+          outputUsdPerMillion: 15,
+          cacheReadUsdPerMillion: 0.3,
+          cacheWriteUsdPerMillion: 3.75
+        }
       }))
     };
     const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
@@ -234,6 +242,7 @@ describe("ProjectChatClient", () => {
       expect(body).toMatchObject({ model: "gpt-5", stream: true });
       return sseResponse(
         'data: {"choices":[{"delta":{"content":"Direct response"}}]}\n\n',
+        'data: {"choices":[],"usage":{"prompt_tokens":120,"completion_tokens":30,"total_tokens":150,"prompt_tokens_details":{"cached_tokens":90}}}\n\n',
         "data: [DONE]\n\n"
       );
     });
@@ -244,14 +253,71 @@ describe("ProjectChatClient", () => {
       model: "external:provider_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:Z3B0LTU"
     });
 
-    expect(events).toContainEqual(expect.objectContaining({ type: "complete", content: "Direct response" }));
+    expect(events).toContainEqual(expect.objectContaining({
+      type: "complete",
+      content: "Direct response",
+      responseMeta: expect.objectContaining({
+        modelCode: "external:provider_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:Z3B0LTU",
+        inputTokens: 120,
+        outputTokens: 30,
+        totalTokens: 150,
+        cachedInputTokens: 90,
+        elapsedMs: expect.any(Number)
+      })
+    }));
     expect(usage).toEqual([expect.objectContaining({
       source: "desktop_chat",
       providerName: "OpenAI",
       resolvedModel: "gpt-5",
       success: true,
-      status: 200
+      status: 200,
+      inputTokens: 120,
+      outputTokens: 30,
+      totalTokens: 150,
+      cachedInputTokens: 90,
+      estimatedCostUsdMicros: 567,
+      pricingSnapshot: expect.objectContaining({ inputUsdPerMillion: 3, outputUsdPerMillion: 15 })
     })]);
+  });
+
+  it("uses the Responses API for OpenCode Zen GPT models", async () => {
+    const events: ProjectChatEvent[] = [];
+    const usage: LocalApiGatewayUsage[] = [];
+    const providerStore = {
+      listModels: vi.fn(async () => []),
+      resolveModel: vi.fn(async () => ({
+        provider: {
+          id: "provider_opencode_zen_0000000000000",
+          name: "OpenCode Zen",
+          protocol: "openai-compatible" as const,
+          compatibility: "opencode" as const,
+          baseUrl: "https://opencode.ai/zen/v1",
+          apiKey: "zen-provider-secret"
+        },
+        modelId: "gpt-5.6-luna"
+      }))
+    };
+    const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+      expect(String(input)).toBe("https://opencode.ai/zen/v1/responses");
+      expect(new Headers(init?.headers).get("authorization")).toBe("Bearer zen-provider-secret");
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      expect(body).toMatchObject({ model: "gpt-5.6-luna", stream: true, store: false });
+      expect(body).toHaveProperty("instructions");
+      expect(body).toHaveProperty("input");
+      return sseResponse(
+        'data: {"type":"response.output_text.delta","delta":"Zen response"}\n\n',
+        "data: [DONE]\n\n"
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createClient(events, undefined, undefined, providerStore, async (record) => { usage.push(record); }).send({
+      ...request,
+      model: "external:provider_opencode_zen_0000000000000:Z3B0LTUuNi1sdW5h"
+    });
+
+    expect(events).toContainEqual(expect.objectContaining({ type: "complete", content: "Zen response" }));
+    expect(usage).toEqual([expect.objectContaining({ kind: "responses", providerName: "OpenCode Zen", success: true })]);
   });
 
   it("does not send local or search tools to a model marked as not supporting tools", async () => {
@@ -377,6 +443,117 @@ describe("ProjectChatClient", () => {
     expect(events).toContainEqual(expect.objectContaining({ type: "complete", content: "README.md" }));
   });
 
+  it("passes Managed Browser screenshots to vision models as native Anthropic image blocks", async () => {
+    const providerStore = {
+      listModels: vi.fn(async () => []),
+      resolveModel: vi.fn(async () => ({
+        provider: {
+          id: "provider_vision_anthropic_000000000000",
+          name: "Anthropic",
+          protocol: "anthropic" as const,
+          baseUrl: "https://api.anthropic.com/v1",
+          apiKey: "anthropic-secret"
+        },
+        modelId: "claude-sonnet-4-5"
+      }))
+    };
+    const screenshot = "data:image/jpeg;base64,c2NyZWVuc2hvdA==";
+    const toolRunner = {
+      execute: vi.fn(async () => ({
+        content: JSON.stringify({ page_id: "page_1", image_attached: true }),
+        summary: "Browser screenshot",
+        isError: false,
+        images: [screenshot]
+      }))
+    };
+    let round = 0;
+    const fetchMock = vi.fn<typeof fetch>(async (_input, init) => {
+      round += 1;
+      const body = JSON.parse(String(init?.body)) as {
+        tools?: Array<{ name?: string }>;
+        messages: Array<{ role: string; content: unknown }>;
+      };
+      if (round === 1) {
+        expect(body.tools?.map((tool) => tool.name)).toContain("browser_screenshot");
+        return jsonResponse({
+          content: [{ type: "tool_use", id: "toolu_screenshot", name: "browser_screenshot", input: {} }]
+        });
+      }
+      expect(body.messages).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          role: "user",
+          content: expect.arrayContaining([
+            expect.objectContaining({ type: "tool_result", tool_use_id: "toolu_screenshot" }),
+            expect.objectContaining({
+              type: "image",
+              source: {
+                type: "base64",
+                media_type: "image/jpeg",
+                data: "c2NyZWVuc2hvdA=="
+              }
+            })
+          ])
+        })
+      ]));
+      return jsonResponse({ content: [{ type: "text", text: "The page is visible." }] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createClient([], toolRunner, undefined, providerStore).send({
+      ...request,
+      requestId: "request_vision_anthropic",
+      model: "external:provider_vision_anthropic_000000000000:Y2xhdWRlLXNvbm5ldC00LTU",
+      modelSupportsVision: true
+    });
+
+    expect(toolRunner.execute).toHaveBeenCalledWith(
+      request.project!.localProjectId,
+      expect.objectContaining({ name: "browser_screenshot" }),
+      expect.any(AbortSignal),
+      expect.any(Object)
+    );
+  });
+
+  it("does not expose the screenshot Tool to a model without vision support", async () => {
+    const providerStore = {
+      listModels: vi.fn(async () => []),
+      resolveModel: vi.fn(async () => ({
+        provider: {
+          id: "provider_text_only_00000000000000000",
+          name: "Text-only provider",
+          protocol: "openai-compatible" as const,
+          baseUrl: "https://text-only.example/v1",
+          apiKey: "provider-secret"
+        },
+        modelId: "text-only-model"
+      }))
+    };
+    const fetchMock = vi.fn<typeof fetch>(async (_input, init) => {
+      const body = JSON.parse(String(init?.body)) as {
+        tools?: Array<{ function?: { name?: string } }>;
+      };
+      const names = body.tools?.map((tool) => tool.function?.name) ?? [];
+      expect(names).not.toContain("browser_screenshot");
+      expect(names).not.toContain("browser_attached_screenshot");
+      expect(names).toContain("browser_inspect");
+      return sseResponse(
+        'data: {"choices":[{"delta":{"content":"Text response"}}]}\n\n',
+        "data: [DONE]\n\n"
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createClient([], {
+      listTools: vi.fn(async () => [...PROJECT_CHAT_TOOLS, ...ATTACHED_BROWSER_CHAT_TOOLS]),
+      execute: vi.fn()
+    }, undefined, providerStore).send({
+      ...request,
+      requestId: "request_text_only",
+      model: "external:provider_text_only_00000000000000000:dGV4dC1vbmx5LW1vZGVs",
+      modelSupportsVision: false
+    });
+  });
+
   it("returns an empty model catalog instead of rejecting during a transient outage", async () => {
     vi.stubGlobal(
       "fetch",
@@ -393,17 +570,29 @@ describe("ProjectChatClient", () => {
           {
             code: "model_chat",
             display_name: "Chat Model",
+            icon_url: "/assets/models/chat.svg",
+            icon_storage_provider: "public",
+            icon_storage_key: "https://assets.example.test/models/chat.svg",
             category: "chat",
             supports_tools: true,
             supports_native_web_search: true,
             supports_reasoning_controls: true,
             preferred_chat_protocol: "openai_responses",
             supports_vision: false,
-            supports_stream: true
+            supports_stream: true,
+            picker_primary_price: 0.8,
+            picker_price_components: [{
+              display_name: "Input",
+              billing_metric: "input_tokens",
+              unit_label: "1M tokens",
+              unit_size: 1_000_000,
+              sale_price: 0.8
+            }]
           },
           {
             code: "model_reasoning",
             display_name: "Reasoning Model",
+            icon_url: "lobehub:DeepSeek",
             category: "reasoning"
           },
           {
@@ -420,6 +609,9 @@ describe("ProjectChatClient", () => {
       {
         code: "model_chat",
         displayName: "Chat Model",
+        iconUrl: "https://api.example.test/assets/models/chat.svg",
+        iconStorageProvider: "public",
+        iconStorageKey: "https://assets.example.test/models/chat.svg",
         source: "routemarket",
         providerId: null,
         providerName: "RouteMarket",
@@ -429,11 +621,24 @@ describe("ProjectChatClient", () => {
         supportsVision: false,
         supportsStream: true,
         supportsReasoningSummary: true,
-        preferredChatProtocol: "openai_responses"
+        preferredChatProtocol: "openai_responses",
+        platformPricing: {
+          primaryCredit: 0.8,
+          components: [{
+            displayName: "Input",
+            billingMetric: "input_tokens",
+            unitLabel: "1M tokens",
+            unitSize: 1_000_000,
+            salePrice: 0.8
+          }]
+        }
       },
       {
         code: "model_reasoning",
         displayName: "Reasoning Model",
+        iconUrl: "lobehub:DeepSeek",
+        iconStorageProvider: null,
+        iconStorageKey: null,
         source: "routemarket",
         providerId: null,
         providerName: "RouteMarket",
@@ -447,13 +652,300 @@ describe("ProjectChatClient", () => {
       }
     ]);
     expect(fetchMock).toHaveBeenCalledWith(
-      "https://api.example.test/api/app/v1/work/chat/models?purpose=chat",
+      "https://api.example.test/api/app/v1/workspace/picker-data?categories=chat%2Creasoning&detail=catalog",
       expect.objectContaining({
         headers: expect.objectContaining({
           Authorization: "Bearer rmw_dt_test"
         })
       })
     );
+  });
+
+  it("loads media models from an isolated category without mixing chat models", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () => jsonResponse({
+      items: [
+        {
+          code: "gpt-image-2",
+          display_name: "GPT Image 2",
+          icon_url: "/assets/models/gpt-image.svg",
+          category: "image",
+          picker_primary_price: 1.6,
+          default_group_ids: ["group_gpt_image_2"]
+        },
+        {
+          code: "model_chat",
+          display_name: "Chat Model",
+          category: "chat"
+        }
+      ],
+      channel_groups: [{
+        id: "group_gpt_image_2",
+        logical_model: { code: "gpt-image-2" },
+        items: [{
+          image_capabilities: {
+            parameters: [
+              { key: "size", options: [{ value: "1024x1024", label: "1024x1024" }], default_value: "1024x1024" },
+              { key: "quality", options: [
+                { value: "low", label: "low" },
+                { value: "medium", label: "medium" },
+                { value: "high", label: "high" }
+              ], default_value: "medium" }
+            ],
+            supported_sizes: ["1024x1024"],
+            supported_qualities: ["low", "medium", "high"],
+            supported_counts: [1, 2],
+            supported_outputs: [{
+              value: "size=1024x1024&ratio=1%3A1",
+              label: "1024x1024",
+              size: "1024x1024",
+              resolution: null,
+              ratio: "1:1",
+              unsupported: false
+            }],
+            default_size: "1024x1024",
+            default_quality: "medium",
+            default_count: 1
+          },
+          price_components: [
+            { billing_metric: "request_count", sale_price: 0, unit_size: 1 },
+            { billing_metric: "output_items", sale_price: 1.6, unit_size: 1, attributes: { quality: "low" } },
+            { billing_metric: "output_items", sale_price: 6.3, unit_size: 1, attributes: { quality: "medium" } },
+            { billing_metric: "output_items", sale_price: 25, unit_size: 1, attributes: { quality: "high" } }
+          ]
+        }]
+      }]
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(createClient().listMediaModels("image")).resolves.toEqual([{
+      code: "gpt-image-2",
+      displayName: "GPT Image 2",
+      iconUrl: "https://api.example.test/assets/models/gpt-image.svg",
+      iconStorageProvider: null,
+      iconStorageKey: null,
+      category: "image",
+      source: "routemarket",
+      providerId: null,
+      providerName: "RouteMarket",
+      audioModes: [],
+      price: 1.6,
+      imageCapabilities: {
+        sizes: [{
+          value: "1024x1024",
+          label: "1024x1024",
+          resolution: null,
+          ratio: "1:1"
+        }],
+        qualities: [
+          { value: "low", label: "low" },
+          { value: "medium", label: "medium" },
+          { value: "high", label: "high" }
+        ],
+        counts: [1, 2],
+        defaultSize: "1024x1024",
+        defaultQuality: "medium",
+        defaultCount: 1,
+        requestCredits: 0,
+        prices: [
+          { size: null, quality: "low", resolution: null, ratio: null, credits: 1.6 },
+          { size: null, quality: "medium", resolution: null, ratio: null, credits: 6.3 },
+          { size: null, quality: "high", resolution: null, ratio: null, credits: 25 }
+        ]
+      }
+    }]);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.example.test/api/app/v1/workspace/picker-data?categories=image&detail=surface",
+      expect.objectContaining({ headers: expect.objectContaining({ Authorization: "Bearer rmw_dt_test" }) })
+    );
+  });
+
+  it("loads and normalizes the same community inspiration feed used by Web", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () => jsonResponse({
+      items: [{
+        id: "post_image_1",
+        kind: "image",
+        title: "Forest light",
+        prompt: "A mossy forest with cinematic morning light",
+        model_code: "gpt-image-2",
+        model_name: "GPT Image 2",
+        tags: ["forest"],
+        official_tag_codes: ["landscape", "cinematic"],
+        thumbnail_url: "/media/thumb.jpg",
+        media_url: "https://cdn.example.test/image.jpg",
+        mime_type: "image/jpeg",
+        like_count: 88,
+        save_count: 12,
+        view_count: 1042,
+        author: { id: "author_1", name: "RouteMarket", avatar_url: "/avatars/route.png" }
+      }],
+      has_more: true,
+      next_cursor: "cursor_2"
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(createClient().listMediaInspiration({
+      kind: "image",
+      sort: "trending",
+      query: "forest",
+      officialTag: "cinematic"
+    })).resolves.toEqual({
+      items: [{
+        id: "post_image_1",
+        kind: "image",
+        title: "Forest light",
+        prompt: "A mossy forest with cinematic morning light",
+        modelCode: "gpt-image-2",
+        modelName: "GPT Image 2",
+        tags: ["forest"],
+        officialTagCodes: ["landscape", "cinematic"],
+        thumbnailUrl: "https://api.example.test/media/thumb.jpg",
+        mediaUrl: "https://cdn.example.test/image.jpg",
+        mimeType: "image/jpeg",
+        likeCount: 88,
+        saveCount: 12,
+        viewCount: 1042,
+        author: {
+          id: "author_1",
+          name: "RouteMarket",
+          avatarUrl: "https://api.example.test/avatars/route.png"
+        }
+      }],
+      hasMore: true,
+      nextCursor: "cursor_2"
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.example.test/api/app/v1/community/posts?kind=image&sort=trending&limit=24&q=forest&official_tag=cinematic",
+      expect.objectContaining({ headers: expect.objectContaining({ Authorization: "Bearer rmw_dt_test" }) })
+    );
+  });
+
+  it("loads the database-backed inspiration tags used by Web", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () => jsonResponse({
+      items: [
+        { code: "portrait", label: "人像", kinds: ["image"] },
+        { code: "cinematic", label: "电影感", kinds: ["image", "video"] }
+      ],
+      all: []
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(createClient().listMediaInspirationTags("image")).resolves.toEqual([
+      { code: "portrait", label: "人像" },
+      { code: "cinematic", label: "电影感" }
+    ]);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.example.test/api/app/v1/discovery/tags?kind=image",
+      expect.objectContaining({ headers: expect.objectContaining({ Authorization: "Bearer rmw_dt_test" }) })
+    );
+  });
+
+  it("submits image generation through the desktop media endpoint", async () => {
+    const usage: LocalApiGatewayUsage[] = [];
+    const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+      expect(String(input)).toBe("https://api.example.test/api/app/v1/work/media/images");
+      expect(JSON.parse(String(init?.body))).toEqual({
+        model: "gpt-image-2",
+        session_source: "desktop",
+        prompt: "A quiet harbor at sunrise",
+        n: 2,
+        async_mode: true,
+        size: "1024x1024",
+        quality: "high"
+      });
+      return jsonResponse({
+        data: [{ id: "image_1", url: "https://cdn.example.test/image.png" }]
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(createClient(
+      [],
+      undefined,
+      undefined,
+      undefined,
+      async (record) => { usage.push(record); }
+    ).generateMedia({
+      kind: "image",
+      model: "gpt-image-2",
+      prompt: "A quiet harbor at sunrise",
+      size: "1024x1024",
+      quality: "high",
+      count: 2
+    })).resolves.toEqual({
+      taskId: null,
+      outputs: [{
+        id: "image_1",
+        kind: "image",
+        url: "https://cdn.example.test/image.png",
+        downloadUrl: null,
+        thumbnailUrl: null,
+        mimeType: null,
+        revisedPrompt: null
+      }]
+    });
+    expect(usage).toEqual([
+      expect.objectContaining({
+        source: "desktop_media",
+        kind: "image",
+        requestedModel: "gpt-image-2",
+        resolvedModel: "gpt-image-2",
+        success: true,
+        status: 200
+      })
+    ]);
+  });
+
+  it("generates images directly with a local OpenAI-compatible media model", async () => {
+    const usage: LocalApiGatewayUsage[] = [];
+    const providerStore = {
+      listModels: vi.fn(async () => []),
+      listMediaModels: vi.fn(async () => []),
+      resolveModel: vi.fn(async () => ({
+        provider: {
+          id: "provider_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          name: "Studio GPU",
+          protocol: "openai-compatible" as const,
+          baseUrl: "http://127.0.0.1:8188/v1",
+          apiKey: ""
+        },
+        modelId: "local-sdxl"
+      }))
+    };
+    const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+      expect(String(input)).toBe("http://127.0.0.1:8188/v1/images/generations");
+      expect(new Headers(init?.headers).get("authorization")).toBeNull();
+      expect(JSON.parse(String(init?.body))).toEqual({
+        model: "local-sdxl",
+        prompt: "A local watercolor",
+        n: 1,
+        response_format: "url",
+        size: "1024x1024",
+        quality: "standard"
+      });
+      return jsonResponse({ data: [{ b64_json: "aW1hZ2U=" }, { url: "/files/generated.png" }] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(createClient(
+      [], undefined, undefined, providerStore, async (record) => { usage.push(record); }
+    ).generateMedia({
+      kind: "image",
+      model: "external:provider_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:bG9jYWwtc2R4bA",
+      prompt: "A local watercolor",
+      size: "1024x1024",
+      quality: "standard"
+    })).resolves.toMatchObject({
+      outputs: [
+        { kind: "image", url: "data:image/png;base64,aW1hZ2U=" },
+        { kind: "image", url: "http://127.0.0.1:8188/files/generated.png" }
+      ]
+    });
+    expect(usage).toEqual([expect.objectContaining({
+      kind: "image",
+      providerName: "Studio GPU",
+      resolvedModel: "local-sdxl",
+      success: true
+    })]);
   });
 
   it("runs intelligent search through the authenticated RouteMarket search service", async () => {
@@ -505,15 +997,15 @@ describe("ProjectChatClient", () => {
         })
       ])
     );
-    expect(events).toContainEqual({
+    expect(events).toContainEqual(expect.objectContaining({
       requestId: "request_search_1",
       type: "tool_completed",
       toolCallId: "call_search_1",
       toolName: "web_search",
       title: "联网搜索",
       summary: "已检索 “RouteMarket release” · 1 条结果"
-    });
-    expect(events.at(-1)).toEqual({
+    }));
+    expect(events.at(-1)).toMatchObject({
       requestId: "request_search_1",
       type: "complete",
       content: "Found the current release."
@@ -622,7 +1114,7 @@ describe("ProjectChatClient", () => {
       updatedAt: "2026-07-18T00:00:00.000Z"
     }]);
     expect(fetchMock).toHaveBeenCalledWith(
-      "https://api.example.test/api/app/v1/agents",
+      "https://api.example.test/api/app/v1/work/agents",
       expect.objectContaining({
         headers: expect.objectContaining({
           Authorization: "Bearer rmw_dt_test"
@@ -636,6 +1128,104 @@ describe("ProjectChatClient", () => {
         avatarUrl: "https://assets.example.test/agent.png"
       })
     ]);
+  });
+
+  it("keeps the Web default platform Agent ahead of personal Agents", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>(async () => jsonResponse({
+        items: [
+          {
+            ...agentProfilePayload,
+            id: "agent_personal",
+            fork_source_id: null,
+            name: "Personal Agent"
+          },
+          agentProfilePayload
+        ]
+      }))
+    );
+
+    await expect(createClient().listAgents()).resolves.toEqual([
+      expect.objectContaining({ id: "agent_builder", origin: "template" }),
+      expect.objectContaining({ id: "agent_personal", origin: "personal" })
+    ]);
+  });
+
+  it("falls back to the shared Core platform Agent catalog for accounts without seeded Agents", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/api/app/v1/agents/platform")) {
+        return jsonResponse({
+          items: [{
+            ...agentProfilePayload,
+            id: "platform_builder",
+            user_id: null,
+            fork_source_id: null,
+            is_public: true
+          }]
+        });
+      }
+      return jsonResponse({ items: [] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(createClient().listAgents()).resolves.toEqual([
+      expect.objectContaining({
+        id: "platform_builder",
+        origin: "template",
+        forkSourceId: null,
+        name: "Project Builder"
+      })
+    ]);
+    expect(fetchMock.mock.calls.map(([input]) => String(input))).toEqual([
+      "https://api.example.test/api/app/v1/work/agents",
+      "https://api.example.test/api/app/v1/agents/platform"
+    ]);
+  });
+
+  it("can run a platform Agent fallback without creating an account-side copy", async () => {
+    const events: ProjectChatEvent[] = [];
+    const fetchMock = vi.fn<typeof fetch>(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/api/app/v1/agents/platform")) {
+        return jsonResponse({
+          items: [{
+            ...agentProfilePayload,
+            user_id: null,
+            fork_source_id: null,
+            is_public: true
+          }]
+        });
+      }
+      if (url.endsWith("/api/app/v1/work/agents")) {
+        return jsonResponse({ message: "Invalid session" }, 401);
+      }
+      if (url.endsWith("/api/app/v1/work/agents/agent_builder")) {
+        return jsonResponse({ message: "Invalid session" }, 401);
+      }
+      if (url.endsWith("/sessions")) {
+        return jsonResponse({ session: { id: agentRequest.sessionId } });
+      }
+      if (url.endsWith("/turns")) {
+        return jsonResponse({ session_id: agentRequest.sessionId });
+      }
+      return sseResponse(
+        'data: {"choices":[{"delta":{"content":"Platform Agent ready."}}]}\n\n',
+        "data: [DONE]\n\n"
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const client = createClient(events);
+
+    await client.listAgents();
+    await client.send(agentRequest);
+
+    expect(events.at(-1)).toMatchObject({
+      requestId: "request_agent_1",
+      type: "complete",
+      content: "Platform Agent ready."
+    });
   });
 
   it("uses the cached Agent catalog during network and service outages", async () => {
@@ -672,33 +1262,72 @@ describe("ProjectChatClient", () => {
     await expect(createClient([]).listAgents()).resolves.toEqual([]);
   });
 
-  it("does not hide an authentication failure behind cached Agents", async () => {
+  it("uses platform Agents when the account catalog rejects a Desktop Device Token", async () => {
     const cache = {
       list: vi.fn(() => [cachedAgentProfile]),
       replace: vi.fn()
     };
+    const fetchMock = vi.fn<typeof fetch>(async (input) => {
+      if (String(input).endsWith("/api/app/v1/agents/platform")) {
+        return jsonResponse({
+          items: [{
+            ...agentProfilePayload,
+            id: "platform_builder",
+            user_id: null,
+            fork_source_id: null,
+            is_public: true
+          }]
+        });
+      }
+      return jsonResponse({ message: "Invalid session" }, 401);
+    });
     vi.stubGlobal(
       "fetch",
-      vi.fn<typeof fetch>(async () =>
-        jsonResponse({ message: "Authentication required." }, 401)
-      )
+      fetchMock
     );
 
-    const error = await createClient([], undefined, cache).listAgents().catch((failure) => failure);
-    expect(error).toBeInstanceOf(Error);
-    expect((error as Error).message).toBe("Authentication required.");
-    expect(isProjectChatAuthenticationError(error)).toBe(true);
+    await expect(createClient([], undefined, cache).listAgents()).resolves.toEqual([
+      expect.objectContaining({ id: "platform_builder", origin: "template" })
+    ]);
     expect(cache.list).not.toHaveBeenCalled();
+    expect(cache.replace).toHaveBeenCalledWith([
+      expect.objectContaining({ id: "platform_builder", origin: "template" })
+    ]);
   });
 
-  it("recognizes the Core invalid-session response even when its status is not 401", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn<typeof fetch>(async () => jsonResponse({ message: "Invalid session" }, 400))
+  it("uses platform Agents when Core does not yet expose the work Agent catalog", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async (input) => {
+      if (String(input).endsWith("/api/app/v1/agents/platform")) {
+        return jsonResponse({
+          items: [{
+            ...agentProfilePayload,
+            id: "platform_builder",
+            user_id: null,
+            fork_source_id: null,
+            is_public: true
+          }]
+        });
+      }
+      return jsonResponse({ message: "Not found" }, 404);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(createClient([]).listAgents()).resolves.toEqual([
+      expect.objectContaining({ id: "platform_builder", origin: "template" })
+    ]);
+  });
+
+  it("preserves the account authentication error if the platform catalog is also unavailable", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async (input) =>
+      String(input).endsWith("/api/app/v1/agents/platform")
+        ? jsonResponse({ message: "Unavailable" }, 503)
+        : jsonResponse({ message: "Invalid session" }, 400)
     );
+    vi.stubGlobal("fetch", fetchMock);
 
     const error = await createClient([]).listAgents().catch((failure) => failure);
     expect(isProjectChatAuthenticationError(error)).toBe(true);
+    expect((error as Error).message).toBe("Invalid session");
   });
 
   it("streams OpenAI chat completion deltas and completes with accumulated text", async () => {
@@ -717,7 +1346,7 @@ describe("ProjectChatClient", () => {
     expect(events).toEqual([
       { requestId: "request_1", type: "delta", content: "Hello" },
       { requestId: "request_1", type: "delta", content: "Hello world" },
-      { requestId: "request_1", type: "complete", content: "Hello world" }
+      expect.objectContaining({ requestId: "request_1", type: "complete", content: "Hello world" })
     ]);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(String(fetchMock.mock.calls[0]?.[0])).toMatch(/\/api\/app\/v1\/work\/chat\/local$/);
@@ -773,7 +1402,7 @@ describe("ProjectChatClient", () => {
 
     await createClient(events).send(request);
 
-    expect(events.at(-1)).toEqual({
+    expect(events.at(-1)).toMatchObject({
       requestId: "request_1",
       type: "complete",
       content: "First second"
@@ -796,19 +1425,20 @@ describe("ProjectChatClient", () => {
     await createClient(events).send({
       ...request,
       preferredChatProtocol: "openai_responses",
-      reasoningSummary: "auto"
+      reasoningSummary: "auto",
+      reasoningEffort: "high"
     });
 
     expect(requestBody).toEqual(expect.objectContaining({
       protocol: "openai_responses",
-      adapter_payload: { body: { reasoning: { summary: "auto" } } }
+      adapter_payload: { body: { reasoning: { summary: "auto", effort: "high" } } }
     }));
     expect(events).toContainEqual({
       requestId: "request_1",
       type: "reasoning",
       content: "Checking files and tests."
     });
-    expect(events.at(-1)).toEqual({
+    expect(events.at(-1)).toMatchObject({
       requestId: "request_1",
       type: "complete",
       content: "All good."
@@ -891,7 +1521,7 @@ describe("ProjectChatClient", () => {
     await createClient(events, toolRunner).send(agentRequest);
 
     expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
-      "https://api.example.test/api/app/v1/agents/agent_builder"
+      "https://api.example.test/api/app/v1/work/agents/agent_builder"
     );
     expect(fetchMock.mock.calls[0]?.[1]?.headers).toMatchObject({
       Authorization: "Bearer rmw_dt_test"
@@ -922,7 +1552,7 @@ describe("ProjectChatClient", () => {
     expect(toolNames).not.toContain("browser_navigate");
     expect(toolNames).not.toContain("mcp_local_excel_read_123456789abc");
     expect(toolRunner.execute).not.toHaveBeenCalled();
-    expect(events.at(-1)).toEqual({
+    expect(events.at(-1)).toMatchObject({
       requestId: "request_agent_1",
       type: "complete",
       content: "Project inspected."
@@ -1130,22 +1760,26 @@ describe("ProjectChatClient", () => {
       expect.any(AbortSignal),
       { source: "chat", approvalMode: "risky_only" }
     );
-    expect(events).toContainEqual({
+    expect(events).toContainEqual(expect.objectContaining({
       requestId: "request_1",
       type: "tool_started",
       toolCallId: "call_read_1",
       toolName: "project_read_file",
-      title: "读取项目文件"
-    });
-    expect(events).toContainEqual({
+      title: "读取项目文件",
+      startedAt: expect.any(Number),
+      inputPreview: expect.stringContaining("src/index.ts")
+    }));
+    expect(events).toContainEqual(expect.objectContaining({
       requestId: "request_1",
       type: "tool_completed",
       toolCallId: "call_read_1",
       toolName: "project_read_file",
       title: "读取项目文件",
-      summary: "src/index.ts · 25 bytes"
-    });
-    expect(events.at(-1)).toEqual({
+      summary: "src/index.ts · 25 bytes",
+      endedAt: expect.any(Number),
+      outputPreview: expect.stringContaining("answer = 42")
+    }));
+    expect(events.at(-1)).toMatchObject({
       requestId: "request_1",
       type: "complete",
       content: "The answer is 42."
@@ -1257,21 +1891,25 @@ describe("ProjectChatClient", () => {
       expect.any(AbortSignal),
       { source: "chat", approvalMode: "risky_only" }
     );
-    expect(events).toContainEqual({
+    expect(events).toContainEqual(expect.objectContaining({
       requestId: "request_1",
       type: "tool_started",
       toolCallId: "call_skill_1",
       toolName: "skill_local_review_123456789abc",
-      title: "调用项目 Skill"
-    });
-    expect(events).toContainEqual({
+      title: "调用项目 Skill",
+      startedAt: expect.any(Number),
+      inputPreview: expect.stringContaining("Review the current changes")
+    }));
+    expect(events).toContainEqual(expect.objectContaining({
       requestId: "request_1",
       type: "tool_completed",
       toolCallId: "call_skill_1",
       toolName: "skill_local_review_123456789abc",
       title: "调用项目 Skill",
-      summary: "Code review · 49 characters"
-    });
+      summary: "Code review · 49 characters",
+      endedAt: expect.any(Number),
+      outputPreview: expect.stringContaining("report findings by severity")
+    }));
 
     const firstRound = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
     expect(firstRound.tools).toEqual(expect.arrayContaining([
@@ -1290,7 +1928,7 @@ describe("ProjectChatClient", () => {
       tool_call_id: "call_skill_1",
       content: expect.stringContaining("report findings by severity")
     });
-    expect(events.at(-1)).toEqual({
+    expect(events.at(-1)).toMatchObject({
       requestId: "request_1",
       type: "complete",
       content: "I found one issue."

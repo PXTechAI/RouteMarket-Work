@@ -1,0 +1,59 @@
+:root {
+  font-family:
+    "Segoe UI Variable Text", "Segoe UI Variable Display", Aptos, "Segoe UI", "Microsoft YaHei UI", "PingFang SC",
+    "Microsoft YaHei", sans-serif;
+  color: var(--rm-text);
+  background: var(--rm-bg);
+  font-synthesis: none;
+  text-rendering: optimizelegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.3;
+  text-rendering: optimizelegibility;
+}
+
+button:focus-visible {
+  outline: none;
+  box-shadow: var(--rm-focus-ring);
+}
+
+input:focus,
+input:focus-visible,
+select:focus,
+select:focus-visible,
+textarea:focus,
+textarea:focus-visible {
+  outline: none !important;
+  border-color: var(--rm-border) !important;
+  box-shadow: none !important;
+}
+
+code,
+pre,
+textarea.file-editor {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+}

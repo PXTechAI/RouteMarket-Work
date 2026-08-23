@@ -12,6 +12,8 @@ import type {
   LocalApiGatewayUsage
 } from "../shared/desktop-api";
 import { modelProviderRequestHeaders, type ResolvedModelProvider } from "./model-provider-store";
+import { emptyModelTokenUsage, extractModelTokenUsage, observeResponseTokenUsage, type ModelTokenUsage } from "./model-token-usage";
+import { estimateModelUsageCost } from "./model-usage-cost";
 import type { RouteMarketApiClient } from "./routemarket-api-client";
 
 type GatewayConfig = {
@@ -338,20 +340,31 @@ export class LocalApiGateway {
           : model.source === "external"
             ? await this.requestExternal(model, body, request)
             : await this.requestRouteMarket(model, body, request);
-      await this.recordUsage({
-        id: randomUUID(),
-        source: "local_gateway",
-        kind: usageKind(protocol),
-        providerId: model.providerId,
-        providerName: model.providerName,
-        requestedModel,
-        resolvedModel: publicModelId(model),
-        routeId,
-        status: response.status,
-        durationMs: Date.now() - startedAt,
-        success: response.ok,
-        createdAt: new Date().toISOString()
-      });
+      const recordResponse = (usage: ModelTokenUsage) => this.recordUsage({
+          id: randomUUID(),
+          source: "local_gateway",
+          kind: usageKind(protocol),
+          providerId: model.providerId,
+          providerName: model.providerName,
+          requestedModel,
+          resolvedModel: publicModelId(model),
+          routeId,
+          status: response.status,
+          durationMs: Date.now() - startedAt,
+          success: response.ok,
+          createdAt: new Date().toISOString(),
+          ...usage,
+          ...estimateModelUsageCost(usage, model.pricing, protocol === "anthropic" ? "anthropic" : "openai")
+        });
+      if (response.ok && response.body && response.headers.get("content-type")?.includes("text/event-stream")) {
+        return observeResponseTokenUsage(response, recordResponse);
+      }
+      if (response.ok && response.body) {
+        const payload = await response.clone().json().catch(() => null);
+        await recordResponse(extractModelTokenUsage(payload) ?? emptyModelTokenUsage());
+        return response;
+      }
+      await recordResponse(emptyModelTokenUsage());
       return response;
     } catch (error) {
       await this.recordUsage({
@@ -385,7 +398,13 @@ export class LocalApiGateway {
         ...modelProviderRequestHeaders(resolved.provider),
         "Content-Type": "application/json"
       },
-      body: JSON.stringify({ ...body, model: resolved.modelId })
+      body: JSON.stringify({
+        ...body,
+        model: resolved.modelId,
+        ...(body.stream === true && body.stream_options === undefined
+          ? { stream_options: { include_usage: true } }
+          : {})
+      })
     });
   }
 

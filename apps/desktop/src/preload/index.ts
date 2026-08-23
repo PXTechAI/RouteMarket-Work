@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type {
   DesktopAnalyticsEvent,
+  DesktopUpdateState,
   DesktopWorkflowRunEvent,
   ProjectChatEvent,
   RouteMarketWorkApi
@@ -29,9 +30,24 @@ const api: RouteMarketWorkApi = {
   getState: () => ipcRenderer.invoke("work:get-state"),
   getAppInfo: () => ipcRenderer.invoke("work:get-app-info"),
   checkForUpdates: () => ipcRenderer.invoke("work:check-for-updates"),
+  getUpdateState: () => ipcRenderer.invoke("work:get-update-state"),
+  downloadUpdate: () => ipcRenderer.invoke("work:download-update"),
+  installUpdate: () => ipcRenderer.invoke("work:install-update"),
+  onDesktopUpdateState: (listener) => {
+    const handler = (_event: Electron.IpcRendererEvent, state: DesktopUpdateState) => listener(state);
+    ipcRenderer.on("work:update-state", handler);
+    return () => ipcRenderer.removeListener("work:update-state", handler);
+  },
   listMarketplaceCatalog: () => ipcRenderer.invoke("work:marketplace-catalog"),
+  listDesktopExtensions: () => ipcRenderer.invoke("work:desktop-extensions-list"),
+  refreshDesktopExtensions: () => ipcRenderer.invoke("work:desktop-extensions-refresh"),
+  openDesktopExtensionPage: (pluginId, pageId) =>
+    ipcRenderer.invoke("work:desktop-extension-open-page", pluginId, pageId),
+  pickDesktopExtensionFile: (pluginId, request) =>
+    ipcRenderer.invoke("work:desktop-extension-pick-file", pluginId, request),
   listMarketplacePluginInstallations: () => ipcRenderer.invoke("work:marketplace-plugin-installations"),
   prepareMarketplacePluginInstall: (pluginId) => ipcRenderer.invoke("work:marketplace-plugin-prepare", pluginId),
+  prepareLocalPluginInstall: () => ipcRenderer.invoke("work:local-plugin-prepare"),
   cancelMarketplacePluginInstall: (installToken) => ipcRenderer.invoke("work:marketplace-plugin-cancel", installToken),
   installMarketplacePlugin: async (installToken) => {
     const result = await ipcRenderer.invoke("work:marketplace-plugin-install", installToken);
@@ -80,8 +96,8 @@ const api: RouteMarketWorkApi = {
     ipcRenderer.invoke("work:get-project-context", localProjectId),
   listProjectSkills: (localProjectId) =>
     ipcRenderer.invoke("work:local-skills-list", localProjectId),
-  chooseAndInstallProjectSkill: (localProjectId) =>
-    ipcRenderer.invoke("work:local-skill-install", localProjectId),
+  chooseAndInstallProjectSkill: (localProjectId, importKind) =>
+    ipcRenderer.invoke("work:local-skill-install", localProjectId, importKind),
   listDownloadableCloudSkills: () =>
     ipcRenderer.invoke("work:cloud-skills-list"),
   installCloudSkill: (localProjectId, skillId, versionId) =>
@@ -107,6 +123,8 @@ const api: RouteMarketWorkApi = {
     ipcRenderer.invoke("work:preview-project-artifact", localProjectId, relativePath, selectedSheetId, pageNumber),
   chooseChatAttachments: (maxCount) =>
     ipcRenderer.invoke("work:chat-attachments-choose", maxCount),
+  uploadChatAttachments: (files) =>
+    ipcRenderer.invoke("work:chat-attachments-upload", files),
   discardChatAttachment: (attachmentId) =>
     ipcRenderer.invoke("work:chat-attachment-discard", attachmentId),
   writeProjectFile: (localProjectId, relativePath, text, expectedSha256) =>
@@ -134,6 +152,10 @@ const api: RouteMarketWorkApi = {
   getBrowserState: (localProjectId) => ipcRenderer.invoke("work:browser-state", localProjectId),
   showBrowser: (localProjectId, bounds) =>
     ipcRenderer.invoke("work:browser-show", localProjectId, bounds),
+  getWorkflowBrowserState: (localProjectId, workflowId) =>
+    ipcRenderer.invoke("work:workflow-browser-state", localProjectId, workflowId),
+  showWorkflowBrowser: (localProjectId, workflowId, bounds) =>
+    ipcRenderer.invoke("work:workflow-browser-show", localProjectId, workflowId, bounds),
   hideBrowser: () => ipcRenderer.invoke("work:browser-hide"),
   setBrowserBounds: (bounds) => ipcRenderer.invoke("work:browser-bounds", bounds),
   createBrowserPage: (localProjectId, profileId) =>
@@ -236,6 +258,10 @@ const api: RouteMarketWorkApi = {
     ipcRenderer.invoke("work:mcp-tool-call", serverId, name, args),
   listAgentProfiles: () => ipcRenderer.invoke("work:list-agent-profiles"),
   listChatModels: () => ipcRenderer.invoke("work:list-chat-models"),
+  listMediaModels: (kind) => ipcRenderer.invoke("work:list-media-models", kind),
+  listMediaInspiration: (input) => ipcRenderer.invoke("work:list-media-inspiration", input),
+  listMediaInspirationTags: (kind) => ipcRenderer.invoke("work:list-media-inspiration-tags", kind),
+  generateMedia: (input) => ipcRenderer.invoke("work:generate-media", input),
   listModelProviders: () => ipcRenderer.invoke("work:model-providers-list"),
   saveModelProvider: (input) => ipcRenderer.invoke("work:model-provider-save", input),
   syncModelProvider: (providerId) => ipcRenderer.invoke("work:model-provider-sync", providerId),

@@ -1,3 +1,4 @@
+import "./browser-profile-panel.scss";
 import { tr } from "../../i18n";
 import { Plus, Save, Trash2, X } from "lucide-react";
 import { useEffect, useState } from "react";

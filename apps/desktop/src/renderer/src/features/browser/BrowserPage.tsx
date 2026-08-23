@@ -1,6 +1,7 @@
+import "./browser.scss";
 import { tr } from "../../i18n";
 import { ArrowLeft, ArrowRight, Camera, CircleAlert, Download, Globe2, History, LoaderCircle, LogOut, Plug, RefreshCw, Search, Settings2, X } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { BrowserProfilePanel } from "./BrowserProfilePanel";
 import { BrowserDownloadPanel } from "./BrowserDownloadPanel";
 import { BrowserOperationPanel } from "./BrowserOperationPanel";
@@ -11,8 +12,23 @@ export function BrowserPage({ model, actions, viewportRef, addressRef }: Browser
     const [profilesOpen, setProfilesOpen] = useState(false);
     const [downloadsOpen, setDownloadsOpen] = useState(false);
     const [operationsOpen, setOperationsOpen] = useState(false);
+    const [chromeHandoffDismissed, setChromeHandoffDismissed] = useState(() => window.localStorage.getItem(CHROME_HANDOFF_DISMISSED_KEY) === "1");
+    const showChromeHandoff = model.mode === "managed" && Boolean(model.localProjectId) && !chromeHandoffDismissed;
+    useEffect(() => {
+        let settledFrame = 0;
+        const frame = window.requestAnimationFrame(() => {
+            actions.onViewportLayoutChange();
+            settledFrame = window.requestAnimationFrame(actions.onViewportLayoutChange);
+        });
+        const settleTimer = window.setTimeout(actions.onViewportLayoutChange, 180);
+        return () => {
+            window.cancelAnimationFrame(frame);
+            window.cancelAnimationFrame(settledFrame);
+            window.clearTimeout(settleTimer);
+        };
+    }, [profilesOpen, downloadsOpen, operationsOpen, showChromeHandoff, actions.onViewportLayoutChange]);
     const activeProfile = model.state?.profiles.find((profile) => profile.profileId === model.state?.activeProfileId);
-    return (<section className={`browser-pane browser-pane-${model.mode}`}>
+    return (<section className={`browser-pane browser-pane-${model.mode}${showChromeHandoff ? " browser-pane-with-handoff" : ""}`}>
       {model.mode === "managed" && model.state && (<BrowserTabStrip state={model.state} disabled={model.busy} onCreatePage={() => actions.onCreatePage(model.state?.activeProfileId)} onSelectPage={actions.onSelectPage} onClosePage={actions.onClosePage}/>)}
       <div className="browser-toolbar">
         <div className="browser-mode-switch" role="group" aria-label={tr("ui.94f19e8db8fb")}>
@@ -75,6 +91,24 @@ export function BrowserPage({ model, actions, viewportRef, addressRef }: Browser
           </button>)}
       </div>
 
+      {showChromeHandoff && (<div className="browser-chrome-handoff" role="region" aria-label={tr("browser.chromeHandoff.title")}>
+          <span className="browser-chrome-mark" aria-hidden="true"/>
+          <div>
+            <strong>{tr("browser.chromeHandoff.title")}</strong>
+            <span>{tr("browser.chromeHandoff.description")}</span>
+          </div>
+          <button className="browser-chrome-handoff-action" type="button" onClick={() => {
+              setProfilesOpen(false);
+              setDownloadsOpen(false);
+              setOperationsOpen(false);
+              actions.onModeChange("attached");
+          }}>{tr("browser.chromeHandoff.connect")}</button>
+          <button className="browser-chrome-handoff-close" type="button" title={tr("browser.chromeHandoff.dismiss")} aria-label={tr("browser.chromeHandoff.dismiss")} onClick={() => {
+              window.localStorage.setItem(CHROME_HANDOFF_DISMISSED_KEY, "1");
+              setChromeHandoffDismissed(true);
+          }}><X size={14}/></button>
+        </div>)}
+
       <div className="browser-content">
         <div className="browser-viewport" ref={viewportRef}>
           {model.screenshot && (<div className="browser-screenshot-preview">
@@ -125,3 +159,5 @@ export function BrowserPage({ model, actions, viewportRef, addressRef }: Browser
         </div>)}
     </section>);
 }
+
+const CHROME_HANDOFF_DISMISSED_KEY = "routemarket.browser.chrome-handoff.dismissed.v1";

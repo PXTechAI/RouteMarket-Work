@@ -1,3 +1,4 @@
+import "./browser-tab-strip.scss";
 import { tr } from "../../i18n";
 import { LoaderCircle, Plus, X } from "lucide-react";
 import type { ManagedBrowserState } from "../../../../shared/desktop-api";

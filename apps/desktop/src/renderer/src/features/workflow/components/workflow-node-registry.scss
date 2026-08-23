@@ -1,0 +1,110 @@
+.workflow-registry-meta {
+  display: flex;
+  gap: 16px;
+  padding: 9px 20px;
+  color: var(--rm-text-muted);
+  border-bottom: 1px solid var(--rm-border);
+  font-size: 12px;
+}
+
+.workflow-registry-meta code {
+  margin-left: auto;
+  color: var(--rm-accent);
+}
+
+.workflow-node-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(225px, 1fr));
+  gap: 10px;
+  min-height: 0;
+  padding: 14px 20px 24px;
+  overflow: auto;
+}
+
+.workflow-node-grid article {
+  min-height: 145px;
+  padding: 12px;
+  background: var(--rm-surface);
+  border: 1px solid var(--rm-border);
+  border-radius: 7px;
+  box-shadow: var(--rm-shadow-xs);
+}
+
+.workflow-node-grid article.blocked {
+  opacity: 0.68;
+  border-style: dashed;
+}
+
+.workflow-node-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.workflow-node-card-head > span {
+  padding: 2px 5px;
+  border-radius: 3px;
+  font-size: 11px;
+}
+
+.workflow-node-source {
+  color: var(--rm-accent);
+  background: var(--rm-accent-soft);
+}
+
+.workflow-node-source.local_extension {
+  color: var(--rm-purple);
+  background: var(--rm-purple-soft);
+}
+
+.workflow-node-card-head .available {
+  color: var(--rm-success-strong);
+}
+
+.workflow-node-card-head .unavailable {
+  color: var(--rm-danger);
+}
+
+.workflow-node-grid h3 {
+  margin: 11px 0 4px;
+  color: var(--rm-text);
+  font-size: 12px;
+}
+
+.workflow-node-grid article > code {
+  display: block;
+  overflow: hidden;
+  color: var(--rm-accent);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workflow-node-grid article > p {
+  min-height: 30px;
+  margin: 9px 0;
+  color: var(--rm-text-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.workflow-node-grid article > small {
+  display: block;
+  margin-top: 8px;
+  color: var(--rm-danger);
+  font-size: 11px;
+}
+
+.workflow-node-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.workflow-node-tags span {
+  padding: 2px 5px;
+  color: var(--rm-text-muted);
+  background: var(--rm-surface-strong);
+  border-radius: 3px;
+  font-size: 11px;
+}

@@ -1,8 +1,9 @@
+import "./desktop-workflow-flow.scss";
 import { tr } from "../../../i18n";
 import { Background, BackgroundVariant, BaseEdge, Controls, EdgeLabelRenderer, Handle, MarkerType, MiniMap, Position, ReactFlow, ReactFlowProvider, SelectionMode, getBezierPath, useEdgesState, useNodesState, useReactFlow, type Connection, type Edge, type EdgeProps, type EdgeTypes, type Node, type NodeChange, type NodeProps, type NodeTypes } from "@xyflow/react";
-import { CopyPlus, Settings2, Trash2, X } from "lucide-react";
-import { useEffect, useMemo } from "react";
-import type { DesktopWorkflowCloudPort, DesktopWorkflowDraft, DesktopWorkflowDraftNode, DesktopWorkflowNodeRunStatus, DesktopWorkflowRun } from "../../../../../shared/desktop-api";
+import { CopyPlus, Plus, Search, Settings2, Trash2, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import type { DesktopWorkflowCloudPort, DesktopWorkflowDraft, DesktopWorkflowDraftNode, DesktopWorkflowNodeDefinition, DesktopWorkflowNodeRunStatus, DesktopWorkflowRun } from "../../../../../shared/desktop-api";
 import { WorkspaceState } from "../../../app/WorkspaceState";
 import { canConnectWorkflowDraftPorts } from "../workflow-draft-graph";
 type WorkflowFlowNodeData = Record<string, unknown> & {
@@ -24,12 +25,14 @@ const edgeTypes = {
 } satisfies EdgeTypes;
 type DesktopWorkflowFlowProps = {
     draft: DesktopWorkflowDraft | null;
+    definitions: DesktopWorkflowNodeDefinition[];
     selectedRun: DesktopWorkflowRun | null;
     busy: boolean;
     fitViewRevision: number;
     selectedNodeIds: string[];
     onSelectNodes(nodeIds: string[]): void;
-    onConfigureNode(nodeId: string): void;
+    onConfigureNode(nodeId: string | null): void;
+    onAddNode(executorKey: string, position: { x: number; y: number }): string | null;
     onMoveNodes(positions: Array<{
         nodeId: string;
         x: number;
@@ -40,13 +43,39 @@ type DesktopWorkflowFlowProps = {
     onRemoveNodes(nodeIds: string[]): void;
     onDuplicateNodes(nodeIds: string[]): string[];
     onRemoveEdges(edgeIds: string[]): void;
+    configPanel?: ReactNode;
 };
 export function DesktopWorkflowFlow(props: DesktopWorkflowFlowProps) {
     return (<ReactFlowProvider>
       <DesktopWorkflowFlowInner {...props}/>
     </ReactFlowProvider>);
 }
-function DesktopWorkflowFlowInner({ draft, selectedRun, busy, fitViewRevision, selectedNodeIds, onSelectNodes, onConfigureNode, onMoveNodes, onConnectNodes, onRemoveNode, onRemoveNodes, onDuplicateNodes, onRemoveEdges }: DesktopWorkflowFlowProps) {
+function DesktopWorkflowFlowInner({ draft, definitions, selectedRun, busy, fitViewRevision, selectedNodeIds, onSelectNodes, onConfigureNode, onAddNode, onMoveNodes, onConnectNodes, onRemoveNode, onRemoveNodes, onDuplicateNodes, onRemoveEdges, configPanel }: DesktopWorkflowFlowProps) {
+    const flowContainerRef = useRef<HTMLDivElement>(null);
+    const [contextMenu, setContextMenu] = useState<{
+        left: number;
+        top: number;
+        position: { x: number; y: number };
+    } | null>(null);
+    const [contextSearch, setContextSearch] = useState("");
+    const configureNodeRef = useRef<(nodeId: string) => void>((nodeId) => onConfigureNode(nodeId));
+    const removeNodeRef = useRef(onRemoveNode);
+    const removeEdgesRef = useRef(onRemoveEdges);
+    configureNodeRef.current = (nodeId) => onConfigureNode(nodeId);
+    removeNodeRef.current = onRemoveNode;
+    removeEdgesRef.current = onRemoveEdges;
+    const configureNode = useCallback((nodeId: string) => configureNodeRef.current(nodeId), []);
+    const removeNode = useCallback((nodeId: string) => removeNodeRef.current(nodeId), []);
+    const removeEdge = useCallback((edgeId: string) => removeEdgesRef.current([edgeId]), []);
+    const visibleDefinitions = useMemo(() => {
+        const query = contextSearch.trim().toLocaleLowerCase();
+        return definitions
+            .filter((definition) => definition.available)
+            .filter((definition) => !query ||
+                definition.title.toLocaleLowerCase().includes(query) ||
+                definition.executorKey.toLocaleLowerCase().includes(query))
+            .slice(0, 24);
+    }, [contextSearch, definitions]);
     const mappedNodes = useMemo<WorkflowFlowNode[]>(() => (draft?.nodes ?? []).map((node) => ({
         id: node.nodeId,
         type: "desktopWorkflowNode",
@@ -56,13 +85,13 @@ function DesktopWorkflowFlowInner({ draft, selectedRun, busy, fitViewRevision, s
             draftNode: node,
             runStatus: selectedRun?.nodeRuns.find((nodeRun) => nodeRun.nodeId === node.nodeId)
                 ?.status ?? null,
-            onConfigure: onConfigureNode,
-            onRemove: onRemoveNode
+            onConfigure: configureNode,
+            onRemove: removeNode
         }
     })), [
         draft?.nodes,
-        onConfigureNode,
-        onRemoveNode,
+        configureNode,
+        removeNode,
         selectedNodeIds,
         selectedRun
     ]);
@@ -80,15 +109,14 @@ function DesktopWorkflowFlowInner({ draft, selectedRun, busy, fitViewRevision, s
             color: "var(--rm-accent)"
         },
         data: {
-            onRemove: (edgeId) => onRemoveEdges([edgeId])
+            onRemove: removeEdge
         }
-    })), [draft?.edges, onRemoveEdges]);
+    })), [draft?.edges, draft?.nodes, removeEdge]);
     const [nodes, setNodes, onNodesChange] = useNodesState(mappedNodes);
     const [edges, setEdges, onEdgesChange] = useEdgesState(mappedEdges);
-    const { fitView } = useReactFlow<WorkflowFlowNode, WorkflowFlowEdge>();
-    const nodeSetKey = (draft?.nodes ?? []).map((node) => node.nodeId).join(",");
-    useEffect(() => setNodes(mappedNodes), [mappedNodes, setNodes]);
-    useEffect(() => setEdges(mappedEdges), [mappedEdges, setEdges]);
+    const { fitView, screenToFlowPosition } = useReactFlow<WorkflowFlowNode, WorkflowFlowEdge>();
+    useEffect(() => setNodes((current) => reconcileFlowNodes(current, mappedNodes)), [mappedNodes, setNodes]);
+    useEffect(() => setEdges((current) => reconcileFlowEdges(current, mappedEdges)), [mappedEdges, setEdges]);
     useEffect(() => {
         if (!draft)
             return;
@@ -96,7 +124,7 @@ function DesktopWorkflowFlowInner({ draft, selectedRun, busy, fitViewRevision, s
             void fitView({ padding: 0.2, maxZoom: 1, duration: 180 });
         });
         return () => cancelAnimationFrame(animationFrame);
-    }, [draft?.workflowId, fitView, nodeSetKey]);
+    }, [draft?.workflowId, fitView]);
     useEffect(() => {
         if (!fitViewRevision)
             return;
@@ -105,6 +133,15 @@ function DesktopWorkflowFlowInner({ draft, selectedRun, busy, fitViewRevision, s
         });
         return () => cancelAnimationFrame(animationFrame);
     }, [fitView, fitViewRevision]);
+    useEffect(() => {
+        if (!contextMenu)
+            return;
+        const closeMenu = (event: KeyboardEvent) => {
+            if (event.key === "Escape") setContextMenu(null);
+        };
+        window.addEventListener("keydown", closeMenu);
+        return () => window.removeEventListener("keydown", closeMenu);
+    }, [contextMenu]);
     function handleNodesChange(changes: NodeChange<WorkflowFlowNode>[]) {
         onNodesChange(changes);
         const selectionChanges = changes.filter((change) => change.type === "select");
@@ -134,12 +171,32 @@ function DesktopWorkflowFlowInner({ draft, selectedRun, busy, fitViewRevision, s
             onConnectNodes(connection.source, connection.target, connection.sourceHandle ?? undefined, connection.targetHandle ?? undefined);
         }
     }
-    return (<div className="desktop-workflow-flow" aria-label={tr("ui.3d5d596ddb23")}>
-      <ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} edgeTypes={edgeTypes} onNodesChange={handleNodesChange} onEdgesChange={onEdgesChange} onConnect={handleConnect} onNodeClick={(event, node) => {
+    return (<div ref={flowContainerRef} className="desktop-workflow-flow" aria-label={tr("ui.3d5d596ddb23")}>
+      <ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} edgeTypes={edgeTypes} onNodesChange={handleNodesChange} onEdgesChange={onEdgesChange} onConnect={handleConnect} onPaneClick={() => {
+            setContextMenu(null);
+            onConfigureNode(null);
+            onSelectNodes([]);
+        }} onPaneContextMenu={(event) => {
+            event.preventDefault();
+            if (busy || !draft)
+                return;
+            onConfigureNode(null);
+            const bounds = flowContainerRef.current?.getBoundingClientRect();
+            if (!bounds)
+                return;
+            setContextSearch("");
+            setContextMenu({
+                left: Math.min(event.clientX - bounds.left, Math.max(12, bounds.width - 332)),
+                top: Math.min(event.clientY - bounds.top, Math.max(12, bounds.height - 390)),
+                position: screenToFlowPosition({ x: event.clientX, y: event.clientY })
+            });
+        }} onNodeClick={(event, node) => {
+            setContextMenu(null);
             const additive = "ctrlKey" in event &&
                 (event.ctrlKey || event.metaKey || event.shiftKey);
             if (!additive) {
                 onSelectNodes([node.id]);
+                onConfigureNode(node.id);
                 return;
             }
             onSelectNodes(selectedNodeIds.includes(node.id)
@@ -148,11 +205,44 @@ function DesktopWorkflowFlowInner({ draft, selectedRun, busy, fitViewRevision, s
         }} isValidConnection={(connection) => Boolean(draft &&
             connection.source &&
             connection.target &&
-            canConnectWorkflowDraftPorts(draft, connection.source, connection.target, connection.sourceHandle, connection.targetHandle))} onNodesDelete={(deletedNodes) => onRemoveNodes(deletedNodes.map((node) => node.id))} onEdgesDelete={(deletedEdges) => onRemoveEdges(deletedEdges.map((edge) => edge.id))} nodesDraggable={!busy} nodesConnectable={!busy} elementsSelectable={!busy} selectionOnDrag={!busy} selectionMode={SelectionMode.Partial} panOnDrag={[1, 2]} multiSelectionKeyCode={["Meta", "Control", "Shift"]} deleteKeyCode={["Backspace", "Delete"]} fitView fitViewOptions={{ padding: 0.2, maxZoom: 1 }} minZoom={0.2} maxZoom={2.5} proOptions={{ hideAttribution: true }} defaultEdgeOptions={{ type: "desktopWorkflowEdge" }}>
+            canConnectWorkflowDraftPorts(draft, connection.source, connection.target, connection.sourceHandle, connection.targetHandle))} onNodesDelete={(deletedNodes) => onRemoveNodes(deletedNodes.map((node) => node.id))} onEdgesDelete={(deletedEdges) => onRemoveEdges(deletedEdges.map((edge) => edge.id))} nodesDraggable={!busy} nodesConnectable={!busy} elementsSelectable={!busy} selectionOnDrag={!busy} selectionMode={SelectionMode.Partial} panOnDrag={[1, 2]} multiSelectionKeyCode={["Meta", "Control", "Shift"]} deleteKeyCode={["Backspace", "Delete"]} fitViewOptions={{ padding: 0.2, maxZoom: 1 }} minZoom={0.2} maxZoom={2.5} proOptions={{ hideAttribution: true }} defaultEdgeOptions={{ type: "desktopWorkflowEdge" }}>
         <MiniMap pannable zoomable nodeStrokeWidth={2} nodeColor="var(--rm-accent-soft)" nodeStrokeColor="var(--rm-accent)" maskColor="color-mix(in srgb, var(--rm-bg) 72%, transparent)"/>
         <Controls showInteractive={false}/>
         <Background variant={BackgroundVariant.Dots} gap={18} size={1.4} color="var(--rm-border-strong)"/>
       </ReactFlow>
+      {contextMenu && (<div
+          className="desktop-workflow-context-menu nodrag nopan"
+          role="menu"
+          style={{ left: contextMenu.left, top: contextMenu.top }}
+          onMouseDown={(event) => event.stopPropagation()}
+        >
+          <header>
+            <strong>{tr("workflow.canvas.addNode")}</strong>
+            <button type="button" title={tr("ui.6c14bd7f6f9e")} onClick={() => setContextMenu(null)}><X size={14}/></button>
+          </header>
+          <label>
+            <Search size={14}/>
+            <input autoFocus value={contextSearch} placeholder={tr("workflow.canvas.searchNodes")} onChange={(event) => setContextSearch(event.target.value)}/>
+          </label>
+          <div>
+            {visibleDefinitions.map((definition) => (<button key={definition.executorKey} type="button" role="menuitem" onClick={() => {
+                const nodeId = onAddNode(definition.executorKey, contextMenu.position);
+                if (nodeId) {
+                    onSelectNodes([nodeId]);
+                    onConfigureNode(nodeId);
+                }
+                setContextMenu(null);
+              }}>
+                <span><Plus size={14}/></span>
+                <span>
+                  <strong>{definition.title}</strong>
+                  <small>{definition.executorKey}</small>
+                </span>
+              </button>))}
+            {!visibleDefinitions.length && <p>{tr("workflow.canvas.noNodes")}</p>}
+          </div>
+        </div>)}
+      {configPanel}
       {selectedNodeIds.length > 0 && (<div className="desktop-workflow-selection-actions">
           <span>{tr("ui.743aaf951e5d")}{selectedNodeIds.length}{tr("ui.df2dd979aa20")}</span>
           <button type="button" title={tr("ui.e3b983a5f113")} onClick={() => onSelectNodes(onDuplicateNodes(selectedNodeIds))}>
@@ -170,6 +260,50 @@ function DesktopWorkflowFlowInner({ draft, selectedRun, busy, fitViewRevision, s
           <WorkspaceState kind="loading" compact title={tr("ui.55608dd8aa80")}/>
         </div>)}
     </div>);
+}
+function reconcileFlowNodes(current: WorkflowFlowNode[], incoming: WorkflowFlowNode[]): WorkflowFlowNode[] {
+    const currentById = new Map(current.map((node) => [node.id, node]));
+    let changed = current.length !== incoming.length;
+    const next = incoming.map((node) => {
+        const previous = currentById.get(node.id);
+        if (!previous) {
+            changed = true;
+            return node;
+        }
+        const position = previous.dragging ? previous.position : node.position;
+        const unchanged = previous.position.x === position.x &&
+            previous.position.y === position.y &&
+            previous.selected === node.selected &&
+            previous.data.draftNode === node.data.draftNode &&
+            previous.data.runStatus === node.data.runStatus;
+        if (unchanged)
+            return previous;
+        changed = true;
+        return {
+            ...previous,
+            ...node,
+            position,
+            measured: previous.measured
+        };
+    });
+    return changed ? next : current;
+}
+function reconcileFlowEdges(current: WorkflowFlowEdge[], incoming: WorkflowFlowEdge[]): WorkflowFlowEdge[] {
+    const currentById = new Map(current.map((edge) => [edge.id, edge]));
+    let changed = current.length !== incoming.length;
+    const next = incoming.map((edge) => {
+        const previous = currentById.get(edge.id);
+        if (previous &&
+            previous.source === edge.source &&
+            previous.target === edge.target &&
+            previous.sourceHandle === edge.sourceHandle &&
+            previous.targetHandle === edge.targetHandle) {
+            return previous;
+        }
+        changed = true;
+        return previous ? { ...previous, ...edge } : edge;
+    });
+    return changed ? next : current;
 }
 function DesktopWorkflowNodeCard({ data, selected }: NodeProps<WorkflowFlowNode>) {
     const { draftNode, runStatus, onConfigure, onRemove } = data;
