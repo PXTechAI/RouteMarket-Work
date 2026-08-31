@@ -69,12 +69,19 @@ jobs:
       - name: Run tests
         shell: pwsh
         run: |
-          corepack pnpm test
-          if ($LASTEXITCODE -ne 0) {
+          corepack pnpm test 2>&1 | Tee-Object -FilePath test-output.log
+          $testExitCode = $LASTEXITCODE
+          if ($testExitCode -ne 0) {
             Write-Warning "The test suite failed once; retrying to rule out a transient Windows timeout."
-            corepack pnpm test
+            corepack pnpm test 2>&1 | Tee-Object -FilePath test-output.log
+            $testExitCode = $LASTEXITCODE
           }
-          exit $LASTEXITCODE
+          if ($testExitCode -ne 0) {
+            $tail = (Get-Content test-output.log -Tail 120) -join "`n"
+            $escaped = $tail.Replace("%", "%25").Replace("`r", "%0D").Replace("`n", "%0A")
+            Write-Output "::error title=Test suite failed::$escaped"
+          }
+          exit $testExitCode
 
       - name: Run release policy tests
         shell: pwsh
