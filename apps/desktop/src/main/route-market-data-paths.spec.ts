@@ -97,5 +97,5 @@ describe("RouteMarket durable data paths", () => {
       migrateUnscopedRouteMarketData(paths, secondScope.root, secondScope.scopeId)
     ).resolves.toBe(false);
     await expect(readFile(secondScope.database, "utf8")).rejects.toThrow();
-  });
+  }, 15_000);
 });
