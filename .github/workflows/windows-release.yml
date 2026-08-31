@@ -1,0 +1,149 @@
+name: Windows release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: windows-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-and-release:
+    name: Build Windows x64 installer
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      ROUTEMARKET_WORK_UPDATE_CHANNEL: stable
+      ROUTEMARKET_WORK_ROLLOUT_PERCENT: "100"
+      ROUTEMARKET_WORK_UPDATE_URL: https://github.com/PXTechAI/RouteMarket-Work/releases/latest/download
+
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify tag matches the package version
+        shell: pwsh
+        run: |
+          $version = node -p "require('./package.json').version"
+          $desktopVersion = node -p "require('./apps/desktop/package.json').version"
+          if ($version -ne $desktopVersion) {
+            throw "Root package version $version does not match desktop package version $desktopVersion."
+          }
+          $expectedTag = "v$version"
+          if ($env:GITHUB_REF_NAME -ne $expectedTag) {
+            throw "Tag $env:GITHUB_REF_NAME does not match package version $expectedTag."
+          }
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Enable pnpm
+        shell: pwsh
+        run: corepack enable
+
+      - name: Install dependencies
+        shell: pwsh
+        run: corepack pnpm install --frozen-lockfile
+
+      - name: Run type checks
+        shell: pwsh
+        run: corepack pnpm typecheck
+
+      - name: Run tests
+        shell: pwsh
+        run: |
+          corepack pnpm test
+          if ($LASTEXITCODE -ne 0) {
+            Write-Warning "The test suite failed once; retrying to rule out a transient Windows timeout."
+            corepack pnpm test
+          }
+          exit $LASTEXITCODE
+
+      - name: Run release policy tests
+        shell: pwsh
+        run: corepack pnpm test:release
+
+      - name: Record the clean release source
+        shell: pwsh
+        run: node scripts/write-release-manifest.mjs --check-source --artifact-dir release
+
+      # This bootstrap release is intentionally unsigned. SignPath signing will
+      # replace this packaging step after the project is accepted by SignPath
+      # Foundation. The release notes below make that status explicit to users.
+      - name: Build production desktop bundle
+        shell: pwsh
+        run: corepack pnpm --filter @routemarket/work-desktop run build
+
+      - name: Package unsigned NSIS installer
+        shell: pwsh
+        run: corepack pnpm --filter @routemarket/work-desktop exec electron-builder --win nsis --x64 --publish never
+
+      - name: Prepare update metadata and release manifest
+        shell: pwsh
+        run: |
+          node scripts/prepare-update-metadata.mjs --artifact-dir release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts/write-release-manifest.mjs --artifact-dir release --platform win32 --arch x64
+
+      - name: Write SHA-256 checksums
+        shell: pwsh
+        run: |
+          $files = @(
+            Get-ChildItem "release/RouteMarket Work-Setup-*.exe" -File
+            Get-ChildItem "release/RouteMarket Work-Setup-*.exe.blockmap" -File
+            Get-ChildItem "release/RouteMarket Work-Setup-*.manifest.json" -File
+            Get-Item "release/latest.yml"
+          )
+          $lines = foreach ($file in $files) {
+            $hash = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $($file.Name)"
+          }
+          $lines | Set-Content -LiteralPath release/SHA256SUMS.txt -Encoding utf8
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: routemarket-work-${{ github.ref_name }}-windows-x64
+          path: |
+            release/RouteMarket Work-Setup-*.exe
+            release/RouteMarket Work-Setup-*.exe.blockmap
+            release/RouteMarket Work-Setup-*.manifest.json
+            release/latest.yml
+            release/SHA256SUMS.txt
+          if-no-files-found: error
+
+      - name: Create GitHub prerelease
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $notes = @"
+          RouteMarket Work $env:GITHUB_REF_NAME is the first public Early Access Windows release.
+
+          Important: this bootstrap installer is not yet Authenticode-signed. Windows may display an Unknown publisher or Microsoft Defender SmartScreen warning. The project is applying for SignPath Foundation code signing; a signed installer will replace this bootstrap release after approval.
+
+          Verify downloads against SHA256SUMS.txt before installation.
+          "@
+          $assets = @(
+            Get-ChildItem "release/RouteMarket Work-Setup-*.exe" -File
+            Get-ChildItem "release/RouteMarket Work-Setup-*.exe.blockmap" -File
+            Get-ChildItem "release/RouteMarket Work-Setup-*.manifest.json" -File
+            Get-Item "release/latest.yml"
+            Get-Item "release/SHA256SUMS.txt"
+          ) | Select-Object -ExpandProperty FullName
+          gh release create $env:GITHUB_REF_NAME $assets `
+            --verify-tag `
+            --prerelease `
+            --generate-notes `
+            --title "RouteMarket Work $env:GITHUB_REF_NAME (Early Access)" `
+            --notes $notes
