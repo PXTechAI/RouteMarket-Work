@@ -1,0 +1,72 @@
+.workspace-creation-mode-tabs {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  width: max-content;
+  max-width: 100%;
+  min-height: 44px;
+  gap: 2px;
+  padding: 4px 5px 0;
+  overflow-x: auto;
+  border: 1px solid color-mix(in srgb, var(--rm-border) 88%, transparent);
+  border-bottom: 0;
+  border-radius: 14px 14px 0 0;
+  background: color-mix(in srgb, var(--rm-surface) 92%, transparent);
+  box-shadow: 0 -5px 18px color-mix(in srgb, var(--rm-canvas-contrast) 3%, transparent);
+  scrollbar-width: none;
+}
+
+.workspace-creation-mode-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.workspace-creation-mode-tabs button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 39px;
+  gap: 7px;
+  padding: 0 13px;
+  border: 0;
+  border-radius: 10px 10px 0 0;
+  color: var(--rm-text-muted);
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    color 160ms ease,
+    background-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.workspace-creation-mode-tabs button:hover,
+.workspace-creation-mode-tabs button:focus-visible {
+  color: var(--rm-text);
+  background: color-mix(in srgb, var(--rm-accent) 6%, transparent);
+  outline: none;
+}
+
+.workspace-creation-mode-tabs button.active {
+  color: color-mix(in srgb, var(--rm-accent) 76%, var(--rm-text));
+  background: color-mix(in srgb, var(--rm-accent) 9%, var(--rm-surface));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--rm-accent) 14%, transparent);
+  cursor: default;
+}
+
+@media (max-width: 720px) {
+  .workspace-creation-mode-tabs {
+    width: 100%;
+  }
+
+  .workspace-creation-mode-tabs button {
+    flex: 1 0 auto;
+    min-height: 38px;
+    padding-inline: 12px;
+  }
+}

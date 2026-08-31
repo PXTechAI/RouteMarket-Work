@@ -1,4 +1,4 @@
-import { AudioLines, Box as BoxIcon, ChevronRight, Cpu, ExternalLink, Folder, FolderOpen, FolderPlus, History, Image, MessageSquarePlus, MoreHorizontal, MoveRight, PanelLeft, Pencil, Puzzle, Search, Settings, Sparkles, Trash2, Video, WandSparkles, Workflow } from "lucide-react";
+import { AudioLines, Box as BoxIcon, ChevronRight, Cpu, ExternalLink, Folder, FolderOpen, FolderPlus, History, Image, MessageSquarePlus, MoreHorizontal, MoveRight, PanelLeft, Pencil, Puzzle, Search, Settings, Trash2, Video, WandSparkles, Workflow } from "lucide-react";
 import { useEffect, useState } from "react";
 import "./app-rail.scss";
 import "./app-rail-projects.scss";
@@ -53,7 +53,6 @@ export function AppRail({ activeView, state, extensions, selectedProjectId, sele
     const [expanded, setExpanded] = useState(getRailExpandedPreference);
     const [menuProjectId, setMenuProjectId] = useState<string | null>(null);
     const [menuChatId, setMenuChatId] = useState<string | null>(null);
-    const [creatorGroupCollapsed, setCreatorGroupCollapsed] = useState(false);
     const [recentSearchOpen, setRecentSearchOpen] = useState(false);
     const [chatDialog, setChatDialog] = useState<ChatDialogState>(null);
     const [chatDialogValue, setChatDialogValue] = useState("");
@@ -140,7 +139,6 @@ export function AppRail({ activeView, state, extensions, selectedProjectId, sele
         onSelectChat(projectId, sessionId);
     }
     const selectedProject = state.projects.find((project) => project.localProjectId === selectedProjectId);
-    const creatorEntryActive = activeView === "chat" || activeView === "image" || activeView === "video" || activeView === "audio" || activeView === "workflow";
     const selectedFolderAvailable = selectedProject
         ? projectFolderAvailable(selectedProject)
         : true;
@@ -196,34 +194,18 @@ export function AppRail({ activeView, state, extensions, selectedProjectId, sele
           <PanelLeft size={14}/>
         </button>
       </div>
-      <div className={`rm-rail-group rm-rail-creation ${creatorGroupCollapsed ? "section-collapsed" : ""}`}>
-        <button className={`rm-rail-creation-toggle ${creatorEntryActive ? "active" : ""}`} type="button" aria-expanded={!creatorGroupCollapsed} aria-controls="rm-rail-creation-items" onClick={() => setCreatorGroupCollapsed((current) => !current)}>
-          <span className="rm-rail-creation-icon"><Sparkles size={14}/></span>
-          <span className="rm-rail-creation-label">{tr("nav.creationWorkspace")}</span>
-          <ChevronRight className="rm-rail-creation-chevron" size={12}/>
-        </button>
-        <div className="rm-rail-creation-items" id="rm-rail-creation-items" hidden={expanded && creatorGroupCollapsed}>
-          <RailButton label={tr("nav.newChat")} active={activeView === "chat" && selectedSessionId === null} onClick={() => createChat(null)}>
-            <MessageSquarePlus size={14}/>
+      <div className="rm-rail-group rm-rail-creation">
+        <RailButton label={tr("nav.newChat")} active={activeView === "chat" && selectedSessionId === null} onClick={() => createChat(null)}>
+          <MessageSquarePlus size={14}/>
+        </RailButton>
+        <RailButton label={tr("ui.cc19798b0c12")} active={activeView === "workflow"} onClick={() => onSelect("workflow")}>
+          <Workflow size={14}/>
+        </RailButton>
+        {extensionNavigation.filter((item) => item.group === "creation").map((item) => (
+          <RailButton key={item.key} label={item.title} active={activeView === item.key} onClick={() => onSelectExtension(item.pluginId, item.pageId)}>
+            {extensionIcon(item.icon)}
           </RailButton>
-          <RailButton label={tr("nav.imageCreation")} active={activeView === "image"} onClick={() => onSelect("image")}>
-            <Image size={14}/>
-          </RailButton>
-          <RailButton label={tr("nav.videoCreation")} active={activeView === "video"} onClick={() => onSelect("video")}>
-            <Video size={14}/>
-          </RailButton>
-          <RailButton label={tr("nav.audioGeneration")} active={activeView === "audio"} onClick={() => onSelect("audio")}>
-            <AudioLines size={14}/>
-          </RailButton>
-          <RailButton label={tr("ui.cc19798b0c12")} active={activeView === "workflow"} onClick={() => onSelect("workflow")}>
-            <Workflow size={14}/>
-          </RailButton>
-          {extensionNavigation.filter((item) => item.group === "creation").map((item) => (
-            <RailButton key={item.key} label={item.title} active={activeView === item.key} onClick={() => onSelectExtension(item.pluginId, item.pageId)}>
-              {extensionIcon(item.icon)}
-            </RailButton>
-          ))}
-        </div>
+        ))}
       </div>
 
       <section className={`rm-rail-projects rm-rail-recent ${collapsedRailSections.has("recent") ? "section-collapsed" : ""}`} aria-label={tr("chat.recent")}>

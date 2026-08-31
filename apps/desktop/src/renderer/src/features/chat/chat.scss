@@ -23,6 +23,16 @@
   background: linear-gradient(180deg, transparent, var(--rm-surface) 34%);
 }
 
+.chat-creation-mode-tabs {
+  width: min(100%, 920px);
+  margin: 0 auto;
+}
+
+.chat-creation-mode-tabs + .composer,
+.chat-creation-mode-tabs ~ .composer {
+  border-top-left-radius: 0;
+}
+
 .agent-version-banner {
   display: flex;
   align-items: center;

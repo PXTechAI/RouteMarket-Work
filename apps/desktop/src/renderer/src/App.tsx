@@ -4661,6 +4661,14 @@ export function App() {
           },
         }
       : null;
+  function selectCreationMode(mode: Extract<WorkspaceView, "chat" | "image" | "video" | "audio">) {
+    if (mode === "chat") {
+      prepareProjectChat(null);
+      return;
+    }
+    setWorkspaceView(mode);
+    setWorkbenchPanel(null);
+  }
   return (
     <div
       className={`app-shell ${visibleWorkbenchPanel ? "has-workbench" : ""}`}
@@ -5073,6 +5081,7 @@ export function App() {
             <MediaGenerationPage
               api={api}
               kind={workspaceView}
+              onCreationModeChange={selectCreationMode}
               onManageLocalModels={() => {
                 settingsReturnViewRef.current = { view: workspaceView, workbenchPanel };
                 setSettingsInitialView("providers");
@@ -5299,6 +5308,7 @@ export function App() {
                   onIncludeFileContextChange={setIncludeFileContext}
                   onDismissError={() => setError(null)}
                   onOpenArtifact={(relativePath) => void openChatArtifact(relativePath)}
+                  onCreationModeChange={selectCreationMode}
                 />
               </div>
             </div>

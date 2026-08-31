@@ -17,6 +17,7 @@ import { supportsNativeWebSearch } from "./web-search-mode";
 import { VirtualMessageList } from "./VirtualMessageList";
 import type { ChatMessage } from "./types";
 import { projectFolderAvailable, projectFolderMessage, projectFolderStatus } from "../projects/project-folder-status";
+import { WorkspaceCreationModeTabs, type WorkspaceCreationMode } from "../../app/WorkspaceCreationModeTabs";
 type ChatPageProps = {
     selectedProject: ProjectSummary | null;
     hasConversation: boolean;
@@ -77,8 +78,9 @@ type ChatPageProps = {
     onIncludeFileContextChange(value: boolean): void;
     onDismissError(): void;
     onOpenArtifact?(relativePath: string): void;
+    onCreationModeChange(mode: WorkspaceCreationMode): void;
 };
-export function ChatPage({ selectedProject, hasConversation, messages, activeRequestId, includeFileContext, selectedFilePath, readResult, draft, attachments, uploadingAttachments, recentAttachments, authStatus, models, selectedModelCode, executionEnvironment, webSearchMode, deepThinkingEnabled, modelsLoading, agents, agentsLoading, selectedAgentId, selectedAgent, agentVersion, agentSkills, projectContext, selectedProjectSkillId, projectSkillActions, editingMessageId, attachmentsBusy, error, onAttachProjectFolder, onDraftChange, onChooseAttachments, onUploadAttachmentFiles, onChooseRecentAttachment, onClearAttachments, onRemoveAttachment, onSend, onRetry, onEditMessage, onCancelEdit, onStop, onModelChange, onManageModelProviders, onExecutionEnvironmentChange, onWebSearchModeChange, onDeepThinkingChange, onAgentChange, onRefreshAgents, onManageAgents, onUpdateAgent, onProjectSkillChange, onIncludeFileContextChange, onDismissError, onOpenArtifact }: ChatPageProps) {
+export function ChatPage({ selectedProject, hasConversation, messages, activeRequestId, includeFileContext, selectedFilePath, readResult, draft, attachments, uploadingAttachments, recentAttachments, authStatus, models, selectedModelCode, executionEnvironment, webSearchMode, deepThinkingEnabled, modelsLoading, agents, agentsLoading, selectedAgentId, selectedAgent, agentVersion, agentSkills, projectContext, selectedProjectSkillId, projectSkillActions, editingMessageId, attachmentsBusy, error, onAttachProjectFolder, onDraftChange, onChooseAttachments, onUploadAttachmentFiles, onChooseRecentAttachment, onClearAttachments, onRemoveAttachment, onSend, onRetry, onEditMessage, onCancelEdit, onStop, onModelChange, onManageModelProviders, onExecutionEnvironmentChange, onWebSearchModeChange, onDeepThinkingChange, onAgentChange, onRefreshAgents, onManageAgents, onUpdateAgent, onProjectSkillChange, onIncludeFileContextChange, onDismissError, onOpenArtifact, onCreationModeChange }: ChatPageProps) {
     const chatScrollRef = useRef<HTMLDivElement>(null);
     const composerInputRef = useRef<HTMLTextAreaElement>(null);
     const stickToBottomRef = useRef(true);
@@ -221,6 +223,9 @@ export function ChatPage({ selectedProject, hasConversation, messages, activeReq
               event.dataTransfer.dropEffect = "copy";
           }
       }} onDragLeave={handleDragLeave} onDrop={handleDrop}>
+          <div className="chat-creation-mode-tabs">
+            <WorkspaceCreationModeTabs activeMode="chat" onSelect={onCreationModeChange}/>
+          </div>
           {editingMessageId && (<div className="message-edit-banner" role="status">
               <Pencil size={13}/>
               <span>{tr("chat.edit.appendNotice")}</span>

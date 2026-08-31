@@ -960,6 +960,10 @@
   box-shadow: 0 -2px 8px color-mix(in srgb, var(--rm-canvas-contrast) 4%, transparent);
 }
 
+.media-composer-shell > .workspace-creation-mode-tabs + .media-preset-strip {
+  margin-top: -1px;
+}
+
 .media-preset-strip button {
   flex: none;
   padding: 0 9px;

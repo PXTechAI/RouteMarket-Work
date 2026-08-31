@@ -711,7 +711,7 @@ export const enUS = {
   "runtime.error.unknown": "An unexpected error occurred.",
   "nav.settings": "Settings",
   "nav.creation": "Create",
-  "nav.creationWorkspace": "Creator workspace",
+  "nav.chat": "Chat",
   "nav.recent": "Recent",
   "nav.newChat": "New chat",
   "nav.imageCreation": "Image creation",

@@ -33,6 +33,7 @@ import type {
 } from "../../../../shared/desktop-api";
 import { tr } from "../../i18n";
 import { ChatModelIcon } from "../chat/components/ChatModelIcon";
+import { WorkspaceCreationModeTabs, type WorkspaceCreationMode } from "../../app/WorkspaceCreationModeTabs";
 
 const MODEL_STORAGE_PREFIX = "routemarket.work.media-model";
 
@@ -56,10 +57,12 @@ export function MediaGenerationPage({
   api,
   kind,
   onManageLocalModels,
+  onCreationModeChange,
 }: {
   api: RouteMarketWorkApi;
   kind: MediaModelCategory;
   onManageLocalModels?(): void;
+  onCreationModeChange(mode: WorkspaceCreationMode): void;
 }) {
   const [models, setModels] = useState<MediaModel[]>([]);
   const [modelCode, setModelCode] = useState("");
@@ -452,6 +455,7 @@ export function MediaGenerationPage({
         )}
 
         <div className={`media-composer-shell${surfaceView === "create" ? " create-mode" : " inspiration-mode"}${showStarterCards ? " starter-mode" : ""}`}>
+          <WorkspaceCreationModeTabs activeMode={kind} onSelect={onCreationModeChange} />
           <div className="media-preset-strip" aria-label={tr("media.presets.label")}>
             {copy.quickActions.map((item) => (
               <button type="button" key={item.label} onClick={() => setPrompt(item.prompt)}>
