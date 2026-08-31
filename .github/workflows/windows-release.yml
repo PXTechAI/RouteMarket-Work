@@ -55,6 +55,13 @@ jobs:
         shell: pwsh
         run: corepack pnpm install --frozen-lockfile
 
+      - name: Build workspace type dependencies
+        shell: pwsh
+        run: |
+          corepack pnpm --filter @routemarket/work-protocol build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          corepack pnpm --filter @routemarket/work-worker-core build
+
       - name: Run type checks
         shell: pwsh
         run: corepack pnpm typecheck
