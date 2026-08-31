@@ -55,6 +55,10 @@ jobs:
         shell: pwsh
         run: corepack pnpm install --frozen-lockfile
 
+      - name: Verify Electron installation
+        shell: pwsh
+        run: corepack pnpm --filter @routemarket/work-desktop exec electron --version
+
       - name: Build workspace type dependencies
         shell: pwsh
         run: |

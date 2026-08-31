@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -23,41 +23,56 @@ describe("NativeAppConnectorManager", () => {
 
   it("opens a supported project file with the selected connector", async () => {
     const launch = vi.fn();
-    const manager = new NativeAppConnectorManager([{
-      connectorId: "excel",
-      name: "Excel",
-      description: "test",
-      executablePath: executable,
-      supportedExtensions: [".rmwtest"]
-    }], launch);
+    const manager = new NativeAppConnectorManager(
+      [
+        {
+          connectorId: "excel",
+          name: "Excel",
+          description: "test",
+          executablePath: executable,
+          supportedExtensions: [".rmwtest"],
+        },
+      ],
+      launch,
+    );
     await mkdir(join(directory, "docs"));
     await writeFile(join(directory, "docs", "report.rmwtest"), "data");
     const result = await manager.open("excel", directory, "docs/report.rmwtest");
-    expect(result.openedPath).toBe(join(directory, "docs", "report.rmwtest"));
+    expect(result.openedPath).toBe(await realpath(join(directory, "docs", "report.rmwtest")));
     expect(launch).toHaveBeenCalledWith(executable, [result.openedPath]);
   });
 
   it("rejects targets outside the project and unsupported extensions", async () => {
-    const manager = new NativeAppConnectorManager([{
-      connectorId: "powerpoint",
-      name: "PowerPoint",
-      description: "test",
-      executablePath: executable,
-      supportedExtensions: [".pptx"]
-    }], vi.fn());
+    const manager = new NativeAppConnectorManager(
+      [
+        {
+          connectorId: "powerpoint",
+          name: "PowerPoint",
+          description: "test",
+          executablePath: executable,
+          supportedExtensions: [".pptx"],
+        },
+      ],
+      vi.fn(),
+    );
     await writeFile(join(directory, "notes.txt"), "data");
     await expect(manager.open("powerpoint", directory, "../outside.pptx")).rejects.toThrow("inside the project");
     await expect(manager.open("powerpoint", directory, "notes.txt")).rejects.toThrow("does not support");
   });
 
   it("reports a connector unavailable when its executable is missing", () => {
-    const manager = new NativeAppConnectorManager([{
-      connectorId: "vscode",
-      name: "VS Code",
-      description: "test",
-      executablePath: join(directory, "missing.exe"),
-      supportedExtensions: []
-    }], vi.fn());
+    const manager = new NativeAppConnectorManager(
+      [
+        {
+          connectorId: "vscode",
+          name: "VS Code",
+          description: "test",
+          executablePath: join(directory, "missing.exe"),
+          supportedExtensions: [],
+        },
+      ],
+      vi.fn(),
+    );
     expect(manager.list()[0]?.available).toBe(false);
   });
 });

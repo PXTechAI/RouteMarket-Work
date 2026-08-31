@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -6,7 +6,7 @@ import {
   allocateDownloadPath,
   prepareProjectDownloadDirectory,
   resolveProjectUploadFiles,
-  sanitizeDownloadFileName
+  sanitizeDownloadFileName,
 } from "./managed-browser-files";
 
 const fixtures: string[] = [];
@@ -23,7 +23,7 @@ describe("managed Browser project files", () => {
 
     expect(allocateDownloadPath(directory, "report.pdf")).toMatchObject({
       fileName: "report (2).pdf",
-      absolutePath: join(directory, "report (2).pdf")
+      absolutePath: join(directory, "report (2).pdf"),
     });
   });
 
@@ -33,7 +33,7 @@ describe("managed Browser project files", () => {
 
     expect(allocateDownloadPath(directory, "report.pdf", new Set(["REPORT.pdf"]))).toMatchObject({
       fileName: "report (2).pdf",
-      absolutePath: join(directory, "report (2).pdf")
+      absolutePath: join(directory, "report (2).pdf"),
     });
   });
 
@@ -46,14 +46,13 @@ describe("managed Browser project files", () => {
     const root = await fixture();
     await mkdir(join(root, "assets"));
     await writeFile(join(root, "assets", "photo.png"), "image");
+    const photoPath = await realpath(join(root, "assets", "photo.png"));
 
     await expect(resolveProjectUploadFiles(root, ["assets/photo.png"])).resolves.toEqual({
-      absolutePaths: [join(root, "assets", "photo.png")],
-      relativePaths: ["assets/photo.png"]
+      absolutePaths: [photoPath],
+      relativePaths: ["assets/photo.png"],
     });
-    await expect(resolveProjectUploadFiles(root, ["../outside.txt"])).rejects.toThrow(
-      "project-relative"
-    );
+    await expect(resolveProjectUploadFiles(root, ["../outside.txt"])).rejects.toThrow("project-relative");
   });
 });
 
