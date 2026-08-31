@@ -77,8 +77,17 @@ jobs:
             $testExitCode = $LASTEXITCODE
           }
           if ($testExitCode -ne 0) {
-            $tail = (Get-Content test-output.log -Tail 120) -join "`n"
-            $escaped = $tail.Replace("%", "%25").Replace("`r", "%0D").Replace("`n", "%0A")
+            $ansiPattern = "$([char]27)\[[0-?]*[ -/]*[@-~]"
+            $lines = Get-Content test-output.log | ForEach-Object { $_ -replace $ansiPattern, "" }
+            $failureContext = for ($index = 0; $index -lt $lines.Count; $index += 1) {
+              if ($lines[$index] -match "FAIL|AssertionError|Error:|Failed Tests|Test Files|Tests  ") {
+                $start = [Math]::Max(0, $index - 2)
+                $end = [Math]::Min($lines.Count - 1, $index + 12)
+                $lines[$start..$end]
+              }
+            }
+            $details = ($failureContext | Select-Object -Unique | Select-Object -Last 80) -join "`n"
+            $escaped = $details.Replace("%", "%25").Replace("`r", "%0D").Replace("`n", "%0A")
             Write-Output "::error title=Test suite failed::$escaped"
           }
           exit $testExitCode
