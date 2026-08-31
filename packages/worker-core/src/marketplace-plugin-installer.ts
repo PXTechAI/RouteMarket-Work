@@ -620,12 +620,16 @@ function assertSafeRelativePath(value: string): void {
 async function safePackagesRoot(scopeRoot: string): Promise<string> {
   const scope = resolve(scopeRoot);
   await ensureSafeDirectory(scope);
+  const canonicalScope = await realpath(scope);
   const pluginsRoot = resolve(scope, "plugins");
   const packagesRoot = resolve(pluginsRoot, "packages");
   await ensureSafeDirectory(pluginsRoot, scope);
   await ensureSafeDirectory(packagesRoot, pluginsRoot);
   const canonical = await realpath(packagesRoot);
-  assertInside(scope, canonical);
+  // Windows realpath can expand an 8.3 segment (for example RUNNER~1) or
+  // normalize path casing. Compare two canonical paths so the same directory
+  // cannot be mistaken for a traversal while still rejecting a real escape.
+  assertInside(canonicalScope, canonical);
   return canonical;
 }
 
